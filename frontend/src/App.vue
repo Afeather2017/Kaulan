@@ -152,7 +152,7 @@
                 min="0"
                 max="1"
                 step="0.01"
-                @input="manualVolume = Number($event.target.value)"
+                @input="manualVolume = Number(($event.target as HTMLInputElement).value)"
               />
             </div>
           </div>
@@ -183,7 +183,7 @@
                 min="-100"
                 max="0"
                 step="1"
-                @input="fixedLufs = Number($event.target.value)"
+                @input="fixedLufs = Number(($event.target as HTMLInputElement).value)"
               />
               <span class="suffix">LUFS</span>
             </div>
@@ -215,7 +215,7 @@
               v-model.number="timerMinutesInput"
               min="0"
               max="360"
-              @input="timerMinutes = Number($event.target.value)"
+              @input="timerMinutes = Number(($event.target as HTMLInputElement).value)"
             />
             <span class="suffix">分钟</span>
           </div>
@@ -628,12 +628,6 @@ onUnmounted(() => {
     clearInterval(timerInterval.value)
   }
 })
-
-const formatDuration = (seconds: number) => {
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
 
 const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
