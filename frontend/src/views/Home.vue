@@ -1,6 +1,6 @@
 <template>
   <div class="home">
-    <h2>Welcome to Aural</h2>
+    <h2>Welcome to Kaulan</h2>
     <p>Your personal music streaming platform</p>
     
     <div class="stats">

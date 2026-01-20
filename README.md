@@ -1,4 +1,4 @@
-# Aural - Music Player
+# Kaulan - Music Player
 
 A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript) frontend. Features a mobile-friendly interface with playlist management, audio streaming, and LUFS volume normalization.
 
@@ -25,7 +25,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd aural
+cd kaulan
 
 # Install frontend dependencies
 cd frontend

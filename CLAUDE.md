@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Aural is a music player with a Rust Actix Web backend and Vue.js (TypeScript) frontend. The app features mobile-first UI, audio streaming, folder-based playlists, and LUFS volume normalization.
+Kaulan is a music player with a Rust Actix Web backend and Vue.js (TypeScript) frontend. The app features mobile-first UI, audio streaming, folder-based playlists, and LUFS volume normalization.
 
 ## Development Commands
 
