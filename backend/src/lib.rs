@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, ModelTrait};
 use chrono::Utc;
+use tracing::{debug, info, warn, error};
 
 // Declare modules
 pub mod lufsgen;
@@ -79,6 +80,7 @@ pub async fn get_music(
     data: web::Data<AppState>,
 ) -> impl Responder {
     let filename = path.into_inner();
+    debug!("Music request received for filename: {}", filename);
 
     match MusicEntity::find()
         .filter(MusicColumn::Filename.eq(&filename))
@@ -90,6 +92,7 @@ pub async fn get_music(
 
             match fs::read(&file_path) {
                 Ok(content) => {
+                    debug!("Successfully served music file: {}", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
                     response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
@@ -97,18 +100,29 @@ pub async fn get_music(
                     response.insert_header(("Expires", "0"));
                     response.body(content)
                 }
-                Err(_) => HttpResponse::NotFound().body("File not found"),
+                Err(_) => {
+                    warn!("File not found on disk: {}", file_path.display());
+                    HttpResponse::NotFound().body("File not found")
+                }
             }
         }
-        Ok(None) => HttpResponse::NotFound().body("Music not found"),
-        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+        Ok(None) => {
+            warn!("Music not found in database: {}", filename);
+            HttpResponse::NotFound().body("Music not found")
+        }
+        Err(e) => {
+            error!("Database error while fetching music {}: {}", filename, e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
     }
 }
 
 #[get("/api/music")]
 pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
+    debug!("Get all music request received");
     match MusicEntity::find().all(&data.db_conn).await {
         Ok(music_list) => {
+            info!("Returning {} music entries", music_list.len());
             let response: Vec<MusicResponse> = music_list
                 .into_iter()
                 .map(|music: MusicModel| MusicResponse {
@@ -121,7 +135,10 @@ pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
                 .collect();
             HttpResponse::Ok().json(response)
         }
-        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+        Err(e) => {
+            error!("Database error while fetching all music: {}", e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
     }
 }
 
@@ -232,16 +249,21 @@ pub async fn create_collection(
     req: web::Json<CreateCollectionRequest>,
     data: web::Data<AppState>,
 ) -> impl Responder {
+    info!("Creating collection with name: {}", req.name);
     match CollectionEntity::find()
         .filter(CollectionColumn::Name.eq(&req.name))
         .one(&data.db_conn)
         .await
     {
         Ok(Some(_)) => {
+            warn!("Collection with name '{}' already exists", req.name);
             return HttpResponse::BadRequest().body("Collection with this name already exists");
         }
         Ok(None) => {}
-        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+        Err(e) => {
+            error!("Database error while checking collection existence: {}", e);
+            return HttpResponse::InternalServerError().body("Database error");
+        }
     }
 
     let collection = CollectionActiveModel {
@@ -251,12 +273,18 @@ pub async fn create_collection(
     };
 
     match collection.insert(&data.db_conn).await {
-        Ok(c) => HttpResponse::Ok().json(Collection {
-            id: c.id,
-            name: c.name,
-            created_at: c.created_at.to_rfc3339(),
-        }),
-        Err(_) => HttpResponse::InternalServerError().body("Failed to create collection"),
+        Ok(c) => {
+            info!("Collection created successfully with ID: {}", c.id);
+            HttpResponse::Ok().json(Collection {
+                id: c.id,
+                name: c.name,
+                created_at: c.created_at.to_rfc3339(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to create collection: {}", e);
+            HttpResponse::InternalServerError().body("Failed to create collection")
+        }
     }
 }
 
@@ -267,18 +295,53 @@ pub async fn delete_collection(
     data: web::Data<AppState>,
 ) -> impl Responder {
     let collection_id = path.into_inner();
+    info!("Deleting collection with ID: {}", collection_id);
 
+    // First, delete all collection items for this collection
+    let _ = CollectionItemEntity::delete_many()
+        .filter(CollectionItemColumn::CollectionId.eq(collection_id))
+        .exec(&data.db_conn)
+        .await;
+
+    // Then delete the collection itself
     match CollectionEntity::delete_by_id(collection_id)
         .exec(&data.db_conn)
         .await
     {
         Ok(result) => {
             if result.rows_affected > 0 {
+                info!("Collection {} deleted successfully", collection_id);
                 HttpResponse::Ok().body("Collection deleted")
             } else {
+                warn!("Collection {} not found", collection_id);
                 HttpResponse::NotFound().body("Collection not found")
             }
         }
+        Err(e) => {
+            error!("Database error while deleting collection {}: {}", collection_id, e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
+/// Get a single collection by ID (without songs)
+#[get("/api/collections/{id}")]
+pub async fn get_collection(
+    path: web::Path<i32>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let collection_id = path.into_inner();
+
+    match CollectionEntity::find_by_id(collection_id)
+        .one(&data.db_conn)
+        .await
+    {
+        Ok(Some(collection)) => HttpResponse::Ok().json(Collection {
+            id: collection.id,
+            name: collection.name,
+            created_at: collection.created_at.to_rfc3339(),
+        }),
+        Ok(None) => HttpResponse::NotFound().body("Collection not found"),
         Err(_) => HttpResponse::InternalServerError().body("Database error"),
     }
 }
@@ -336,16 +399,24 @@ pub async fn add_to_collection(
     data: web::Data<AppState>,
 ) -> impl Responder {
     let collection_id = path.into_inner();
+    info!("Adding {} songs to collection {}", req.music_ids.len(), collection_id);
 
     match CollectionEntity::find_by_id(collection_id)
         .one(&data.db_conn)
         .await
     {
         Ok(Some(_)) => {}
-        Ok(None) => return HttpResponse::NotFound().body("Collection not found"),
-        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+        Ok(None) => {
+            warn!("Collection {} not found", collection_id);
+            return HttpResponse::NotFound().body("Collection not found");
+        }
+        Err(e) => {
+            error!("Database error while fetching collection {}: {}", collection_id, e);
+            return HttpResponse::InternalServerError().body("Database error");
+        }
     }
 
+    let mut added_count = 0;
     for music_id in &req.music_ids {
         match MusicEntity::find_by_id(*music_id)
             .one(&data.db_conn)
@@ -359,6 +430,7 @@ pub async fn add_to_collection(
                     .await
                 {
                     Ok(Some(_)) => {
+                        debug!("Music {} already in collection {}", music_id, collection_id);
                         continue;
                     }
                     Ok(None) => {
@@ -368,16 +440,29 @@ pub async fn add_to_collection(
                             created_at: Set(Utc::now()),
                             ..Default::default()
                         };
-                        let _ = item.insert(&data.db_conn).await;
+                        match item.insert(&data.db_conn).await {
+                            Ok(_) => added_count += 1,
+                            Err(e) => warn!("Failed to add music {} to collection {}: {}", music_id, collection_id, e),
+                        }
                     }
-                    Err(_) => continue,
+                    Err(e) => {
+                        warn!("Database error while checking collection item: {}", e);
+                        continue;
+                    }
                 }
             }
-            Ok(None) => continue,
-            Err(_) => continue,
+            Ok(None) => {
+                debug!("Music {} not found", music_id);
+                continue;
+            }
+            Err(e) => {
+                warn!("Database error while fetching music {}: {}", music_id, e);
+                continue;
+            }
         }
     }
 
+    info!("Added {} songs to collection {}", added_count, collection_id);
     HttpResponse::Ok().body("Songs added to collection")
 }
 
@@ -389,7 +474,9 @@ pub async fn remove_from_collection(
     data: web::Data<AppState>,
 ) -> impl Responder {
     let collection_id = path.into_inner();
+    info!("Removing {} songs from collection {}", req.music_ids.len(), collection_id);
 
+    let mut removed_count = 0;
     for music_id in &req.music_ids {
         match CollectionItemEntity::delete_many()
             .filter(CollectionItemColumn::CollectionId.eq(collection_id))
@@ -397,11 +484,19 @@ pub async fn remove_from_collection(
             .exec(&data.db_conn)
             .await
         {
-            Ok(_) => {}
-            Err(_) => continue,
+            Ok(result) => {
+                if result.rows_affected > 0 {
+                    removed_count += 1;
+                }
+            }
+            Err(e) => {
+                warn!("Failed to remove music {} from collection {}: {}", music_id, collection_id, e);
+                continue;
+            }
         }
     }
 
+    info!("Removed {} songs from collection {}", removed_count, collection_id);
     HttpResponse::Ok().body("Songs removed from collection")
 }
 
@@ -487,8 +582,11 @@ fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<std::path
 
 /// Initialize database with music files (only insert if path not exists)
 pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
+    info!("Initializing database with music from: {}", music_path);
     let audio_files = scan_directory_recursive(Path::new(music_path), music_path);
+    info!("Found {} audio files in directory", audio_files.len());
 
+    let mut new_files = 0;
     for file_path in audio_files {
         let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
         let relative_path = file_path.strip_prefix(music_path)
@@ -502,28 +600,35 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
             .await
         {
             Ok(None) => {
+                debug!("Inserting new file into database: {}", relative_path);
                 let music = MusicActiveModel {
                     filename: Set(filename),
-                    file_path: Set(relative_path),
+                    file_path: Set(relative_path.clone()),
                     lufs: Set(Some(0.5)),
                     created_at: Set(Utc::now()),
                     ..Default::default()
                 };
-                let _ = music.insert(db_conn).await;
+                match music.insert(db_conn).await {
+                    Ok(_) => new_files += 1,
+                    Err(e) => error!("Failed to insert music {}: {}", relative_path, e),
+                }
             }
-            Ok(Some(_)) => {}
+            Ok(Some(_)) => {
+                debug!("File already exists in database: {}", relative_path);
+            }
             Err(e) => {
-                eprintln!("Database error while checking file {}: {}", relative_path, e);
+                error!("Database error while checking file {}: {}", relative_path, e);
             }
         }
     }
 
+    info!("Database initialization complete: {} new files added", new_files);
     Ok(())
 }
 
 /// Update database: scan for new files, calculate LUFS, and insert
 pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> Result<(), std::io::Error> {
-    println!("Scanning for new files in: {}", music_path);
+    info!("Scanning for new files in: {}", music_path);
 
     let audio_files = scan_directory_recursive(Path::new(music_path), music_path);
     let mut new_files = 0;
@@ -543,7 +648,7 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
             .await
         {
             Ok(None) => {
-                println!("Found new file: {}", filename);
+                info!("Found new file: {}", filename);
                 if let Some(lufs_value) = get_lufs(&full_path) {
                     let music = MusicActiveModel {
                         filename: Set(filename.clone()),
@@ -554,44 +659,44 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                     };
                     match music.insert(db_conn).await {
                         Ok(_) => {
-                            println!("  Inserted: {} (LUFS: {})", filename, lufs_value);
+                            info!("Inserted: {} (LUFS: {})", filename, lufs_value);
                             new_files += 1;
                         }
                         Err(e) => {
-                            eprintln!("  Failed to insert {}: {}", filename, e);
+                            error!("Failed to insert {}: {}", filename, e);
                         }
                     }
                 } else {
-                    eprintln!("  Failed to calculate LUFS for {}", filename);
+                    warn!("Failed to calculate LUFS for {}", filename);
                 }
             }
             Ok(Some(existing_music)) => {
                 if existing_music.lufs.is_none() || existing_music.lufs == Some(0.5) {
-                    println!("Updating LUFS for: {}", filename);
+                    info!("Updating LUFS for: {}", filename);
                     if let Some(lufs_value) = get_lufs(&full_path) {
                         let mut active_model: MusicActiveModel = existing_music.clone().into();
                         active_model.lufs = Set(Some(lufs_value));
                         match active_model.update(db_conn).await {
                             Ok(_) => {
-                                println!("  Updated: {} (LUFS: {})", filename, lufs_value);
+                                info!("Updated: {} (LUFS: {})", filename, lufs_value);
                                 updated_files += 1;
                             }
                             Err(e) => {
-                                eprintln!("  Failed to update {}: {}", filename, e);
+                                error!("Failed to update {}: {}", filename, e);
                             }
                         }
                     } else {
-                        eprintln!("  Failed to calculate LUFS for {}", filename);
+                        warn!("Failed to calculate LUFS for {}", filename);
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Database error while checking file {}: {}", relative_path, e);
+                error!("Database error while checking file {}: {}", relative_path, e);
             }
         }
     }
 
-    println!("Checking for deleted files...");
+    info!("Checking for deleted files...");
     let mut deleted_files = 0;
     match MusicEntity::find().all(db_conn).await {
         Ok(all_music) => {
@@ -599,24 +704,24 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                 let full_path = Path::new(music_path).join(&music.file_path);
                 if !full_path.exists() {
                     let filename = music.filename.clone();
-                    println!("Deleting non-existent file from database: {}", filename);
+                    info!("Deleting non-existent file from database: {}", filename);
                     match music.delete(db_conn).await {
                         Ok(_) => {
                             deleted_files += 1;
                         }
                         Err(e) => {
-                            eprintln!("  Failed to delete {}: {}", filename, e);
+                            error!("Failed to delete {}: {}", filename, e);
                         }
                     }
                 }
             }
         }
         Err(e) => {
-            eprintln!("Database error while checking for deleted files: {}", e);
+            error!("Database error while checking for deleted files: {}", e);
         }
     }
 
-    println!("Update complete: {} new files, {} updated files, {} deleted files", new_files, updated_files, deleted_files);
+    info!("Update complete: {} new files, {} updated files, {} deleted files", new_files, updated_files, deleted_files);
     Ok(())
 }
 
@@ -646,27 +751,28 @@ impl ServerInfo {
 /// # Returns
 /// A `ServerInfo` containing the IP address and port the server is running on
 pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std::error::Error>> {
-    println!("Connecting to database...");
+    info!("Connecting to database...");
     let db_conn = match establish_connection(&music_path).await {
         Ok(conn) => conn,
         Err(e) => {
-            eprintln!("Failed to connect to database: {}", e);
+            error!("Failed to connect to database: {}", e);
             return Err(Box::new(e));
         }
     };
+    info!("Database connection established");
 
-    println!("Scanning music files from: {}", music_path);
+    info!("Scanning music files from: {}", music_path);
 
     if let Err(e) = initialize_database(&music_path, &db_conn).await {
-        eprintln!("Failed to initialize database: {}", e);
+        error!("Failed to initialize database: {}", e);
     }
 
     match MusicEntity::find().all(&db_conn).await {
         Ok(music_list) => {
-            println!("Found {} music files in database", music_list.len());
+            info!("Found {} music files in database", music_list.len());
         }
         Err(e) => {
-            eprintln!("Failed to count music files: {}", e);
+            error!("Failed to count music files: {}", e);
         }
     }
 
@@ -678,6 +784,8 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
     let ip = "0.0.0.0".to_string();
     let port = 2080;
     let ip_clone = ip.clone();
+
+    info!("Starting HTTP server on {}:{}", ip, port);
 
     // Spawn the server in the background using tokio (this works around Send issues)
     tokio::spawn(async move {
@@ -694,22 +802,23 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
                 .service(get_music)
                 .service(get_all_music)
                 .service(get_all_playlists)
+                .service(get_playlists_collection_mode) // Must be before get_playlist (route with parameter)
                 .service(get_playlist)
                 .service(get_all_collections)
                 .service(create_collection)
                 .service(delete_collection)
-                .service(get_collection_items)
+                .service(get_collection_items) // Must be before get_collection (longer path first)
+                .service(get_collection)
                 .service(add_to_collection)
                 .service(remove_from_collection)
-                .service(get_playlists_collection_mode)
         })
         .bind((ip_clone, port))
         .unwrap()
         .run()
         .await
         {
-            Ok(_) => println!("Server shutdown gracefully"),
-            Err(e) => eprintln!("Server error: {}", e),
+            Ok(_) => info!("Server shutdown gracefully"),
+            Err(e) => error!("Server error: {}", e),
         }
     });
 
