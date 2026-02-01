@@ -24,7 +24,7 @@ pub fn run() {
 
                 match kaulan::start_server(music_path).await {
                     Ok(server_info) => {
-                        log::info!("Backend server started on: {}", server_info.url());
+                        log::info!("Backend server started on: http://{}", server_info.url());
                     }
                     Err(e) => {
                         log::error!("Failed to start backend server: {}", e);
