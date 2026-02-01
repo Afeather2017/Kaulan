@@ -831,11 +831,12 @@ const playSong = async (song: MusicInfo) => {
   if (audioElement.value) {
     audioElement.value.src = `${API_BASE}/music/${encodeURIComponent(song.name)}`
     setVolume()
+    isPlaying.value = true
     try {
       await audioElement.value.play()
-      isPlaying.value = true
     } catch (error) {
       console.error('Failed to play audio:', error)
+      isPlaying.value = false
     }
   }
 }
@@ -1037,27 +1038,31 @@ const formatTime = (seconds: number) => {
   position: relative;
   z-index: 10;
   display: flex;
-  gap: 8px;
   align-items: center;
 }
 
 .search-input {
   flex: 1;
-  padding: 10px 15px;
+  padding: 11px 15px;
   border: 1px solid #ddd;
   border-radius: 20px 0 0 20px;
   font-size: 16px;
   outline: none;
+  height: 42px;
+  box-sizing: border-box;
 }
 
 .search-button {
-  padding: 10px 20px;
+  padding: 11px 20px;
   background-color: #1db954;
   color: white;
   border: none;
   border-radius: 0 20px 20px 0;
   cursor: pointer;
   font-weight: bold;
+  font-size: 16px;
+  height: 42px;
+  box-sizing: border-box;
 }
 
 .search-button:hover {
@@ -1277,6 +1282,9 @@ const formatTime = (seconds: number) => {
   font-size: 12px;
   color: #888;
   min-width: 45px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .control-buttons {
