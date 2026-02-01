@@ -20,13 +20,19 @@
       <div v-if="currentView === 'playlists'" class="playlist-list">
         <div class="list-header">
           <h2>{{ viewMode === 'folder' ? '我的歌单' : '收藏夹' }}</h2>
+          <button v-if="viewMode === 'collection'" class="select-mode-btn" @click="toggleCollectionSelectMode">
+            {{ collectionSelectMode ? '取消勾选' : '选择' }}
+          </button>
         </div>
         <div
           v-for="playlistName in playlistNames"
           :key="playlistName"
           class="playlist-item"
-          @click="selectPlaylist(playlistName)"
+          @click="collectionSelectMode ? toggleCollectionSelection(playlistName) : selectPlaylist(playlistName)"
         >
+          <div v-if="collectionSelectMode" class="playlist-checkbox">
+            <input type="checkbox" :checked="selectedCollectionsList.has(playlistName)" @click.stop="toggleCollectionSelection(playlistName)" />
+          </div>
           <div class="playlist-cover">
             <span>♪</span>
           </div>
@@ -34,6 +40,20 @@
             <h3>{{ playlistName }}</h3>
             <p>{{ playlists[playlistName]?.length || 0 }} 首歌曲</p>
           </div>
+        </div>
+
+        <!-- Collection Management Actions (floating) -->
+        <div v-if="collectionSelectMode" class="collection-actions-floating">
+          <button class="action-btn add-btn" @click="showCreateCollectionModal">
+            添加收藏夹
+          </button>
+          <button
+            v-if="hasSelectedNonAllMusicCollection"
+            class="action-btn remove-btn"
+            @click="deleteSelectedCollections"
+          >
+            删除收藏夹
+          </button>
         </div>
       </div>
 
@@ -45,7 +65,7 @@
           </button>
           <h2>{{ selectedPlaylist?.name }}</h2>
           <button class="select-mode-btn" @click="toggleSelectMode">
-            {{ selectMode ? '取消勾选' : '勾选模式' }}
+            {{ selectMode ? '取消勾选' : '选择' }}
           </button>
         </div>
         <div
@@ -68,7 +88,7 @@
         </div>
 
         <!-- Selection Mode Actions -->
-        <div v-if="selectMode" class="selection-actions">
+        <div v-if="selectMode" class="selection-actions selection-actions-floating">
           <button
             v-if="viewMode === 'collection' && selectedPlaylist?.name !== '所有音乐'"
             class="action-btn remove-btn"
@@ -154,30 +174,6 @@
         <div class="mode-toggle" @click="toggleViewMode">
           <div class="mode-label">分类方式</div>
           <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
-        </div>
-
-        <!-- Collection Management (only in collection mode) -->
-        <div v-if="viewMode === 'collection'" class="collection-management">
-          <h4>收藏夹管理</h4>
-          <div class="create-collection">
-            <input
-              type="text"
-              v-model="newCollectionName"
-              placeholder="新收藏夹名称"
-              class="collection-input"
-            />
-            <button class="create-btn" @click="createCollection">创建</button>
-          </div>
-          <div class="collection-list">
-            <div
-              v-for="collection in collections.filter(c => c.name !== '所有音乐')"
-              :key="collection.id"
-              class="collection-item-small"
-            >
-              <span>{{ collection.name }}</span>
-              <button class="delete-collection-btn" @click="deleteCollection(collection.id)">删除</button>
-            </div>
-          </div>
         </div>
 
         <hr class="settings-divider" />
@@ -331,6 +327,26 @@
         </div>
       </div>
     </div>
+
+    <!-- Create Collection Modal -->
+    <div v-if="showCreateCollection" class="modal-overlay" @click="hideCreateCollectionModal">
+      <div class="modal-content" @click.stop>
+        <h3>创建收藏夹</h3>
+        <div class="create-collection-form">
+          <input
+            type="text"
+            v-model="newCollectionName"
+            placeholder="收藏夹名称"
+            class="collection-input-full"
+            @keyup.enter="createCollection"
+          />
+        </div>
+        <div class="modal-actions">
+          <button @click="hideCreateCollectionModal" class="cancel-btn">取消</button>
+          <button @click="createCollection" class="confirm-btn">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -385,6 +401,11 @@ const viewModeLabels: Record<ViewMode, string> = {
 const showAddToCollection = ref(false)
 const selectedCollections = ref<number[]>([])
 const newCollectionName = ref('')
+const showCreateCollection = ref(false)
+
+// Collection select mode state
+const collectionSelectMode = ref(false)
+const selectedCollectionsList = ref<Set<string>>(new Set())
 
 // Volume mode state
 const volumeMode = ref<VolumeMode>('auto')
@@ -434,6 +455,10 @@ const timerStatusDisplay = computed(() => {
     return `已定时: ${minutes}分${seconds.toString().padStart(2, '0')}秒后停止`
   }
   return '未启用定时'
+})
+
+const hasSelectedNonAllMusicCollection = computed(() => {
+  return Array.from(selectedCollectionsList.value).some(name => name !== '所有音乐')
 })
 
 // Fetch playlists from backend (folder mode)
@@ -637,26 +662,63 @@ const createCollection = async () => {
   }
 }
 
-// Delete collection
-const deleteCollection = async (collectionId: number) => {
-  if (!confirm('确定要删除这个收藏夹吗？')) {
+// Collection select mode methods
+const toggleCollectionSelectMode = () => {
+  collectionSelectMode.value = !collectionSelectMode.value
+  selectedCollectionsList.value.clear()
+}
+
+const toggleCollectionSelection = (collectionName: string) => {
+  if (selectedCollectionsList.value.has(collectionName)) {
+    selectedCollectionsList.value.delete(collectionName)
+  } else {
+    selectedCollectionsList.value.add(collectionName)
+  }
+}
+
+const showCreateCollectionModal = () => {
+  newCollectionName.value = ''
+  showCreateCollection.value = true
+}
+
+const hideCreateCollectionModal = () => {
+  showCreateCollection.value = false
+  newCollectionName.value = ''
+}
+
+const deleteSelectedCollections = async () => {
+  if (selectedCollectionsList.value.size === 0) {
+    alert('请选择要删除的收藏夹')
     return
   }
 
-  try {
-    const response = await fetch(`${API_BASE}/collections/${collectionId}`, {
-      method: 'DELETE'
-    })
-
-    if (response.ok) {
-      await refreshData()
-    } else {
-      alert('删除失败')
-    }
-  } catch (error) {
-    console.error('Failed to delete collection:', error)
-    alert('删除失败')
+  if (!confirm(`确定要删除选中的 ${selectedCollectionsList.value.size} 个收藏夹吗？`)) {
+    return
   }
+
+  let deletedCount = 0
+  for (const collectionName of selectedCollectionsList.value) {
+    if (collectionName === '所有音乐') continue
+
+    const collection = collections.value.find(c => c.name === collectionName)
+    if (collection) {
+      try {
+        const response = await fetch(`${API_BASE}/collections/${collection.id}`, {
+          method: 'DELETE'
+        })
+        if (response.ok) {
+          deletedCount++
+        }
+      } catch (error) {
+        console.error('Failed to delete collection:', error)
+      }
+    }
+  }
+
+  alert(`已删除 ${deletedCount} 个收藏夹`)
+  collectionSelectMode.value = false
+  selectedCollectionsList.value.clear()
+  await refreshData()
 }
 
 // Initialize audio element
@@ -699,6 +761,8 @@ const backToPlaylists = () => {
   searchQuery.value = ''
   selectMode.value = false
   selectedSongs.value.clear()
+  collectionSelectMode.value = false
+  selectedCollectionsList.value.clear()
 }
 
 const showSearchResults = () => {
@@ -1084,6 +1148,16 @@ const formatTime = (seconds: number) => {
   color: #666;
 }
 
+.playlist-checkbox {
+  margin-right: 10px;
+}
+
+.playlist-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
 .song-checkbox {
   margin-right: 10px;
 }
@@ -1115,6 +1189,17 @@ const formatTime = (seconds: number) => {
   display: flex;
   gap: 10px;
   justify-content: center;
+}
+
+.selection-actions-floating {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 15px;
+  background-color: #fff;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+  z-index: 20;
 }
 
 .action-btn {
@@ -1296,73 +1381,6 @@ const formatTime = (seconds: number) => {
   text-align: right;
 }
 
-/* Collection Management */
-.collection-management {
-  margin-top: 20px;
-}
-
-.create-collection {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-.collection-input {
-  flex: 1;
-  padding: 10px 15px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  font-size: 14px;
-  outline: none;
-}
-
-.collection-input:focus {
-  border-color: #1db954;
-}
-
-.create-btn {
-  padding: 10px 20px;
-  background-color: #1db954;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.create-btn:hover {
-  background-color: #1ed760;
-}
-
-.collection-list {
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.collection-item-small {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 15px;
-  background-color: #f9f9f9;
-  border-radius: 5px;
-  margin-bottom: 8px;
-}
-
-.delete-collection-btn {
-  padding: 5px 10px;
-  background-color: #e74c3c;
-  color: white;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.delete-collection-btn:hover {
-  background-color: #c0392b;
-}
-
 .settings-divider {
   border: none;
   border-top: 1px solid #eee;
@@ -1394,6 +1412,40 @@ const formatTime = (seconds: number) => {
   cursor: pointer;
   flex: 1;
   font-size: 16px;
+}
+
+/* Collection Actions Floating */
+.collection-actions-floating {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 15px;
+  background-color: #fff;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+  z-index: 20;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* Create Collection Form */
+.create-collection-form {
+  margin-bottom: 20px;
+}
+
+.collection-input-full {
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 16px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.collection-input-full:focus {
+  border-color: #1db954;
 }
 
 /* Setting Panel */
