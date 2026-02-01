@@ -8,6 +8,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Mobile-First Design** - Responsive UI optimized for mobile devices
 - **Audio Streaming** - Direct streaming from server to browser
 - **File System Playlists** - Automatic playlist creation from folder structure
+- **Collection Management** - User-defined playlists/collections
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Real-time Search** - Search across all songs instantly
 
