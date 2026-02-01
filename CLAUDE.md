@@ -23,13 +23,14 @@ A new feature need change backend and frontend. You should:
 2. Design the database tables.
 3. Generate the unit test for the backend. This makes sure you make the API works.
 4. After backend done, the test pass, implement the frontend.
+5. Brief check. Use curl to access APIs, to check if things work.
 
 ### Documentations
 
 Documentations should always in English.
 
 1. README.md, briefly introduced the project, say key features.
-2. docs/ , which introduce how features works(in sequence diagram). The features introducton should include all API.
+2. docs/ , which introduce the feature, how features works(in sequence diagram), how user to use the UI. The features introducton should include all API.
 3. API reference, use rust-builtin reference system, this should be done in comments.
 4. CLAUDE.md, Introduce the project framework by path.
 
