@@ -19,7 +19,7 @@
       <!-- Playlist List -->
       <div v-if="currentView === 'playlists'" class="playlist-list">
         <div class="list-header">
-          <h2>我的歌单</h2>
+          <h2>{{ viewMode === 'folder' ? '我的歌单' : '收藏夹' }}</h2>
         </div>
         <div
           v-for="playlistName in playlistNames"
@@ -44,14 +44,20 @@
             ← 返回
           </button>
           <h2>{{ selectedPlaylist?.name }}</h2>
+          <button class="select-mode-btn" @click="toggleSelectMode">
+            {{ selectMode ? '取消勾选' : '勾选模式' }}
+          </button>
         </div>
         <div
           v-for="(song, index) in currentSongs"
           :key="song.name"
           class="song-item"
           :class="{ 'active': currentSong?.name === song.name }"
-          @click="playSongAtIndex(song, index)"
+          @click="selectMode ? toggleSongSelection(song.name) : playSongAtIndex(song, index)"
         >
+          <div v-if="selectMode" class="song-checkbox">
+            <input type="checkbox" :checked="selectedSongs.has(song.name)" @click.stop="toggleSongSelection(song.name)" />
+          </div>
           <div class="song-info">
             <h3>{{ song.name }}</h3>
             <p>LUFS: {{ song.lufs.toFixed(2) }}</p>
@@ -59,6 +65,24 @@
           <div class="song-duration">
             --:--
           </div>
+        </div>
+
+        <!-- Selection Mode Actions -->
+        <div v-if="selectMode" class="selection-actions">
+          <button
+            v-if="viewMode === 'collection' && selectedPlaylist?.name !== '所有音乐'"
+            class="action-btn remove-btn"
+            @click="removeFromCollection"
+          >
+            从收藏夹移除
+          </button>
+          <button
+            v-if="viewMode === 'folder' || selectedPlaylist?.name === '所有音乐'"
+            class="action-btn add-btn"
+            @click="showAddToCollectionModal"
+          >
+            添加到收藏夹
+          </button>
         </div>
       </div>
 
@@ -89,7 +113,7 @@
     </div>
 
     <!-- Player Controls -->
-    <div class="player-controls">
+    <div v-if="!selectMode" class="player-controls">
       <!-- Progress Bar -->
       <div class="progress-bar">
         <div class="progress-time">{{ formatTime(currentTime) }}</div>
@@ -125,6 +149,38 @@
     <div v-if="showSettings" class="modal-overlay" @click="hideSettingsModal">
       <div class="modal-content" @click.stop>
         <h3>播放器设置</h3>
+
+        <!-- View Mode Toggle -->
+        <div class="mode-toggle" @click="toggleViewMode">
+          <div class="mode-label">分类方式</div>
+          <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
+        </div>
+
+        <!-- Collection Management (only in collection mode) -->
+        <div v-if="viewMode === 'collection'" class="collection-management">
+          <h4>收藏夹管理</h4>
+          <div class="create-collection">
+            <input
+              type="text"
+              v-model="newCollectionName"
+              placeholder="新收藏夹名称"
+              class="collection-input"
+            />
+            <button class="create-btn" @click="createCollection">创建</button>
+          </div>
+          <div class="collection-list">
+            <div
+              v-for="collection in collections.filter(c => c.name !== '所有音乐')"
+              :key="collection.id"
+              class="collection-item-small"
+            >
+              <span>{{ collection.name }}</span>
+              <button class="delete-collection-btn" @click="deleteCollection(collection.id)">删除</button>
+            </div>
+          </div>
+        </div>
+
+        <hr class="settings-divider" />
 
         <!-- Volume Mode Toggle -->
         <div class="mode-toggle" @click="toggleVolumeMode">
@@ -215,6 +271,7 @@
               v-model.number="timerMinutesInput"
               min="0"
               max="360"
+              step="1"
               @input="timerMinutes = Number(($event.target as HTMLInputElement).value)"
             />
             <span class="suffix">分钟</span>
@@ -248,6 +305,32 @@
         </div>
       </div>
     </div>
+
+    <!-- Add to Collection Modal -->
+    <div v-if="showAddToCollection" class="modal-overlay" @click="hideAddToCollectionModal">
+      <div class="modal-content" @click.stop>
+        <h3>添加到收藏夹</h3>
+        <div class="collection-select-list">
+          <div
+            v-for="collection in collections.filter(c => c.name !== '所有音乐')"
+            :key="collection.id"
+            class="collection-checkbox-item"
+          >
+            <input
+              type="checkbox"
+              :id="'collection-' + collection.id"
+              :value="collection.id"
+              v-model="selectedCollections"
+            />
+            <label :for="'collection-' + collection.id">{{ collection.name }}</label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button @click="hideAddToCollectionModal" class="cancel-btn">取消</button>
+          <button @click="addToCollection" class="confirm-btn">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -265,7 +348,14 @@ interface Playlist {
   songs: MusicInfo[]
 }
 
+interface Collection {
+  id: number
+  name: string
+  created_at: string
+}
+
 type VolumeMode = 'auto' | 'manual' | 'fixed'
+type ViewMode = 'folder' | 'collection'
 
 // State
 const searchQuery = ref('')
@@ -280,6 +370,21 @@ const playlists = ref<Record<string, MusicInfo[]>>({})
 const audioElement = ref<HTMLAudioElement | null>(null)
 const playedSongIndexes = ref<Set<number>>(new Set())
 const currentIndex = ref(-1)
+const selectMode = ref(false)
+const selectedSongs = ref<Set<string>>(new Set())
+
+// View mode state
+const viewMode = ref<ViewMode>('folder')
+const collections = ref<Collection[]>([])
+const viewModeLabels: Record<ViewMode, string> = {
+  folder: '文件夹',
+  collection: '收藏夹'
+}
+
+// Add to collection modal state
+const showAddToCollection = ref(false)
+const selectedCollections = ref<number[]>([])
+const newCollectionName = ref('')
 
 // Volume mode state
 const volumeMode = ref<VolumeMode>('auto')
@@ -331,7 +436,7 @@ const timerStatusDisplay = computed(() => {
   return '未启用定时'
 })
 
-// Fetch playlists from backend
+// Fetch playlists from backend (folder mode)
 const fetchPlaylists = async () => {
   try {
     const response = await fetch(`${API_BASE}/playlists`)
@@ -340,6 +445,217 @@ const fetchPlaylists = async () => {
     }
   } catch (error) {
     console.error('Failed to fetch playlists:', error)
+  }
+}
+
+// Fetch collections from backend
+const fetchCollections = async () => {
+  try {
+    const response = await fetch(`${API_BASE}/collections`)
+    if (response.ok) {
+      collections.value = await response.json()
+      // Add virtual "所有音乐" collection
+      collections.value.unshift({
+        id: -1,
+        name: '所有音乐',
+        created_at: new Date().toISOString()
+      })
+    }
+  } catch (error) {
+    console.error('Failed to fetch collections:', error)
+  }
+}
+
+// Fetch playlists in collection mode
+const fetchPlaylistsCollectionMode = async () => {
+  try {
+    const response = await fetch(`${API_BASE}/playlists/collection-mode`)
+    if (response.ok) {
+      playlists.value = await response.json()
+    }
+  } catch (error) {
+    console.error('Failed to fetch collection playlists:', error)
+  }
+}
+
+// Refresh data based on view mode
+const refreshData = async () => {
+  if (viewMode.value === 'folder') {
+    await fetchPlaylists()
+  } else {
+    await fetchCollections()
+    await fetchPlaylistsCollectionMode()
+  }
+}
+
+// Toggle view mode
+const toggleViewMode = () => {
+  viewMode.value = viewMode.value === 'folder' ? 'collection' : 'folder'
+  backToPlaylists()
+  refreshData()
+}
+
+// Toggle select mode
+const toggleSelectMode = () => {
+  selectMode.value = !selectMode.value
+  selectedSongs.value.clear()
+}
+
+// Toggle song selection
+const toggleSongSelection = (songName: string) => {
+  if (selectedSongs.value.has(songName)) {
+    selectedSongs.value.delete(songName)
+  } else {
+    selectedSongs.value.add(songName)
+  }
+}
+
+// Show add to collection modal
+const showAddToCollectionModal = () => {
+  selectedCollections.value = []
+  showAddToCollection.value = true
+}
+
+// Hide add to collection modal
+const hideAddToCollectionModal = () => {
+  showAddToCollection.value = false
+  selectedCollections.value = []
+}
+
+// Add selected songs to collections
+const addToCollection = async () => {
+  if (selectedCollections.value.length === 0) {
+    alert('请选择至少一个收藏夹')
+    return
+  }
+
+  // Get music IDs for selected songs
+  const allMusicResponse = await fetch(`${API_BASE}/music`)
+  if (!allMusicResponse.ok) {
+    alert('获取音乐列表失败')
+    return
+  }
+  const allMusic = await allMusicResponse.json()
+
+  const selectedMusicIds = allMusic
+    .filter((m: any) => selectedSongs.value.has(m.filename))
+    .map((m: any) => m.id)
+
+  if (selectedMusicIds.length === 0) {
+    alert('没有选中的歌曲')
+    return
+  }
+
+  // Add to each selected collection
+  for (const collectionId of selectedCollections.value) {
+    try {
+      await fetch(`${API_BASE}/collections/${collectionId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ music_ids: selectedMusicIds })
+      })
+    } catch (error) {
+      console.error('Failed to add to collection:', error)
+    }
+  }
+
+  alert('添加成功')
+  hideAddToCollectionModal()
+  selectMode.value = false
+  selectedSongs.value.clear()
+  await refreshData()
+}
+
+// Remove selected songs from collection
+const removeFromCollection = async () => {
+  if (!selectedPlaylist.value) return
+
+  // Find the collection ID
+  const collection = collections.value.find(c => c.name === selectedPlaylist.value?.name)
+  if (!collection || collection.id === -1) {
+    alert('无法从"所有音乐"中移除')
+    return
+  }
+
+  // Get music IDs for selected songs
+  const allMusicResponse = await fetch(`${API_BASE}/music`)
+  if (!allMusicResponse.ok) {
+    alert('获取音乐列表失败')
+    return
+  }
+  const allMusic = await allMusicResponse.json()
+
+  const selectedMusicIds = allMusic
+    .filter((m: any) => selectedSongs.value.has(m.filename))
+    .map((m: any) => m.id)
+
+  if (selectedMusicIds.length === 0) {
+    alert('没有选中的歌曲')
+    return
+  }
+
+  try {
+    await fetch(`${API_BASE}/collections/${collection.id}/items`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ music_ids: selectedMusicIds })
+    })
+    alert('移除成功')
+    selectMode.value = false
+    selectedSongs.value.clear()
+    await refreshData()
+  } catch (error) {
+    console.error('Failed to remove from collection:', error)
+    alert('移除失败')
+  }
+}
+
+// Create new collection
+const createCollection = async () => {
+  if (!newCollectionName.value.trim()) {
+    alert('请输入收藏夹名称')
+    return
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/collections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newCollectionName.value.trim() })
+    })
+
+    if (response.ok) {
+      newCollectionName.value = ''
+      await refreshData()
+    } else {
+      const error = await response.text()
+      alert(error)
+    }
+  } catch (error) {
+    console.error('Failed to create collection:', error)
+    alert('创建失败')
+  }
+}
+
+// Delete collection
+const deleteCollection = async (collectionId: number) => {
+  if (!confirm('确定要删除这个收藏夹吗？')) {
+    return
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/collections/${collectionId}`, {
+      method: 'DELETE'
+    })
+
+    if (response.ok) {
+      await refreshData()
+    } else {
+      alert('删除失败')
+    }
+  } catch (error) {
+    console.error('Failed to delete collection:', error)
+    alert('删除失败')
   }
 }
 
@@ -362,7 +678,7 @@ onMounted(() => {
     }
   })
 
-  fetchPlaylists()
+  refreshData()
 })
 
 // Methods
@@ -381,6 +697,8 @@ const backToPlaylists = () => {
   currentView.value = 'playlists'
   selectedPlaylist.value = null
   searchQuery.value = ''
+  selectMode.value = false
+  selectedSongs.value.clear()
 }
 
 const showSearchResults = () => {
@@ -705,6 +1023,7 @@ const formatTime = (seconds: number) => {
   color: #333;
   border-bottom: 1px solid #eee;
   margin-bottom: 10px;
+  gap: 10px;
 }
 
 .list-header h2 {
@@ -712,6 +1031,7 @@ const formatTime = (seconds: number) => {
   font-size: 18px;
   font-weight: bold;
   color: #333;
+  flex: 1;
 }
 
 .back-button {
@@ -721,6 +1041,22 @@ const formatTime = (seconds: number) => {
   font-size: 14px;
   cursor: pointer;
   padding: 5px;
+  white-space: nowrap;
+}
+
+.select-mode-btn {
+  background-color: #1db954;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.select-mode-btn:hover {
+  background-color: #1ed760;
 }
 
 .playlist-item, .song-item {
@@ -748,6 +1084,16 @@ const formatTime = (seconds: number) => {
   color: #666;
 }
 
+.song-checkbox {
+  margin-right: 10px;
+}
+
+.song-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
 .playlist-info h3, .song-info h3 {
   margin: 0 0 5px 0;
   font-size: 16px;
@@ -762,6 +1108,41 @@ const formatTime = (seconds: number) => {
 
 .song-item.active {
   color: #1db954;
+}
+
+.selection-actions {
+  padding: 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.action-btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-btn {
+  background-color: #1db954;
+  color: white;
+}
+
+.add-btn:hover {
+  background-color: #1ed760;
+}
+
+.remove-btn {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.remove-btn:hover {
+  background-color: #c0392b;
 }
 
 /* 播放器控制栏样式 */
@@ -878,6 +1259,13 @@ const formatTime = (seconds: number) => {
   border-bottom: 1px solid #eee;
 }
 
+.modal-content h4 {
+  margin: 20px 0 10px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
 /* Mode Toggle */
 .mode-toggle {
   display: flex;
@@ -906,6 +1294,106 @@ const formatTime = (seconds: number) => {
   font-weight: 500;
   min-width: 100px;
   text-align: right;
+}
+
+/* Collection Management */
+.collection-management {
+  margin-top: 20px;
+}
+
+.create-collection {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.collection-input {
+  flex: 1;
+  padding: 10px 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 14px;
+  outline: none;
+}
+
+.collection-input:focus {
+  border-color: #1db954;
+}
+
+.create-btn {
+  padding: 10px 20px;
+  background-color: #1db954;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.create-btn:hover {
+  background-color: #1ed760;
+}
+
+.collection-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.collection-item-small {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: #f9f9f9;
+  border-radius: 5px;
+  margin-bottom: 8px;
+}
+
+.delete-collection-btn {
+  padding: 5px 10px;
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.delete-collection-btn:hover {
+  background-color: #c0392b;
+}
+
+.settings-divider {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 20px 0;
+}
+
+/* Collection Select List */
+.collection-select-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+
+.collection-checkbox-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 15px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.collection-checkbox-item input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin-right: 10px;
+  cursor: pointer;
+}
+
+.collection-checkbox-item label {
+  cursor: pointer;
+  flex: 1;
+  font-size: 16px;
 }
 
 /* Setting Panel */
