@@ -1,9 +1,9 @@
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, post, delete, web, App, HttpResponse, HttpServer, Responder};
 use actix_cors::Cors;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, ModelTrait};
+use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, ModelTrait, QuerySelect};
 use chrono::Utc;
 
 mod lufsgen;
@@ -11,6 +11,8 @@ use lufsgen::get_lufs;
 mod entities;
 mod database;
 use entities::music::{Entity as MusicEntity, Model as MusicModel, ActiveModel as MusicActiveModel, Column as MusicColumn};
+use entities::collection::{Entity as CollectionEntity, Model as CollectionModel, ActiveModel as CollectionActiveModel, Column as CollectionColumn};
+use entities::collection_item::{Entity as CollectionItemEntity, Model as CollectionItemModel, ActiveModel as CollectionItemActiveModel, Column as CollectionItemColumn};
 use database::establish_connection;
 
 #[derive(Serialize, Deserialize)]
@@ -33,6 +35,35 @@ struct MusicInfo {
 struct Playlist {
     name: String,
     songs: Vec<MusicInfo>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Collection {
+    id: i32,
+    name: String,
+    created_at: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CollectionWithSongs {
+    id: i32,
+    name: String,
+    songs: Vec<MusicInfo>,
+}
+
+#[derive(Deserialize)]
+struct CreateCollectionRequest {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct AddToCollectionRequest {
+    music_ids: Vec<i32>,
+}
+
+#[derive(Deserialize)]
+struct RemoveFromCollectionRequest {
+    music_ids: Vec<i32>,
 }
 
 struct AppState {
@@ -174,6 +205,271 @@ async fn get_playlist(
         name: playlist_name,
         songs,
     })
+}
+
+// ============= Collection API Endpoints =============
+
+/// Get all collections
+#[get("/api/collections")]
+async fn get_all_collections(data: web::Data<AppState>) -> impl Responder {
+    match CollectionEntity::find()
+        .all(&data.db_conn)
+        .await
+    {
+        Ok(collections) => {
+            let response: Vec<Collection> = collections
+                .into_iter()
+                .map(|c: CollectionModel| Collection {
+                    id: c.id,
+                    name: c.name,
+                    created_at: c.created_at.to_rfc3339(),
+                })
+                .collect();
+            HttpResponse::Ok().json(response)
+        }
+        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+    }
+}
+
+/// Create a new collection
+#[post("/api/collections")]
+async fn create_collection(
+    req: web::Json<CreateCollectionRequest>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    // Check if collection with same name exists
+    match CollectionEntity::find()
+        .filter(CollectionColumn::Name.eq(&req.name))
+        .one(&data.db_conn)
+        .await
+    {
+        Ok(Some(_)) => {
+            return HttpResponse::BadRequest().body("Collection with this name already exists");
+        }
+        Ok(None) => {}
+        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+    }
+
+    let collection = CollectionActiveModel {
+        name: Set(req.name.clone()),
+        created_at: Set(Utc::now()),
+        ..Default::default()
+    };
+
+    match collection.insert(&data.db_conn).await {
+        Ok(c) => HttpResponse::Ok().json(Collection {
+            id: c.id,
+            name: c.name,
+            created_at: c.created_at.to_rfc3339(),
+        }),
+        Err(_) => HttpResponse::InternalServerError().body("Failed to create collection"),
+    }
+}
+
+/// Delete a collection
+#[delete("/api/collections/{id}")]
+async fn delete_collection(
+    path: web::Path<i32>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let collection_id = path.into_inner();
+
+    match CollectionEntity::delete_by_id(collection_id)
+        .exec(&data.db_conn)
+        .await
+    {
+        Ok(result) => {
+            if result.rows_affected > 0 {
+                HttpResponse::Ok().body("Collection deleted")
+            } else {
+                HttpResponse::NotFound().body("Collection not found")
+            }
+        }
+        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+    }
+}
+
+/// Get songs in a collection
+#[get("/api/collections/{id}/items")]
+async fn get_collection_items(
+    path: web::Path<i32>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let collection_id = path.into_inner();
+
+    // First check if collection exists
+    let collection_opt = CollectionEntity::find_by_id(collection_id)
+        .one(&data.db_conn)
+        .await;
+
+    let collection = match collection_opt {
+        Ok(Some(c)) => c,
+        Ok(None) => return HttpResponse::NotFound().body("Collection not found"),
+        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+    };
+
+    // Get all collection items for this collection
+    match CollectionItemEntity::find()
+        .filter(CollectionItemColumn::CollectionId.eq(collection_id))
+        .find_also_related(MusicEntity)
+        .all(&data.db_conn)
+        .await
+    {
+        Ok(items) => {
+            let songs: Vec<MusicInfo> = items
+                .into_iter()
+                .filter_map(|(_, music_opt)| music_opt)
+                .map(|music| MusicInfo {
+                    name: music.filename,
+                    lufs: music.lufs.unwrap_or(0.5),
+                    path: music.file_path,
+                })
+                .collect();
+
+            HttpResponse::Ok().json(CollectionWithSongs {
+                id: collection.id,
+                name: collection.name,
+                songs,
+            })
+        }
+        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+    }
+}
+
+/// Add songs to a collection
+#[post("/api/collections/{id}/items")]
+async fn add_to_collection(
+    path: web::Path<i32>,
+    req: web::Json<AddToCollectionRequest>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let collection_id = path.into_inner();
+
+    // Check if collection exists
+    match CollectionEntity::find_by_id(collection_id)
+        .one(&data.db_conn)
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => return HttpResponse::NotFound().body("Collection not found"),
+        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+    }
+
+    // Add each music item to the collection
+    for music_id in &req.music_ids {
+        // Check if this music_id exists
+        match MusicEntity::find_by_id(*music_id)
+            .one(&data.db_conn)
+            .await
+        {
+            Ok(Some(_)) => {
+                // Check if already in collection
+                match CollectionItemEntity::find()
+                    .filter(CollectionItemColumn::CollectionId.eq(collection_id))
+                    .filter(CollectionItemColumn::MusicId.eq(*music_id))
+                    .one(&data.db_conn)
+                    .await
+                {
+                    Ok(Some(_)) => {
+                        // Already exists, skip
+                        continue;
+                    }
+                    Ok(None) => {
+                        // Add to collection
+                        let item = CollectionItemActiveModel {
+                            collection_id: Set(collection_id),
+                            music_id: Set(*music_id),
+                            created_at: Set(Utc::now()),
+                            ..Default::default()
+                        };
+                        let _ = item.insert(&data.db_conn).await;
+                    }
+                    Err(_) => continue,
+                }
+            }
+            Ok(None) => continue,
+            Err(_) => continue,
+        }
+    }
+
+    HttpResponse::Ok().body("Songs added to collection")
+}
+
+/// Remove songs from a collection
+#[delete("/api/collections/{id}/items")]
+async fn remove_from_collection(
+    path: web::Path<i32>,
+    req: web::Json<RemoveFromCollectionRequest>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let collection_id = path.into_inner();
+
+    for music_id in &req.music_ids {
+        match CollectionItemEntity::delete_many()
+            .filter(CollectionItemColumn::CollectionId.eq(collection_id))
+            .filter(CollectionItemColumn::MusicId.eq(*music_id))
+            .exec(&data.db_conn)
+            .await
+        {
+            Ok(_) => {}
+            Err(_) => continue,
+        }
+    }
+
+    HttpResponse::Ok().body("Songs removed from collection")
+}
+
+/// Get playlists in collection mode (returns collections instead of folders)
+#[get("/api/playlists/collection-mode")]
+async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Responder {
+    let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> = std::collections::HashMap::new();
+
+    // Add "All Music" playlist with all songs
+    match MusicEntity::find().all(&data.db_conn).await {
+        Ok(music_list) => {
+            for music in &music_list {
+                let lufs_value = music.lufs.unwrap_or(0.5);
+                let info = MusicInfo {
+                    name: music.filename.clone(),
+                    lufs: lufs_value,
+                    path: music.file_path.clone(),
+                };
+                playlists.entry("所有音乐".to_string()).or_insert_with(Vec::new).push(info);
+            }
+
+            // Get all collections and their songs
+            match CollectionEntity::find().all(&data.db_conn).await {
+                Ok(collections) => {
+                    for collection in collections {
+                        match CollectionItemEntity::find()
+                            .filter(CollectionItemColumn::CollectionId.eq(collection.id))
+                            .find_also_related(MusicEntity)
+                            .all(&data.db_conn)
+                            .await
+                        {
+                            Ok(items) => {
+                                let songs: Vec<MusicInfo> = items
+                                    .into_iter()
+                                    .filter_map(|(_, music_opt)| music_opt)
+                                    .map(|music| MusicInfo {
+                                        name: music.filename,
+                                        lufs: music.lufs.unwrap_or(0.5),
+                                        path: music.file_path,
+                                    })
+                                    .collect();
+                                playlists.insert(collection.name, songs);
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+    }
+
+    HttpResponse::Ok().json(playlists)
 }
 
 /// Supported audio file extensions
@@ -416,6 +712,13 @@ async fn main() -> std::io::Result<()> {
                     .service(get_all_music)
                     .service(get_all_playlists)
                     .service(get_playlist)
+                    .service(get_all_collections)
+                    .service(create_collection)
+                    .service(delete_collection)
+                    .service(get_collection_items)
+                    .service(add_to_collection)
+                    .service(remove_from_collection)
+                    .service(get_playlists_collection_mode)
             })
             .bind(("0.0.0.0", 2080))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
