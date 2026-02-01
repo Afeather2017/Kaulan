@@ -22,16 +22,7 @@
       "Bash(cargo:*)",
       "Bash(npm run build:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
-    ],
-    "deny": [
-      "Bash(git push:*)",
-      "Bash(rm -rf *)",
-      "Bash(sudo *)",
-      "Read(./.env)",
-      "Read(./.env.*)"
-    ],
-    "allowedTools": [
+      "Bash(git commit:*)",
       "Read",
       "Write",
       "Edit",
@@ -40,6 +31,9 @@
       "LSP",
       "NotebookEdit",
       "Task",
+      "TaskOutput",
+      "AskUserQuestion",
+      "TodoWrite",
       "Bash(npm:*)",
       "Bash(npx:*)",
       "Bash(cargo:*)",
@@ -59,6 +53,13 @@
       "Bash(git add:*)",
       "Bash(git rm:*)",
       "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(rm -rf *)",
+      "Bash(sudo *)",
+      "Read(./.env)",
+      "Read(./.env.*)"
     ]
   }
 }
