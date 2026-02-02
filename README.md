@@ -202,6 +202,31 @@ Get a specific playlist by name.
 }
 ```
 
+#### GET /api/settings/music-directory
+
+Get the current music directory path.
+
+**Response:** `MusicDirectoryResponse`
+
+```json
+{
+  "path": "/path/to/music"
+}
+```
+
+#### POST /api/database/update
+
+Trigger a database update to scan for new files, update LUFS values, and remove deleted files.
+
+**Response:** `UpdateResponse`
+
+```json
+{
+  "success": true,
+  "message": "Database updated successfully"
+}
+```
+
 ### Data Types
 
 ```typescript
