@@ -1234,7 +1234,7 @@ mod tests {
     async fn test_directory_tree_empty_directory() {
         let temp_dir = create_test_directory();
         let app_state = web::Data::new(AppState {
-            music_path: temp_dir.path().to_str().unwrap().to_string(),
+            music_path: Arc::new(RwLock::new(temp_dir.path().to_str().unwrap().to_string())),
             db_conn: establish_connection(temp_dir.path().to_str().unwrap()).await.unwrap(),
         });
 
@@ -1266,7 +1266,7 @@ mod tests {
 
         // Verify the nested structure is returned correctly
         let app_state = web::Data::new(AppState {
-            music_path: music_path.clone(),
+            music_path: Arc::new(RwLock::new(music_path.clone())),
             db_conn: establish_connection(&music_path).await.unwrap(),
         });
 
@@ -1300,7 +1300,7 @@ mod tests {
         let music_path = temp_dir.path().to_str().unwrap().to_string();
 
         let app_state = web::Data::new(AppState {
-            music_path: music_path.clone(),
+            music_path: Arc::new(RwLock::new(music_path.clone())),
             db_conn: establish_connection(&music_path).await.unwrap(),
         });
 
@@ -1327,7 +1327,7 @@ mod tests {
         let music_path = temp_dir.path().to_str().unwrap().to_string();
 
         let app_state = web::Data::new(AppState {
-            music_path: music_path.clone(),
+            music_path: Arc::new(RwLock::new(music_path.clone())),
             db_conn: establish_connection(&music_path).await.unwrap(),
         });
 

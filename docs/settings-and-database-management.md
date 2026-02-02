@@ -16,6 +16,7 @@ The Settings and Database Management features allow users to configure the music
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/settings/music-directory` | Get the current music directory path |
+| POST | `/api/settings/music-directory` | Set the music directory path (triggers database re-initialization) |
 | POST | `/api/database/update` | Trigger database update (scan for new files, update LUFS, remove deleted files) |
 
 ## Request/Response Formats
@@ -28,6 +29,23 @@ GET /api/settings/music-directory
 Response:
 {
   "path": "/path/to/music"
+}
+```
+
+### Set Music Directory
+
+```bash
+POST /api/settings/music-directory
+Content-Type: application/json
+
+{
+  "path": "/new/path/to/music"
+}
+
+Response:
+{
+  "success": true,
+  "message": "Music directory updated to: /new/path/to/music"
 }
 ```
 
@@ -51,14 +69,11 @@ Response:
 sequenceDiagram
     participant FE as Frontend
     participant BE as Backend (lib.rs)
-    participant Tauri as Tauri (IPC)
 
     Note over FE: User opens settings modal
 
-    FE->>Tauri: Invoke get_music_directory command
-    Tauri->>BE: GET /api/settings/music-directory
-    BE-->>Tauri: Returns { "path": "..." }
-    Tauri-->>FE: Returns music directory path
+    FE->>BE: GET /api/settings/music-directory
+    BE-->>FE: Returns { "path": "..." }
 
     Note over FE: Display current music directory in settings
 ```
@@ -69,21 +84,22 @@ sequenceDiagram
 sequenceDiagram
     participant User as User
     participant FE as Frontend
-    participant Tauri as Tauri (IPC)
-    participant FS as File System
+    participant BE as Backend (lib.rs)
 
     Note over User,FE: User opens settings modal
     Note over User,FE: User clicks on music directory field
 
-    User->>FE: Click "选择文件夹" (Select Folder)
-    FE->>Tauri: Invoke open dialog (tauri-plugin-dialog)
-    Tauri->>FS: Show native folder picker dialog
-    User->>FS: Select folder
-    FS-->>Tauri: Selected folder path
-    Tauri-->>FE: Returns selected path
+    User->>FE: Enter new directory path
+    FE->>FE: Display entered path
 
-    Note over FE: Display selected path, save to persistent storage
-    FE->>FE: Store path in localStorage (temporary, requires server restart)
+    User->>FE: Click save/confirm button
+    FE->>BE: POST /api/settings/music-directory { "path": "..." }
+    BE->>BE: Validate path exists and is directory
+    BE->>BE: Update music path in AppState
+    BE->>BE: Re-initialize database with new path
+    BE-->>FE: Returns { "success": true, "message": "..." }
+
+    Note over FE: Show success message, refresh data
 ```
 
 ### Update Database
@@ -151,13 +167,20 @@ sequenceDiagram
 
 ### Changing Music Directory
 
-> **Note:** Currently, changing the music directory requires restarting the backend server for the changes to take effect. The path is stored in localStorage for UI display purposes.
+The music directory can be changed directly through the REST API without restarting the server.
 
 1. Open the settings modal
 2. Click on the music directory field
-3. Click "选择文件夹" (Select Folder) to open the native folder picker
-4. Select the desired music folder
-5. **Restart the backend server** with the new music directory path
+3. Enter the new directory path
+4. Click save/confirm button
+
+The server will:
+- Validate that the path exists and is a directory
+- Update the music path in `AppState`
+- Re-initialize the database with the new path
+- Return a success message
+
+**Note:** The music directory change takes effect immediately without requiring a server restart.
 
 ### Updating the Database
 
@@ -211,9 +234,10 @@ The database update is implemented in `backend/src/lib.rs`:
 
 ### State Management
 
-- The music directory is stored in `AppState` and set at server startup
-- The frontend stores the path in `localStorage` for display purposes
-- Changes to the music directory require server restart
+- The music directory is stored in `AppState` (Arc<RwLock<String>>)
+- The music directory can be updated at runtime via `POST /api/settings/music-directory`
+- When changed, the database is automatically re-initialized with the new path
+- No server restart is required to change the music directory
 
 ### Error Handling
 
@@ -225,8 +249,8 @@ The database update endpoint returns appropriate HTTP status codes:
 
 Potential enhancements for these features:
 
-1. **Dynamic music directory change** - Allow changing the music directory without server restart
-2. **Progress indicator** - Show detailed progress during database update (files processed, LUFS calculated, etc.)
-3. **Scheduled updates** - Configure automatic database updates at intervals
-4. **Partial updates** - Allow updating specific folders or file types
-5. **Batch LUFS calculation** - Queue LUFS calculation as a background task
+1. **Progress indicator** - Show detailed progress during database update (files processed, LUFS calculated, etc.)
+2. **Scheduled updates** - Configure automatic database updates at intervals
+3. **Partial updates** - Allow updating specific folders or file types
+4. **Batch LUFS calculation** - Queue LUFS calculation as a background task
+5. **Folder picker UI** - Implement a native folder picker for easier directory selection
