@@ -102,6 +102,7 @@
       @cancel-timer="cancelTimer"
       @directory-changed="handleDirectoryChanged"
       @database-updated="handleDatabaseUpdated"
+      @open-upload-modal="showUploadModal = true"
     />
 
     <!-- Add to Collection Modal -->
@@ -121,6 +122,13 @@
       @close="hideCreateCollectionModal"
       @confirm="handleCreateCollection"
     />
+
+    <!-- Upload Modal -->
+    <UploadModal
+      v-if="showUploadModal"
+      @close="showUploadModal = false"
+      @upload-complete="handleUploadComplete"
+    />
   </div>
 </template>
 
@@ -133,6 +141,7 @@ import PlayerControls from '@/components/PlayerControls.vue'
 import SettingsModal from '@/components/modals/SettingsModal.vue'
 import AddToCollectionModal from '@/components/modals/AddToCollectionModal.vue'
 import CreateCollectionModal from '@/components/modals/CreateCollectionModal.vue'
+import UploadModal from '@/components/modals/UploadModal.vue'
 import { useAudioPlayer } from '@/composables/useAudioPlayer'
 import { usePlaylist } from '@/composables/usePlaylist'
 import { useSelection } from '@/composables/useSelection'
@@ -230,6 +239,7 @@ const showAddToCollection = ref(false)
 const selectedCollections = ref<number[]>([])
 const newCollectionName = ref('')
 const showCreateCollection = ref(false)
+const showUploadModal = ref(false)
 
 // Computed helper for audio player
 const currentPlaylistSongs = computed(() => {
@@ -300,6 +310,12 @@ const handleDirectoryChanged = () => {
 
 const handleDatabaseUpdated = async () => {
   // Refresh data when database is updated
+  await refreshData()
+}
+
+const handleUploadComplete = async () => {
+  // Refresh data after upload completes
+  showUploadModal.value = false
   await refreshData()
 }
 

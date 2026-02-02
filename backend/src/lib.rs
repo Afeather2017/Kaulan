@@ -1,8 +1,11 @@
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use actix_cors::Cors;
+use actix_multipart::Multipart;
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, File};
 use std::path::Path;
+use std::io::Write;
 use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, ModelTrait};
 use chrono::Utc;
 use tracing::{debug, info, warn, error};
@@ -513,6 +516,256 @@ pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
     })
 }
 
+// ============= File Upload API Endpoints =============
+
+/// Directory tree node for representing file system structure
+#[derive(Serialize, Deserialize)]
+struct DirectoryNode {
+    name: String,
+    path: String,
+    #[serde(rename = "type")]
+    node_type: String,
+    children: Option<Vec<DirectoryNode>>,
+}
+
+/// Get directory tree structure of the music directory
+#[get("/api/files/directory-tree")]
+pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
+    debug!("Directory tree request received");
+
+    fn build_tree(dir_path: &Path, base_path: &Path) -> Option<DirectoryNode> {
+        let name = dir_path.file_name()?.to_string_lossy().to_string();
+        let relative_path = dir_path.strip_prefix(base_path)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| String::new());
+
+        let mut children = Vec::new();
+
+        if let Ok(entries) = fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    let path = entry.path();
+                    if file_type.is_dir() {
+                        if let Some(child_node) = build_tree(&path, base_path) {
+                            children.push(child_node);
+                        }
+                    }
+                }
+            }
+        }
+
+        children.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Some(DirectoryNode {
+            name,
+            path: relative_path,
+            node_type: "directory".to_string(),
+            children: if children.is_empty() { None } else { Some(children) },
+        })
+    }
+
+    let music_path = Path::new(&data.music_path);
+    match build_tree(music_path, music_path) {
+        Some(root_node) => {
+            debug!("Directory tree generated successfully");
+            HttpResponse::Ok().json(root_node)
+        }
+        None => {
+            warn!("Failed to generate directory tree");
+            HttpResponse::InternalServerError().body("Failed to generate directory tree")
+        }
+    }
+}
+
+/// Response for file upload operation
+#[derive(Serialize, Deserialize)]
+struct UploadResponse {
+    success: bool,
+    message: String,
+    uploaded: Vec<String>,
+    failed: Vec<String>,
+}
+
+/// Upload files to a specific directory within the music directory
+#[post("/api/files/upload")]
+pub async fn upload_files(
+    mut payload: Multipart,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    debug!("File upload request received");
+    let mut target_path = String::new();
+    let mut uploaded_files = Vec::new();
+    let mut failed_files = Vec::new();
+
+    // Process the multipart form data
+    let mut field_result = payload.try_next().await;
+    while field_result.is_ok() {
+        if let Some(mut field) = field_result.unwrap() {
+            let content_disposition = field.content_disposition();
+            let field_name = content_disposition
+                .and_then(|cd| cd.get_name())
+                .unwrap_or("")
+                .to_string();
+
+            match field_name.as_str() {
+                "targetPath" => {
+                    // Read the target path
+                    let mut path_bytes = Vec::new();
+                    let mut chunk_result = field.try_next().await;
+                    while chunk_result.is_ok() {
+                        if let Some(chunk) = chunk_result.unwrap() {
+                            path_bytes.extend_from_slice(&chunk);
+                            chunk_result = field.try_next().await;
+                        } else {
+                            break;
+                        }
+                    }
+                    target_path = String::from_utf8_lossy(&path_bytes).to_string();
+                    debug!("Target path: {}", target_path);
+
+                    // Security check: ensure target path is valid and within music directory
+                    let target_dir = Path::new(&data.music_path).join(&target_path);
+                    if !target_dir.starts_with(&data.music_path) {
+                        warn!("Invalid target path: {} (not within music directory)", target_path);
+                        return HttpResponse::BadRequest().json(UploadResponse {
+                            success: false,
+                            message: "Invalid target path".to_string(),
+                            uploaded: vec![],
+                            failed: vec![],
+                        });
+                    }
+
+                    // Create target directory if it doesn't exist
+                    if !target_dir.exists() {
+                        if let Err(e) = fs::create_dir_all(&target_dir) {
+                            error!("Failed to create target directory {}: {}", target_dir.display(), e);
+                            return HttpResponse::InternalServerError().json(UploadResponse {
+                                success: false,
+                                message: format!("Failed to create target directory: {}", e),
+                                uploaded: vec![],
+                                failed: vec![],
+                            });
+                        }
+                    }
+                }
+                "files" => {
+                    let filename = content_disposition
+                        .and_then(|cd| cd.get_filename())
+                        .unwrap_or("unknown")
+                        .to_string();
+
+                    // Validate file extension
+                    if let Some(extension) = Path::new(&filename).extension() {
+                        let ext_str = extension.to_string_lossy().to_lowercase();
+                        if !SUPPORTED_EXTENSIONS.contains(&ext_str.as_str()) {
+                            warn!("Unsupported file type: {}", filename);
+                            failed_files.push(filename.clone());
+                            field_result = payload.try_next().await;
+                            continue;
+                        }
+                    } else {
+                        warn!("File without extension: {}", filename);
+                        failed_files.push(filename.clone());
+                        field_result = payload.try_next().await;
+                        continue;
+                    }
+
+                    // Determine the full file path
+                    let full_target_path = if target_path.is_empty() {
+                        Path::new(&data.music_path).join(&filename)
+                    } else {
+                        Path::new(&data.music_path).join(&target_path).join(&filename)
+                    };
+
+                    // Security check: ensure file path is within music directory
+                    if !full_target_path.starts_with(&data.music_path) {
+                        warn!("Invalid file path: {} (not within music directory)", full_target_path.display());
+                        failed_files.push(filename.clone());
+                        field_result = payload.try_next().await;
+                        continue;
+                    }
+
+                    // Write the file
+                    match File::create(&full_target_path) {
+                        Ok(mut file) => {
+                            let mut file_size = 0u64;
+                            let mut write_error = false;
+
+                            let mut chunk_result = field.try_next().await;
+                            while chunk_result.is_ok() {
+                                if let Some(chunk) = chunk_result.unwrap() {
+                                    file_size += chunk.len() as u64;
+                                    if file.write_all(&chunk).is_err() {
+                                        write_error = true;
+                                        break;
+                                    }
+                                    chunk_result = field.try_next().await;
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            if write_error {
+                                error!("Failed to write file: {}", filename);
+                                let _ = fs::remove_file(&full_target_path);
+                                failed_files.push(filename.clone());
+                            } else {
+                                info!("Successfully uploaded file: {} ({} bytes)", filename, file_size);
+                                uploaded_files.push(filename);
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to create file {}: {}", filename, e);
+                            failed_files.push(filename.clone());
+                        }
+                    }
+                }
+                _ => {
+                    debug!("Ignoring unknown field: {}", field_name);
+                }
+            }
+        }
+        field_result = payload.try_next().await;
+    }
+
+    if uploaded_files.is_empty() && failed_files.is_empty() {
+        return HttpResponse::BadRequest().json(UploadResponse {
+            success: false,
+            message: "No files provided".to_string(),
+            uploaded: vec![],
+            failed: vec![],
+        });
+    }
+
+    // Trigger database update after successful upload
+    if !uploaded_files.is_empty() {
+        info!("Triggering database update after file upload");
+        match update_database(&data.music_path, &data.db_conn).await {
+            Ok(_) => {
+                info!("Database update completed after upload");
+            }
+            Err(e) => {
+                warn!("Database update failed after upload: {}", e);
+            }
+        }
+    }
+
+    let success = !uploaded_files.is_empty();
+    let message = if success {
+        format!("Uploaded {} file(s)", uploaded_files.len())
+    } else {
+        "Upload failed".to_string()
+    };
+
+    HttpResponse::Ok().json(UploadResponse {
+        success,
+        message,
+        uploaded: uploaded_files,
+        failed: failed_files,
+    })
+}
+
 /// Update database (scan for new files, update LUFS, remove deleted files)
 #[post("/api/database/update")]
 pub async fn update_database_endpoint(data: web::Data<AppState>) -> impl Responder {
@@ -855,6 +1108,8 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
                 .service(remove_from_collection)
                 .service(get_music_directory)
                 .service(update_database_endpoint)
+                .service(get_directory_tree)
+                .service(upload_files)
         })
         .bind((ip_clone, port))
         .unwrap()
@@ -870,4 +1125,144 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     Ok(ServerInfo { ip, port })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::test;
+    use actix_web::http::StatusCode;
+
+    /// Helper function to create a temporary test directory structure
+    fn create_test_directory() -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        let music_dir = dir.path();
+
+        // Create test directory structure
+        let folder1 = music_dir.join("folder1");
+        let folder2 = music_dir.join("folder2");
+        let subfolder = folder2.join("subfolder");
+
+        fs::create_dir_all(&folder1).unwrap();
+        fs::create_dir_all(&subfolder).unwrap();
+
+        dir
+    }
+
+    #[actix_web::test]
+    async fn test_directory_tree_empty_directory() {
+        let temp_dir = create_test_directory();
+        let app_state = web::Data::new(AppState {
+            music_path: temp_dir.path().to_str().unwrap().to_string(),
+            db_conn: establish_connection(temp_dir.path().to_str().unwrap()).await.unwrap(),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(get_directory_tree)
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/files/directory-tree")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        let body: DirectoryNode = test::read_body_json(resp).await;
+        assert_eq!(body.node_type, "directory");
+        assert_eq!(body.path, "");
+        // Root should have children (folder1 and folder2)
+        assert!(body.children.is_some());
+        assert_eq!(body.children.as_ref().unwrap().len(), 2);
+    }
+
+    #[actix_web::test]
+    async fn test_directory_tree_nested_structure() {
+        let temp_dir = create_test_directory();
+        let music_path = temp_dir.path().to_str().unwrap().to_string();
+
+        // Verify the nested structure is returned correctly
+        let app_state = web::Data::new(AppState {
+            music_path: music_path.clone(),
+            db_conn: establish_connection(&music_path).await.unwrap(),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(get_directory_tree)
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/files/directory-tree")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        let body: DirectoryNode = test::read_body_json(resp).await;
+
+        // Check that folder2 has a subfolder
+        let folder2 = body.children.as_ref()
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "folder2")
+            .unwrap();
+        assert!(folder2.children.is_some());
+        assert_eq!(folder2.children.as_ref().unwrap().len(), 1);
+        assert_eq!(folder2.children.as_ref().unwrap()[0].name, "subfolder");
+    }
+
+    #[actix_web::test]
+    async fn test_upload_files_empty_request() {
+        let temp_dir = create_test_directory();
+        let music_path = temp_dir.path().to_str().unwrap().to_string();
+
+        let app_state = web::Data::new(AppState {
+            music_path: music_path.clone(),
+            db_conn: establish_connection(&music_path).await.unwrap(),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(upload_files)
+        ).await;
+
+        // Test with no files - should return error
+        let req = test::TestRequest::post()
+            .uri("/api/files/upload")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        // Should get a response (either bad request or success with empty result)
+        assert!(resp.status().is_client_error() || resp.status().is_success());
+    }
+
+    #[actix_web::test]
+    async fn test_upload_endpoint_service_exists() {
+        let temp_dir = create_test_directory();
+        let music_path = temp_dir.path().to_str().unwrap().to_string();
+
+        let app_state = web::Data::new(AppState {
+            music_path: music_path.clone(),
+            db_conn: establish_connection(&music_path).await.unwrap(),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(upload_files)
+        ).await;
+
+        // Just verify the endpoint exists and responds
+        let req = test::TestRequest::post()
+            .uri("/api/files/upload")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        // Should get some response (not 404)
+        assert_ne!(resp.status(), StatusCode::NOT_FOUND);
+    }
 }

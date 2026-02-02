@@ -93,6 +93,11 @@
           {{ isUpdating ? '更新中...' : '更新数据库' }}
         </button>
       </div>
+      <div class="setting-item">
+        <button @click="$emit('openUploadModal')" class="upload-music-btn">
+          上传音乐文件
+        </button>
+      </div>
 
       <!-- Sleep Timer -->
       <hr class="settings-divider" />
@@ -193,6 +198,7 @@ const emit = defineEmits<{
   (e: 'cancelTimer'): void
   (e: 'directoryChanged'): void
   (e: 'databaseUpdated'): void
+  (e: 'openUploadModal'): void
 }>()
 
 const musicDirectory = ref<string>('Loading...')
@@ -549,5 +555,22 @@ const updateDatabase = async () => {
 .update-database-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.upload-music-btn {
+  width: 100%;
+  padding: 10px 20px;
+  border: 1px solid #3498db;
+  border-radius: 5px;
+  background-color: #3498db;
+  color: white;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-music-btn:hover {
+  background-color: #2980b9;
 }
 </style>
