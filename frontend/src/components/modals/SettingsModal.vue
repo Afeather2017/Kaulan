@@ -88,6 +88,11 @@
           更改目录
         </button>
       </div>
+      <div class="setting-item">
+        <button @click="updateDatabase" class="update-database-btn" :disabled="isUpdating">
+          {{ isUpdating ? '更新中...' : '更新数据库' }}
+        </button>
+      </div>
 
       <!-- Sleep Timer -->
       <hr class="settings-divider" />
@@ -187,9 +192,11 @@ const emit = defineEmits<{
   (e: 'startTimer'): void
   (e: 'cancelTimer'): void
   (e: 'directoryChanged'): void
+  (e: 'databaseUpdated'): void
 }>()
 
 const musicDirectory = ref<string>('Loading...')
+const isUpdating = ref<boolean>(false)
 
 onMounted(async () => {
   try {
@@ -222,6 +229,27 @@ const selectDirectory = async () => {
   } catch (error) {
     console.error('Failed to select directory:', error)
     alert('更改目录失败: ' + error)
+  }
+}
+
+const updateDatabase = async () => {
+  isUpdating.value = true
+  try {
+    const response = await fetch('/api/database/update', {
+      method: 'POST',
+    })
+    const result = await response.json()
+    if (result.success) {
+      alert('数据库更新成功！')
+      emit('databaseUpdated')
+    } else {
+      alert('数据库更新失败: ' + result.message)
+    }
+  } catch (error) {
+    console.error('Failed to update database:', error)
+    alert('数据库更新失败: ' + error)
+  } finally {
+    isUpdating.value = false
   }
 }
 </script>
@@ -499,5 +527,27 @@ const selectDirectory = async () => {
 
 .select-directory-btn:active {
   background-color: #e0e0e0;
+}
+
+.update-database-btn {
+  width: 100%;
+  padding: 10px 20px;
+  border: 1px solid #1db954;
+  border-radius: 5px;
+  background-color: #1db954;
+  color: white;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.update-database-btn:hover:not(:disabled) {
+  background-color: #1ed760;
+}
+
+.update-database-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

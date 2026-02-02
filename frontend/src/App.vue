@@ -101,6 +101,7 @@
       @start-timer="handleStartTimer"
       @cancel-timer="cancelTimer"
       @directory-changed="handleDirectoryChanged"
+      @database-updated="handleDatabaseUpdated"
     />
 
     <!-- Add to Collection Modal -->
@@ -295,6 +296,11 @@ const handleStartTimer = () => {
 const handleDirectoryChanged = () => {
   // Refresh data when directory changes
   refreshData()
+}
+
+const handleDatabaseUpdated = async () => {
+  // Refresh data when database is updated
+  await refreshData()
 }
 
 // Collection management handlers

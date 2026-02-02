@@ -513,6 +513,35 @@ pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
     })
 }
 
+/// Update database (scan for new files, update LUFS, remove deleted files)
+#[post("/api/database/update")]
+pub async fn update_database_endpoint(data: web::Data<AppState>) -> impl Responder {
+    info!("Database update requested via API");
+
+    #[derive(Serialize)]
+    struct UpdateResponse {
+        success: bool,
+        message: String,
+    }
+
+    match update_database(&data.music_path, &data.db_conn).await {
+        Ok(_) => {
+            info!("Database update completed successfully");
+            HttpResponse::Ok().json(UpdateResponse {
+                success: true,
+                message: "Database updated successfully".to_string(),
+            })
+        }
+        Err(e) => {
+            error!("Database update failed: {}", e);
+            HttpResponse::InternalServerError().json(UpdateResponse {
+                success: false,
+                message: format!("Database update failed: {}", e),
+            })
+        }
+    }
+}
+
 /// Get playlists in collection mode (returns collections instead of folders)
 #[get("/api/playlists/collection-mode")]
 pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Responder {
@@ -825,6 +854,7 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
                 .service(add_to_collection)
                 .service(remove_from_collection)
                 .service(get_music_directory)
+                .service(update_database_endpoint)
         })
         .bind((ip_clone, port))
         .unwrap()
