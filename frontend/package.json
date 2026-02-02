@@ -9,6 +9,8 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
     "vue": "^3.3.0",
     "vue-router": "^4.2.0"
   },
