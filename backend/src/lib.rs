@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::path::Path;
 use std::io::Write;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, ModelTrait};
 use chrono::Utc;
 use tracing::{debug, info, warn, error};
@@ -73,7 +75,7 @@ struct RemoveFromCollectionRequest {
 }
 
 pub struct AppState {
-    pub music_path: String,
+    pub music_path: Arc<RwLock<String>>,
     pub db_conn: DatabaseConnection,
 }
 
@@ -91,7 +93,9 @@ pub async fn get_music(
         .await
     {
         Ok(Some(music)) => {
-            let file_path = Path::new(&data.music_path).join(&music.file_path);
+            let music_path = data.music_path.read().await;
+            let file_path = Path::new(&*music_path).join(&music.file_path);
+            drop(music_path);
 
             match fs::read(&file_path) {
                 Ok(content) => {
@@ -511,9 +515,73 @@ pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
         path: String,
     }
 
+    let music_path = data.music_path.read().await;
     HttpResponse::Ok().json(MusicDirectoryResponse {
-        path: data.music_path.clone(),
+        path: music_path.clone(),
     })
+}
+
+#[derive(Deserialize)]
+struct SetMusicDirectoryRequest {
+    path: String,
+}
+
+/// Set music directory
+#[post("/api/settings/music-directory")]
+pub async fn set_music_directory(
+    req: web::Json<SetMusicDirectoryRequest>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    #[derive(Serialize)]
+    struct SetDirectoryResponse {
+        success: bool,
+        message: String,
+    }
+
+    let new_path = &req.path;
+
+    // Validate the path exists and is a directory
+    let path_obj = Path::new(new_path);
+    if !path_obj.exists() {
+        warn!("Music directory does not exist: {}", new_path);
+        return HttpResponse::BadRequest().json(SetDirectoryResponse {
+            success: false,
+            message: format!("Directory does not exist: {}", new_path),
+        });
+    }
+
+    if !path_obj.is_dir() {
+        warn!("Path is not a directory: {}", new_path);
+        return HttpResponse::BadRequest().json(SetDirectoryResponse {
+            success: false,
+            message: format!("Path is not a directory: {}", new_path),
+        });
+    }
+
+    // Update the music path
+    let mut music_path = data.music_path.write().await;
+    *music_path = new_path.clone();
+    drop(music_path);
+
+    info!("Music directory updated to: {}", new_path);
+
+    // Re-initialize the database with the new path
+    match initialize_database(new_path, &data.db_conn).await {
+        Ok(_) => {
+            info!("Database re-initialized with new music directory");
+            HttpResponse::Ok().json(SetDirectoryResponse {
+                success: true,
+                message: format!("Music directory updated to: {}", new_path),
+            })
+        }
+        Err(e) => {
+            error!("Failed to re-initialize database: {}", e);
+            HttpResponse::InternalServerError().json(SetDirectoryResponse {
+                success: false,
+                message: format!("Failed to update database: {}", e),
+            })
+        }
+    }
 }
 
 // ============= File Upload API Endpoints =============
@@ -532,6 +600,10 @@ struct DirectoryNode {
 #[get("/api/files/directory-tree")]
 pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
     debug!("Directory tree request received");
+
+    let lock = data.music_path.read().await;
+    let music_path_str = lock.clone();
+    drop(lock);
 
     fn build_tree(dir_path: &Path, base_path: &Path) -> Option<DirectoryNode> {
         let name = dir_path.file_name()?.to_string_lossy().to_string();
@@ -565,7 +637,7 @@ pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
         })
     }
 
-    let music_path = Path::new(&data.music_path);
+    let music_path = Path::new(&music_path_str);
     match build_tree(music_path, music_path) {
         Some(root_node) => {
             debug!("Directory tree generated successfully");
@@ -594,6 +666,10 @@ pub async fn upload_files(
     data: web::Data<AppState>,
 ) -> impl Responder {
     debug!("File upload request received");
+    let lock = data.music_path.read().await;
+    let music_path_str = lock.clone();
+    drop(lock);
+
     let mut target_path = String::new();
     let mut uploaded_files = Vec::new();
     let mut failed_files = Vec::new();
@@ -625,8 +701,8 @@ pub async fn upload_files(
                     debug!("Target path: {}", target_path);
 
                     // Security check: ensure target path is valid and within music directory
-                    let target_dir = Path::new(&data.music_path).join(&target_path);
-                    if !target_dir.starts_with(&data.music_path) {
+                    let target_dir = Path::new(&music_path_str).join(&target_path);
+                    if !target_dir.starts_with(&music_path_str) {
                         warn!("Invalid target path: {} (not within music directory)", target_path);
                         return HttpResponse::BadRequest().json(UploadResponse {
                             success: false,
@@ -673,13 +749,13 @@ pub async fn upload_files(
 
                     // Determine the full file path
                     let full_target_path = if target_path.is_empty() {
-                        Path::new(&data.music_path).join(&filename)
+                        Path::new(&music_path_str).join(&filename)
                     } else {
-                        Path::new(&data.music_path).join(&target_path).join(&filename)
+                        Path::new(&music_path_str).join(&target_path).join(&filename)
                     };
 
                     // Security check: ensure file path is within music directory
-                    if !full_target_path.starts_with(&data.music_path) {
+                    if !full_target_path.starts_with(&music_path_str) {
                         warn!("Invalid file path: {} (not within music directory)", full_target_path.display());
                         failed_files.push(filename.clone());
                         field_result = payload.try_next().await;
@@ -741,7 +817,7 @@ pub async fn upload_files(
     // Trigger database update after successful upload
     if !uploaded_files.is_empty() {
         info!("Triggering database update after file upload");
-        match update_database(&data.music_path, &data.db_conn).await {
+        match update_database(&music_path_str, &data.db_conn).await {
             Ok(_) => {
                 info!("Database update completed after upload");
             }
@@ -777,7 +853,11 @@ pub async fn update_database_endpoint(data: web::Data<AppState>) -> impl Respond
         message: String,
     }
 
-    match update_database(&data.music_path, &data.db_conn).await {
+    let lock = data.music_path.read().await;
+    let music_path_str = lock.clone();
+    drop(lock);
+
+    match update_database(&music_path_str, &data.db_conn).await {
         Ok(_) => {
             info!("Database update completed successfully");
             HttpResponse::Ok().json(UpdateResponse {
@@ -1072,7 +1152,7 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
     }
 
     let app_state = web::Data::new(AppState {
-        music_path: music_path.clone(),
+        music_path: Arc::new(RwLock::new(music_path.clone())),
         db_conn,
     });
 
@@ -1107,6 +1187,7 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
                 .service(add_to_collection)
                 .service(remove_from_collection)
                 .service(get_music_directory)
+                .service(set_music_directory)
                 .service(update_database_endpoint)
                 .service(get_directory_tree)
                 .service(upload_files)

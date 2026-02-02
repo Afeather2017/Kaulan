@@ -162,8 +162,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
 type ViewMode = 'folder' | 'collection'
@@ -206,8 +204,14 @@ const isUpdating = ref<boolean>(false)
 
 onMounted(async () => {
   try {
-    const path = await invoke<string>('get_music_directory')
-    musicDirectory.value = path
+    const response = await fetch('/api/settings/music-directory')
+    if (response.ok) {
+      const data = await response.json()
+      musicDirectory.value = data.path
+    } else {
+      console.error('Failed to get music directory')
+      musicDirectory.value = 'Unknown'
+    }
   } catch (error) {
     console.error('Failed to get music directory:', error)
     musicDirectory.value = 'Unknown'
@@ -215,22 +219,38 @@ onMounted(async () => {
 })
 
 const selectDirectory = async () => {
+  // Use a simple prompt to get the directory path from the user
+  const newPath = prompt('请输入新的音乐目录路径:', musicDirectory.value)
+
+  if (!newPath || newPath.trim() === '') {
+    return
+  }
+
   try {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      recursive: true,
+    const response = await fetch('/api/settings/music-directory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ path: newPath.trim() }),
     })
 
-    if (selected && typeof selected === 'string') {
-      await invoke('set_music_directory', { newPath: selected })
-      musicDirectory.value = selected
-      emit('directoryChanged')
-      alert('音乐目录已更新，正在重新加载...')
-      // Reload the page to refresh the data
-      setTimeout(() => {
-        window.location.reload()
-      }, 1000)
+    if (response.ok) {
+      const result = await response.json()
+      if (result.success) {
+        musicDirectory.value = newPath.trim()
+        emit('directoryChanged')
+        alert('音乐目录已更新，正在重新加载...')
+        // Reload the page to refresh the data
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      } else {
+        alert('更改目录失败: ' + result.message)
+      }
+    } else {
+      const error = await response.json()
+      alert('更改目录失败: ' + error.message)
     }
   } catch (error) {
     console.error('Failed to select directory:', error)
