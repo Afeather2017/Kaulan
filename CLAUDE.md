@@ -143,8 +143,8 @@ frontend/src/
 2. For long calling chains, draw Sequence Diagrams in Mermaid
 3. Use English for code/comments unless instructed to translate
 4. Always use strict mode in TypeScript and JavaScript
-5. When you need to notify me, like confirm something: run `zenity --info --text="AI notify you"`
-6. Ensure both frontend and backend compile and run before finishing
+5. Ensure backend compiles with cargo and frontend compiles with npm build.
+6. Frontend has cargo part, we only use it as a "browser that run the web", so mostly we don't need to ensure it compiles with cargo.
 
 ## API Endpoints
 
@@ -169,6 +169,10 @@ frontend/src/
 - `GET /api/playlists/collection-mode` - Get playlists in collection mode (returns HashMap with collection names as keys)
 
 **Note:** Route order matters in Actix-web. Specific routes like `/api/playlists/collection-mode` and `/api/collections/{id}/items` must be registered before parameterized routes like `/api/playlists/{name}` and `/api/collections/{id}`.
+
+### Settings Endpoints
+- `GET /api/settings/music-directory` - Get current music directory path
+- `POST /api/database/update` - Trigger database update (scan for new files, update LUFS, remove deleted files)
 
 ### Other Endpoints
 - `POST /api/generate-lufs` - Generate LUFS values via FFmpeg (debug mode only)
