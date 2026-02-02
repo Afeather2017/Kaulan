@@ -500,6 +500,19 @@ pub async fn remove_from_collection(
     HttpResponse::Ok().body("Songs removed from collection")
 }
 
+/// Get current music directory
+#[get("/api/settings/music-directory")]
+pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
+    #[derive(Serialize)]
+    struct MusicDirectoryResponse {
+        path: String,
+    }
+
+    HttpResponse::Ok().json(MusicDirectoryResponse {
+        path: data.music_path.clone(),
+    })
+}
+
 /// Get playlists in collection mode (returns collections instead of folders)
 #[get("/api/playlists/collection-mode")]
 pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Responder {
@@ -811,6 +824,7 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
                 .service(get_collection)
                 .service(add_to_collection)
                 .service(remove_from_collection)
+                .service(get_music_directory)
         })
         .bind((ip_clone, port))
         .unwrap()
