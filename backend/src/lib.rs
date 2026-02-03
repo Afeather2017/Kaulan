@@ -3,14 +3,15 @@ use actix_cors::Cors;
 use actix_multipart::Multipart;
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter, ModelTrait};
 use chrono::Utc;
 use tracing::{debug, info, warn, error};
+use dirs::config_dir;
 
 // Declare modules
 pub mod lufsgen;
@@ -22,6 +23,123 @@ use entities::music::{Entity as MusicEntity, Model as MusicModel, ActiveModel as
 use entities::collection::{Entity as CollectionEntity, Model as CollectionModel, ActiveModel as CollectionActiveModel, Column as CollectionColumn};
 use entities::collection_item::{Entity as CollectionItemEntity, ActiveModel as CollectionItemActiveModel, Column as CollectionItemColumn};
 pub use database::establish_connection;
+
+// Export config loading function for use in main.rs
+pub use config::load_config;
+
+// ============= Config Module =============
+//
+// Documentation: docs/settings-and-database-management.md
+//
+// This module provides configuration file management for persisting
+// the music directory path across application restarts.
+
+mod config {
+    use super::*;
+
+    /// Configuration file structure
+    ///
+    /// # Config Format
+    /// ```json
+    /// {
+    ///   "music_directory": "/path/to/music"
+    /// }
+    /// ```
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct Config {
+        music_directory: Option<String>,
+    }
+
+    impl Default for Config {
+        fn default() -> Self {
+            Config {
+                music_directory: None,
+            }
+        }
+    }
+
+    /// Get the config directory path
+    ///
+    /// # Returns
+    /// - `Some(PathBuf)` - Platform-specific config directory with "kaulan" subdirectory
+    /// - `None` - Config directory cannot be determined
+    ///
+    /// # Config Locations
+    /// - Linux: `~/.config/kaulan/`
+    /// - macOS: `~/Library/Application Support/kaulan/`
+    /// - Windows: `%APPDATA%\kaulan\`
+    pub fn get_config_dir() -> Option<PathBuf> {
+        let mut path = config_dir()?;
+        path.push("kaulan");
+        Some(path)
+    }
+
+    /// Get the config file path
+    ///
+    /// # Returns
+    /// - `Some(PathBuf)` - Full path to config.json
+    /// - `None` - Config directory cannot be determined
+    pub fn get_config_path() -> Option<PathBuf> {
+        let mut path = get_config_dir()?;
+        path.push("config.json");
+        Some(path)
+    }
+
+    /// Load music directory from config file
+    ///
+    /// # Returns
+    /// - `Some(String)` - Music directory path from config
+    /// - `None` - Config doesn't exist, is invalid, or has no music_directory set
+    ///
+    /// # Documentation
+    /// See [`docs/settings-and-database-management.md`](../../docs/settings-and-database-management.md)
+    pub fn load_config() -> Option<String> {
+        let config_path = get_config_path()?;
+        if !config_path.exists() {
+            return None;
+        }
+
+        let content = fs::read_to_string(&config_path).ok()?;
+        let config: Config = serde_json::from_str(&content).ok()?;
+        config.music_directory
+    }
+
+    /// Save music directory to config file
+    ///
+    /// # Arguments
+    /// * `music_directory` - Path to the music directory to save
+    ///
+    /// # Returns
+    /// - `Ok(())` - Config saved successfully
+    /// - `Err(...)` - Failed to save config (directory creation or file write error)
+    ///
+    /// # Documentation
+    /// See [`docs/settings-and-database-management.md`](../../docs/settings-and-database-management.md)
+    ///
+    /// # Behavior
+    /// - Creates config directory if it doesn't exist
+    /// - Overwrites existing config file
+    pub fn save_config(music_directory: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let config_dir = get_config_dir().ok_or("Failed to get config dir")?;
+
+        // Create config directory if it doesn't exist
+        if !config_dir.exists() {
+            fs::create_dir_all(&config_dir)?;
+        }
+
+        let config_path = get_config_path().ok_or("Failed to get config path")?;
+        let config = Config {
+            music_directory: Some(music_directory.to_string()),
+        };
+
+        let content = serde_json::to_string_pretty(&config)?;
+        fs::write(&config_path, content)?;
+
+        Ok(())
+    }
+}
+
+// ============= Request/Response Types =============
 
 #[derive(Serialize, Deserialize)]
 struct MusicResponse {
@@ -75,7 +193,7 @@ struct RemoveFromCollectionRequest {
 }
 
 pub struct AppState {
-    pub music_path: Arc<RwLock<String>>,
+    pub music_path: Arc<String>,
     pub db_conn: DatabaseConnection,
 }
 
@@ -93,9 +211,7 @@ pub async fn get_music(
         .await
     {
         Ok(Some(music)) => {
-            let music_path = data.music_path.read().await;
-            let file_path = Path::new(&*music_path).join(&music.file_path);
-            drop(music_path);
+            let file_path = Path::new(&*data.music_path).join(&music.file_path);
 
             match fs::read(&file_path) {
                 Ok(content) => {
@@ -508,6 +624,12 @@ pub async fn remove_from_collection(
 }
 
 /// Get current music directory
+///
+/// # Documentation
+/// See [`docs/settings-and-database-management.md`](../../docs/settings-and-database-management.md)
+///
+/// # Response
+/// Returns `MusicDirectoryResponse` with the current music directory path.
 #[get("/api/settings/music-directory")]
 pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
     #[derive(Serialize)]
@@ -515,9 +637,8 @@ pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
         path: String,
     }
 
-    let music_path = data.music_path.read().await;
     HttpResponse::Ok().json(MusicDirectoryResponse {
-        path: music_path.clone(),
+        path: (*data.music_path).clone(),
     })
 }
 
@@ -526,11 +647,24 @@ struct SetMusicDirectoryRequest {
     path: String,
 }
 
-/// Set music directory
+/// Set music directory (saved to config, takes effect on restart)
+///
+/// # Documentation
+/// See [`docs/settings-and-database-management.md`](../../docs/settings-and-database-management.md)
+///
+/// # Behavior
+/// - Validates that the path exists and is a directory
+/// - Saves the path to the config file
+/// - Returns a success message indicating restart is required
+///
+/// # Config File Location
+/// - Linux (standalone): `~/.config/kaulan/config.json`
+/// - macOS (standalone): `~/Library/Application Support/kaulan/config.json`
+/// - Windows (standalone): `%APPDATA%\kaulan\config.json`
+/// - Tauri mode: Platform-specific app data directory
 #[post("/api/settings/music-directory")]
 pub async fn set_music_directory(
     req: web::Json<SetMusicDirectoryRequest>,
-    data: web::Data<AppState>,
 ) -> impl Responder {
     #[derive(Serialize)]
     struct SetDirectoryResponse {
@@ -558,27 +692,23 @@ pub async fn set_music_directory(
         });
     }
 
-    // Update the music path
-    let mut music_path = data.music_path.write().await;
-    *music_path = new_path.clone();
-    drop(music_path);
-
-    info!("Music directory updated to: {}", new_path);
-
-    // Re-initialize the database with the new path
-    match initialize_database(new_path, &data.db_conn).await {
+    // Save to config file
+    match config::save_config(new_path) {
         Ok(_) => {
-            info!("Database re-initialized with new music directory");
+            info!("Music directory saved to config: {}", new_path);
             HttpResponse::Ok().json(SetDirectoryResponse {
                 success: true,
-                message: format!("Music directory updated to: {}", new_path),
+                message: format!(
+                    "Music directory will be set to '{}' on next restart.",
+                    new_path
+                ),
             })
         }
         Err(e) => {
-            error!("Failed to re-initialize database: {}", e);
+            error!("Failed to save config: {}", e);
             HttpResponse::InternalServerError().json(SetDirectoryResponse {
                 success: false,
-                message: format!("Failed to update database: {}", e),
+                message: format!("Failed to save configuration: {}", e),
             })
         }
     }
@@ -601,9 +731,7 @@ struct DirectoryNode {
 pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
     debug!("Directory tree request received");
 
-    let lock = data.music_path.read().await;
-    let music_path_str = lock.clone();
-    drop(lock);
+    let music_path_str = &*data.music_path;
 
     fn build_tree(dir_path: &Path, base_path: &Path) -> Option<DirectoryNode> {
         let name = dir_path.file_name()?.to_string_lossy().to_string();
@@ -690,9 +818,7 @@ pub async fn upload_files(
     data: web::Data<AppState>,
 ) -> impl Responder {
     info!("[UPLOAD] ========== FILE UPLOAD REQUEST STARTED ==========");
-    let lock = data.music_path.read().await;
-    let music_path_str = lock.clone();
-    drop(lock);
+    let music_path_str = &*data.music_path;
     info!("[UPLOAD] Music directory: {}", music_path_str);
 
     let mut target_path = String::new();
@@ -938,11 +1064,7 @@ pub async fn update_database_endpoint(data: web::Data<AppState>) -> impl Respond
         message: String,
     }
 
-    let lock = data.music_path.read().await;
-    let music_path_str = lock.clone();
-    drop(lock);
-
-    match update_database(&music_path_str, &data.db_conn).await {
+    match update_database(&*data.music_path, &data.db_conn).await {
         Ok(_) => {
             info!("Database update completed successfully");
             HttpResponse::Ok().json(UpdateResponse {
@@ -1218,11 +1340,44 @@ impl ServerInfo {
 /// or keep the main thread alive.
 ///
 /// # Arguments
-/// * `music_path` - Path to the directory containing music files
+/// * `cli_path` - Optional path from CLI argument. If provided, overrides config file.
+///
+/// # Music Directory Priority
+/// 1. CLI argument (if provided)
+/// 2. Config file (if exists)
+/// 3. Environment variable `KAULAN_MUSIC_DIR`
 ///
 /// # Returns
 /// A `ServerInfo` containing the IP address and port the server is running on
-pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std::error::Error>> {
+///
+/// # Errors
+/// Returns an error if:
+/// - No music directory is configured (no CLI arg, no config file, no env var)
+/// - Database connection fails
+pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dyn std::error::Error>> {
+    // Priority: CLI arg > Config file > Environment variable
+    let music_path = if let Some(path) = cli_path {
+        // CLI argument provided - use it (highest priority)
+        info!("Using music directory from CLI argument: {}", path);
+        path
+    } else if let Some(path) = config::load_config() {
+        // Config file has music directory
+        info!("Using music directory from config file: {}", path);
+        path
+    } else if let Ok(path) = env::var("KAULAN_MUSIC_DIR") {
+        // Environment variable set
+        info!("Using music directory from environment variable: {}", path);
+        path
+    } else {
+        // No music directory configured - abort
+        error!("No music directory configured!");
+        error!("Please provide music directory via:");
+        error!("  1. CLI argument: {} run <music_path>", env::args().next().unwrap_or_else(|| "kaulan".to_string()));
+        error!("  2. Config file: {}/config.json", config::get_config_dir().unwrap_or_else(|| PathBuf::from("~/.config/kaulan")).display());
+        error!("  3. Environment variable: KAULAN_MUSIC_DIR");
+        return Err("No music directory configured. Use CLI argument, config file, or KAULAN_MUSIC_DIR environment variable.".into());
+    };
+
     info!("Connecting to database...");
     let db_conn = match establish_connection(&music_path).await {
         Ok(conn) => conn,
@@ -1249,7 +1404,7 @@ pub async fn start_server(music_path: String) -> Result<ServerInfo, Box<dyn std:
     }
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn,
     });
 
@@ -1331,7 +1486,7 @@ mod tests {
     async fn test_directory_tree_empty_directory() {
         let temp_dir = create_test_directory();
         let app_state = web::Data::new(AppState {
-            music_path: Arc::new(RwLock::new(temp_dir.path().to_str().unwrap().to_string())),
+            music_path: Arc::new(temp_dir.path().to_str().unwrap().to_string()),
             db_conn: establish_connection(temp_dir.path().to_str().unwrap()).await.unwrap(),
         });
 
@@ -1363,7 +1518,7 @@ mod tests {
 
         // Verify the nested structure is returned correctly
         let app_state = web::Data::new(AppState {
-            music_path: Arc::new(RwLock::new(music_path.clone())),
+            music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
         });
 
@@ -1397,7 +1552,7 @@ mod tests {
         let music_path = temp_dir.path().to_str().unwrap().to_string();
 
         let app_state = web::Data::new(AppState {
-            music_path: Arc::new(RwLock::new(music_path.clone())),
+            music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
         });
 
@@ -1424,7 +1579,7 @@ mod tests {
         let music_path = temp_dir.path().to_str().unwrap().to_string();
 
         let app_state = web::Data::new(AppState {
-            music_path: Arc::new(RwLock::new(music_path.clone())),
+            music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
         });
 

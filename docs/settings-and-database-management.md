@@ -2,12 +2,13 @@
 
 ## Overview
 
-The Settings and Database Management features allow users to configure the music directory and update the music database through the UI, without needing to restart the server or use command-line arguments.
+The Settings and Database Management features allow users to configure the music directory and update the music database through the UI. Music directory changes are persisted to a config file and take effect on the next application restart.
 
 ## Features
 
 1. **Music Directory Configuration** - Set and view the music directory path through the settings UI
 2. **Database Update** - Trigger database refresh to scan for new files, update LUFS values, and remove deleted files
+3. **Persistent Configuration** - Music directory is saved to a config file and persists across restarts
 
 ## API Endpoints
 
@@ -16,7 +17,7 @@ The Settings and Database Management features allow users to configure the music
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/settings/music-directory` | Get the current music directory path |
-| POST | `/api/settings/music-directory` | Set the music directory path (triggers database re-initialization) |
+| POST | `/api/settings/music-directory` | Set the music directory path (saved to config, takes effect on restart) |
 | POST | `/api/database/update` | Trigger database update (scan for new files, update LUFS, remove deleted files) |
 
 ## Request/Response Formats
@@ -42,10 +43,16 @@ Content-Type: application/json
   "path": "/new/path/to/music"
 }
 
-Response:
+Success Response:
 {
   "success": true,
-  "message": "Music directory updated to: /new/path/to/music"
+  "message": "Music directory will be set to '/new/path/to/music' on next restart."
+}
+
+Error Response (path doesn't exist):
+{
+  "success": false,
+  "message": "Directory does not exist: /invalid/path"
 }
 ```
 
@@ -85,6 +92,7 @@ sequenceDiagram
     participant User as User
     participant FE as Frontend
     participant BE as Backend (lib.rs)
+    participant Config as Config File
 
     Note over User,FE: User opens settings modal
     Note over User,FE: User clicks on music directory field
@@ -95,11 +103,36 @@ sequenceDiagram
     User->>FE: Click save/confirm button
     FE->>BE: POST /api/settings/music-directory { "path": "..." }
     BE->>BE: Validate path exists and is directory
-    BE->>BE: Update music path in AppState
-    BE->>BE: Re-initialize database with new path
-    BE-->>FE: Returns { "success": true, "message": "..." }
+    BE->>Config: Save music_directory to config.json
+    Config-->>BE: Save successful
+    BE-->>FE: Returns { "success": true, "message": "will be set on next restart" }
 
-    Note over FE: Show success message, refresh data
+    Note over FE: Show success message
+    Note over User: User must restart the application
+```
+
+### Application Startup - Load Config
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Config as Config File
+    participant DB as Database
+
+    Note over App: Application starting
+
+    App->>Config: Try to load config.json
+    alt Config exists
+        Config-->>App: Returns { "music_directory": "/path/to/music" }
+        Note over App: Use saved music directory
+    else Config doesn't exist
+        Note over App: Use CLI arg, env var, or default
+    end
+
+    App->>DB: Connect to database
+    App->>DB: Initialize database with music directory
+
+    Note over App: Server ready
 ```
 
 ### Update Database
@@ -167,7 +200,7 @@ sequenceDiagram
 
 ### Changing Music Directory
 
-The music directory can be changed directly through the REST API without restarting the server.
+The music directory can be changed through the settings UI. The change is saved to a configuration file and takes effect on the next application restart.
 
 1. Open the settings modal
 2. Click on the music directory field
@@ -176,11 +209,43 @@ The music directory can be changed directly through the REST API without restart
 
 The server will:
 - Validate that the path exists and is a directory
-- Update the music path in `AppState`
-- Re-initialize the database with the new path
-- Return a success message
+- Save the path to the configuration file
+- Return a success message indicating the change will take effect on restart
 
-**Note:** The music directory change takes effect immediately without requiring a server restart.
+**Note:** The music directory change takes effect on application restart, not immediately. The configuration is persisted across restarts.
+
+### Configuration File
+
+The music directory is stored in a JSON configuration file:
+
+**Standalone Mode:**
+| Platform | Config Location |
+|----------|----------------|
+| Linux | `~/.config/kaulan/config.json` |
+| macOS | `~/Library/Application Support/kaulan/config.json` |
+| Windows | `%APPDATA%\kaulan\config.json` |
+
+**Tauri Mode:**
+| Platform | Config Location |
+|----------|----------------|
+| Linux | `~/.config/<app-name>/config.json` |
+| macOS | `~/Library/Application Support/<app-name>/config.json` |
+| Windows | `%APPDATA%\<app-name>\config.json` |
+
+**Config Format:**
+```json
+{
+  "music_directory": "/path/to/music"
+}
+```
+
+**Startup Priority (highest to lowest):**
+1. CLI argument (if provided) - **Overrides config file**
+2. Config file (if exists)
+3. Environment variable `KAULAN_MUSIC_DIR`
+4. **Application aborts** if none of the above are configured
+
+**Note:** The application will no longer fall back to a default directory. If no music directory is configured via CLI argument, config file, or environment variable, the application will abort with an error message.
 
 ### Updating the Database
 
@@ -228,29 +293,52 @@ LUFS (Loudness Units Full Scale) values are calculated using FFmpeg. The update 
 
 The database update is implemented in `backend/src/lib.rs`:
 
-- `update_database_endpoint()` - Actix-web endpoint handler
-- `update_database()` - Core database update logic
-- `scan_directory_recursive()` - Recursive directory scanning
+| Function | Location | Description |
+|----------|----------|-------------|
+| `update_database_endpoint()` | lib.rs:985 | Actix-web endpoint handler |
+| `update_database()` | lib.rs:1140 | Core database update logic |
+| `scan_directory_recursive()` | lib.rs:1067 | Recursive directory scanning |
+| `load_config()` | lib.rs:58 | Load config from file |
+| `save_config()` | lib.rs:70 | Save config to file |
+
+### Configuration Module
+
+The configuration module provides cross-platform config file handling:
+
+```rust
+// backend/src/lib.rs
+
+/// Configuration file structure
+struct Config {
+    music_directory: Option<String>,
+}
+
+/// Load music directory from config file
+fn load_config() -> Option<String>
+
+/// Save music directory to config file
+fn save_config(music_directory: &str) -> Result<(), Box<dyn std::error::Error>>
+```
 
 ### State Management
 
-- The music directory is stored in `AppState` (Arc<RwLock<String>>)
-- The music directory can be updated at runtime via `POST /api/settings/music-directory`
-- When changed, the database is automatically re-initialized with the new path
-- No server restart is required to change the music directory
+- The music directory is stored in `AppState` as `Arc<String>` (immutable during runtime)
+- The music directory can be updated via `POST /api/settings/music-directory`
+- Changes are saved to config and applied on next restart
+- No `RwLock` overhead since the path is constant during runtime
 
 ### Error Handling
 
-The database update endpoint returns appropriate HTTP status codes:
-- `200 OK` - Update completed successfully
-- `500 Internal Server Error` - Database or file system error occurred
+The endpoints return appropriate HTTP status codes:
+- `200 OK` - Operation completed successfully
+- `400 Bad Request` - Invalid path (doesn't exist or not a directory)
+- `500 Internal Server Error` - Config file write error or database error
 
-## Future Improvements
+## Related Source Files
 
-Potential enhancements for these features:
-
-1. **Progress indicator** - Show detailed progress during database update (files processed, LUFS calculated, etc.)
-2. **Scheduled updates** - Configure automatic database updates at intervals
-3. **Partial updates** - Allow updating specific folders or file types
-4. **Batch LUFS calculation** - Queue LUFS calculation as a background task
-5. **Folder picker UI** - Implement a native folder picker for easier directory selection
+| File | Description |
+|------|-------------|
+| `backend/src/lib.rs:26-87` | Config module implementation |
+| `backend/src/lib.rs:574-642` | Settings API endpoints |
+| `backend/src/lib.rs:1274-1306` | Config loading in `start_server` |
+| `frontend/src-tauri/src/lib.rs` | Tauri config handling |

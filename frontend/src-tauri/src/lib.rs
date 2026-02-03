@@ -1,19 +1,15 @@
-use std::env;
+use std::fs;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
+use serde_json::json;
 
 // State to hold the current music directory
 struct MusicDirectory(Mutex<String>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Get initial music directory path
-    let initial_music_path = env::var("HOME")
-        .map(|h| format!("{}/Music", h))
-        .unwrap_or_else(|_| String::from("./music"));
-
     tauri::Builder::default()
-        .manage(MusicDirectory(Mutex::new(initial_music_path.clone())))
+        .manage(MusicDirectory(Mutex::new(String::new())))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -24,12 +20,39 @@ pub fn run() {
                 )?;
             }
 
-            // Start the backend server
+            // Read config from Tauri's app data directory for UI display purposes
+            let app_handle = app.handle().clone();
+            let music_path = tauri::async_runtime::block_on(async move {
+                // Try to load from config using Tauri's path API and std::fs
+                let path_resolver = app_handle.path();
+                if let Ok(config_dir) = path_resolver.app_config_dir() {
+                    let config_path = config_dir.join("config.json");
+                    if config_path.exists() {
+                        if let Ok(content) = fs::read_to_string(&config_path) {
+                            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                                if let Some(path) = config.get("music_directory").and_then(|v| v.as_str()) {
+                                    log::info!("Loaded music directory from config: {}", path);
+                                    return path.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // No config file - the backend will abort, but we store empty string for UI
+                log::warn!("No config file found, backend startup may fail");
+                String::new()
+            });
+
+            // Store in state for UI display
+            let state = app.state::<MusicDirectory>();
+            *state.0.lock().unwrap() = music_path.clone();
+
+            // Start the backend server with no CLI argument (uses config file)
             let _handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                log::info!("Starting backend server with music path: {}", initial_music_path);
-
-                match kaulan::start_server(initial_music_path).await {
+                log::info!("Starting backend server (will use config file)");
+                match kaulan::start_server(None).await {
                     Ok(server_info) => {
                         log::info!("Backend server started on: http://{}", server_info.url());
                     }
@@ -56,13 +79,13 @@ fn get_music_directory(state: State<'_, MusicDirectory>) -> Result<String, Strin
     Ok(path)
 }
 
-/// Set a new music directory and restart the backend
+/// Set a new music directory (saved to config, takes effect on restart)
 #[tauri::command]
-async fn set_music_directory(
-    state: State<'_, MusicDirectory>,
+fn set_music_directory(
+    app: tauri::AppHandle,
     new_path: String,
 ) -> Result<(), String> {
-    log::info!("Updating music directory to: {}", new_path);
+    log::info!("Music directory change requested to: {}", new_path);
 
     // Validate the path exists and is a directory
     if !std::path::Path::new(&new_path).exists() {
@@ -72,26 +95,23 @@ async fn set_music_directory(
         return Err(format!("Path is not a directory: {}", new_path));
     }
 
-    // Update the stored music directory
-    {
-        let mut path = state.0.lock().unwrap();
-        *path = new_path.clone();
+    // Save config file using Tauri's path API and std::fs
+    let path_resolver = app.path();
+    let config_dir = path_resolver.app_config_dir()
+        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+
+    // Create config directory if needed
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     }
 
-    // Start a new backend server with the new path
-    // Note: The old server will continue running in the background
-    // This is a known limitation that could be addressed in a future update
-    tauri::async_runtime::spawn(async move {
-        log::info!("Starting new backend server with music path: {}", new_path);
-        match kaulan::start_server(new_path).await {
-            Ok(server_info) => {
-                log::info!("New backend server started on: http://{}", server_info.url());
-            }
-            Err(e) => {
-                log::error!("Failed to start new backend server: {}", e);
-            }
-        }
+    let config_path = config_dir.join("config.json");
+    let config = json!({
+        "music_directory": new_path
     });
 
+    fs::write(&config_path, config.to_string()).map_err(|e| e.to_string())?;
+
+    log::info!("Music directory saved to config: {}", new_path);
     Ok(())
 }

@@ -36,7 +36,7 @@ async fn test_get_music_directory() {
     let test_music_path = "/tmp/test_music".to_string();
 
     let app_state = AppState {
-        music_path: Arc::new(RwLock::new(test_music_path.clone())),
+        music_path: Arc::new(test_music_path.clone()),
         db_conn: db,
     };
 
@@ -68,7 +68,7 @@ async fn test_update_database_empty() {
     std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
     let app_state = AppState {
-        music_path: Arc::new(RwLock::new(test_music_dir.to_string_lossy().to_string())),
+        music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db,
     };
 
@@ -108,7 +108,7 @@ async fn test_update_database_with_new_files() {
     std::fs::write(&test_file, b"dummy audio data").expect("Failed to create test file");
 
     let app_state = AppState {
-        music_path: Arc::new(RwLock::new(test_music_dir.to_string_lossy().to_string())),
+        music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db.clone(),
     };
 
