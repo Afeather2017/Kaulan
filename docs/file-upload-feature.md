@@ -7,7 +7,7 @@ The File Upload feature allows users to upload music files directly to the music
 ## Features
 
 1. **Directory Tree Selection** - Browse and select the target directory within the music folder
-2. **Multi-File Upload** - Upload multiple music files at once
+2. **Single File Upload** - Upload one music file at a time (users can make multiple requests for multiple files)
 3. **Automatic Database Update** - Database is automatically refreshed after successful upload
 4. **File Type Validation** - Only accepted audio formats can be uploaded
 
@@ -50,14 +50,14 @@ POST /api/files/upload
 Content-Type: multipart/form-data
 
 Form Fields:
-- targetPath: string (relative path within music directory, e.g., "Album1/Subfolder")
-- files: File[] (multiple music files)
+- targetPath: string (optional, relative path within music directory, e.g., "Album1/Subfolder")
+- files: File (single music file)
 
 Response:
 {
   "success": true,
-  "message": "Uploaded 2 file(s)",
-  "uploaded": ["song1.mp3", "song2.flac"],
+  "message": "Uploaded 1 file(s)",
+  "uploaded": ["song.mp3"],
   "failed": []
 }
 ```
@@ -98,44 +98,41 @@ sequenceDiagram
 
     User->>FE: Click "选择文件" (Select Files)
     FE->>FE: Open native file picker
-    User->>FE: Select multiple music files
-    Note over FE: Display selected file names
+    User->>FE: Select one music file
+    Note over FE: Display selected file name
 
     User->>FE: Click "上传" (Upload)
-    FE->>FE: Create FormData with targetPath and files
+    FE->>FE: Create FormData with targetPath and file
     FE->>FE: Show upload progress indicator
 
     FE->>BE: POST /api/files/upload (multipart/form-data)
 
     Note over BE: Parse multipart form data
 
-    loop For each uploaded file
-        BE->>BE: Validate file extension
-        BE->>BE: Construct target file path
-        BE->>BE: Validate path is within music directory
+    BE->>BE: Validate file extension
+    BE->>BE: Construct target file path
+    BE->>BE: Validate path is within music directory
 
-        alt Path validation fails
-            BE->>BE: Log error, add to failed list
-        else File write fails
-            BE->>FS: Remove partially uploaded file
-            BE->>BE: Log error, add to failed list
-        else Success
-            BE->>FS: Write file to target directory
-            Note over BE: Add to uploaded list
-        end
-    end
-
-    Note over BE: All files processed
-
-    alt At least one file uploaded successfully
+    alt Path validation fails
+        BE->>BE: Log error, add to failed list
+        BE-->>FE: Returns error response
+    else File extension invalid
+        BE->>BE: Log error, add to failed list
+        BE-->>FE: Returns error response
+    else File write fails
+        BE->>FS: Remove partially uploaded file
+        BE->>BE: Log error, add to failed list
+        BE-->>FE: Returns error response
+    else Success
+        BE->>FS: Write file to target directory
+        Note over BE: Add to uploaded list
         BE->>DB: Trigger database update
         DB->>FS: Scan for new files
         DB->>FFmpeg: Calculate LUFS for new files
         FFmpeg-->>DB: Returns LUFS values
         DB-->>BE: Update complete
+        BE-->>FE: Returns success response
     end
-
-    BE-->>FE: Returns { success, message, uploaded, failed }
 
     Note over FE: Hide upload progress
     FE->>FE: Show upload results to user
@@ -157,16 +154,20 @@ sequenceDiagram
    - Click on a directory to select it as the upload target
    - The selected path is displayed above the file selection button
 
-2. **Select Files**
+2. **Select File**
    - Click "选择文件" (Select Files) button
-   - Select one or more music files from your device
-   - The number of selected files is displayed
+   - Select one music file from your device
+   - The selected file name is displayed
 
 3. **Upload**
    - Click "上传" (Upload) button
    - Wait for the upload to complete
-   - A success message shows how many files were uploaded
-   - The database is automatically updated with the new files
+   - A success message shows the uploaded file name
+   - The database is automatically updated with the new file
+
+4. **Upload Multiple Files**
+   - Repeat the process for each additional file
+   - Or use the upload modal multiple times
 
 ## Supported Audio Formats
 
@@ -238,10 +239,11 @@ After successful file upload, the existing `POST /api/database/update` endpoint 
 | Error Scenario | Behavior |
 |----------------|----------|
 | Invalid file extension | File rejected, added to `failed` list |
-| Path outside music directory | File rejected, error logged |
+| Path outside music directory | Request rejected with 400 error |
+| Path traversal attempt (..) | Request rejected with 400 error |
 | Target directory doesn't exist | Directory created automatically |
 | File write fails | Partial file removed, added to `failed` list |
-| FFmpeg not available | Files saved, LUFS set to default (0.5) |
+| FFmpeg not available | File saved, LUFS set to default (0.5) |
 
 ## Configuration
 
