@@ -16,7 +16,9 @@ pub struct LufsResult {
 
 /// Runs FFmpeg command to get LUFS value and parses the result
 pub fn get_lufs(file_path: &str) -> Option<f64> {
-    debug!("Calculating LUFS for: {}", file_path);
+    info!("[LUFS] Starting FFmpeg for file: {}", file_path);
+    debug!("[LUFS] Command: ffmpeg -i {} -filter_complex ebur128=peak=true -f null -", file_path);
+
     let cmd = Command::new("ffmpeg")
         .args([
             "-i", file_path,
@@ -29,6 +31,7 @@ pub fn get_lufs(file_path: &str) -> Option<f64> {
 
     match cmd {
         Ok(mut child) => {
+            debug!("[LUFS] FFmpeg process spawned with PID: {:?}", child.id());
             let stderr = child.stderr.take().expect("Failed to capture stderr");
             let reader = BufReader::new(stderr);
 
@@ -46,7 +49,9 @@ pub fn get_lufs(file_path: &str) -> Option<f64> {
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if parts.len() >= 3 && parts[0] == "I:" {
                             if let Ok(lufs_value) = parts[1].parse::<f64>() {
-                                debug!("LUFS calculated for {}: {}", file_path, lufs_value);
+                                info!("[LUFS] SUCCESS: {} - LUFS: {}", file_path, lufs_value);
+                                // Wait for the process to finish cleanly
+                                let _ = child.wait();
                                 return Some(lufs_value);
                             }
                         }
@@ -56,11 +61,11 @@ pub fn get_lufs(file_path: &str) -> Option<f64> {
 
             // Wait for the process to finish
             let _ = child.wait();
-            warn!("Failed to extract LUFS value from ffmpeg output for: {}", file_path);
+            warn!("[LUFS] FAILED: Could not extract LUFS value from FFmpeg output for: {}", file_path);
             None
         }
         Err(e) => {
-            error!("Failed to execute ffmpeg for {}: {}", file_path, e);
+            error!("[LUFS] ERROR: Failed to execute FFmpeg for {}: {}", file_path, e);
             None
         }
     }

@@ -317,6 +317,12 @@ const handleUploadComplete = async () => {
   // Refresh data after upload completes
   showUploadModal.value = false
   await refreshData()
+
+  // If a playlist is currently selected, update its songs with the refreshed data
+  if (selectedPlaylist.value) {
+    const playlistName = selectedPlaylist.value.name
+    selectPlaylist(playlistName)
+  }
 }
 
 // Collection management handlers

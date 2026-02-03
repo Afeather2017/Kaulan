@@ -27,12 +27,13 @@ A new feature need change backend and frontend. You should:
 
 ### Documentations
 
-Documentations should always in English.
+Documentations should always in English. When feature is done, you should generate the documentation.
 
 1. README.md, briefly introduced the project, say key features.
 2. docs/ , which introduce the feature, how features works(in sequence diagram), how user to use the UI. The features introducton should include all API.
 3. API reference, use rust-builtin reference system, this should be done in comments.
 4. CLAUDE.md, Introduce the project framework by path.
+5. In source code and test files, comment the documentation file. And documentation should contains the related source file path.
 
 ### Log
 
@@ -51,6 +52,14 @@ Rules:
 | 7. Logging Method Entry/Exit and Call Chains | DEBUG / INFO | For important methods, log parameters at the entry and results at the exit (DEBUG). For long operations, ensure each step in the chain has a log (INFO) to trace the problematic link. The article suggests using AOP for uniform implementation. |
 | 8. Avoiding Sensitive Information | All Levels | General Rule: Regardless of the level, log content must never contain sensitive information like user passwords or ID numbers to prevent security issues in case of a log leak. |
 | 9. Dynamic Log Level Adjustment | Adjustable | If a problem occurs in production but the current log level (e.g., INFO) doesn't provide enough information, you can temporarily lower the level (e.g., to DEBUG) to get more detailed logs for troubleshooting. |
+
+### Bug fix
+
+Update documentation when fixed
+
+## Rules
+
+1. In the ts/js/html, use tauri feature is strictly forbidden! We need to provide a web.
 
 ## Development Commands
 

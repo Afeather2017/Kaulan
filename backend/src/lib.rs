@@ -4,7 +4,7 @@ use actix_multipart::Multipart;
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -659,51 +659,104 @@ struct UploadResponse {
     failed: Vec<String>,
 }
 
-/// Upload files to a specific directory within the music directory
+/// Upload a single file to the music directory
+///
+/// # Arguments
+/// * `payload` - Multipart form data containing:
+///   - `targetPath` (optional): Subdirectory path within music directory
+///   - `files`: Single file to upload
+/// * `data` - Application state containing music path and database connection
+///
+/// # Returns
+/// JSON response with upload status:
+/// ```json
+/// {
+///   "success": true,
+///   "message": "Uploaded 1 file(s)",
+///   "uploaded": ["song.mp3"],
+///   "failed": []
+/// }
+/// ```
+///
+/// # Example
+/// ```bash
+/// curl -X POST http://localhost:2080/api/files/upload \
+///   -F "targetPath=playlist" \
+///   -F "files=@song.mp3"
+/// ```
 #[post("/api/files/upload")]
 pub async fn upload_files(
     mut payload: Multipart,
     data: web::Data<AppState>,
 ) -> impl Responder {
-    debug!("File upload request received");
+    info!("[UPLOAD] ========== FILE UPLOAD REQUEST STARTED ==========");
     let lock = data.music_path.read().await;
     let music_path_str = lock.clone();
     drop(lock);
+    info!("[UPLOAD] Music directory: {}", music_path_str);
 
     let mut target_path = String::new();
-    let mut uploaded_files = Vec::new();
-    let mut failed_files = Vec::new();
+    let mut file_processed = false;
+    let mut uploaded_filename = None;
+    let mut failed_filename = None;
 
-    // Process the multipart form data
-    let mut field_result = payload.try_next().await;
-    while field_result.is_ok() {
-        if let Some(mut field) = field_result.unwrap() {
-            let content_disposition = field.content_disposition();
-            let field_name = content_disposition
-                .and_then(|cd| cd.get_name())
-                .unwrap_or("")
-                .to_string();
+    // Process targetPath field first (if present)
+    info!("[UPLOAD] Processing multipart fields");
+    loop {
+        let field_result = payload.try_next().await;
+        let mut field = match field_result {
+            Ok(f) => match f {
+                Some(field) => field,
+                None => break,
+            },
+            Err(e) => {
+                error!("[UPLOAD] Error reading field: {}", e);
+                break;
+            }
+        };
 
-            match field_name.as_str() {
-                "targetPath" => {
-                    // Read the target path
-                    let mut path_bytes = Vec::new();
-                    let mut chunk_result = field.try_next().await;
-                    while chunk_result.is_ok() {
-                        if let Some(chunk) = chunk_result.unwrap() {
-                            path_bytes.extend_from_slice(&chunk);
-                            chunk_result = field.try_next().await;
-                        } else {
-                            break;
-                        }
+        let content_disposition = field.content_disposition();
+        let field_name = content_disposition
+            .and_then(|cd| cd.get_name())
+            .unwrap_or("")
+            .to_string();
+
+        info!("[UPLOAD] Processing field: '{}'", field_name);
+
+        match field_name.as_str() {
+            "targetPath" => {
+                // Read the target path
+                let mut path_bytes = Vec::new();
+                while let Ok(Some(chunk)) = field.try_next().await {
+                    path_bytes.extend_from_slice(&chunk);
+                }
+                target_path = String::from_utf8_lossy(&path_bytes).to_string();
+                info!("[UPLOAD] Target path: {}", target_path);
+
+                // Security check: ensure target path is valid and within music directory
+                let target_dir = Path::new(&music_path_str).join(&target_path);
+
+                // Canonicalize both paths for proper comparison
+                let music_path_canonical = fs::canonicalize(&music_path_str)
+                    .unwrap_or_else(|_| PathBuf::from(&music_path_str));
+
+                // Try to canonicalize the target directory - if it would escape, it will fail
+                // or resolve outside the music directory
+                let target_dir_canonical = if target_dir.exists() {
+                    fs::canonicalize(&target_dir).ok()
+                } else {
+                    // For non-existent paths, we need to check the parent
+                    if let Some(parent) = target_dir.parent() {
+                        fs::canonicalize(parent).ok()
+                    } else {
+                        None
                     }
-                    target_path = String::from_utf8_lossy(&path_bytes).to_string();
-                    debug!("Target path: {}", target_path);
+                };
 
-                    // Security check: ensure target path is valid and within music directory
-                    let target_dir = Path::new(&music_path_str).join(&target_path);
-                    if !target_dir.starts_with(&music_path_str) {
-                        warn!("Invalid target path: {} (not within music directory)", target_path);
+                // Check if the target would be outside the music directory
+                if let Some(canonical) = target_dir_canonical {
+                    if !canonical.starts_with(&music_path_canonical) {
+                        warn!("[UPLOAD] Invalid target path: {} (not within music directory)", target_path);
                         return HttpResponse::BadRequest().json(UploadResponse {
                             success: false,
                             message: "Invalid target path".to_string(),
@@ -711,101 +764,129 @@ pub async fn upload_files(
                             failed: vec![],
                         });
                     }
-
-                    // Create target directory if it doesn't exist
-                    if !target_dir.exists() {
-                        if let Err(e) = fs::create_dir_all(&target_dir) {
-                            error!("Failed to create target directory {}: {}", target_dir.display(), e);
-                            return HttpResponse::InternalServerError().json(UploadResponse {
-                                success: false,
-                                message: format!("Failed to create target directory: {}", e),
-                                uploaded: vec![],
-                                failed: vec![],
-                            });
-                        }
+                } else {
+                    // Fallback: check for path traversal patterns in the raw path
+                    if target_path.contains("..") {
+                        warn!("[UPLOAD] Invalid target path: {} (contains path traversal)", target_path);
+                        return HttpResponse::BadRequest().json(UploadResponse {
+                            success: false,
+                            message: "Invalid target path".to_string(),
+                            uploaded: vec![],
+                            failed: vec![],
+                        });
                     }
                 }
-                "files" => {
-                    let filename = content_disposition
-                        .and_then(|cd| cd.get_filename())
-                        .unwrap_or("unknown")
-                        .to_string();
 
-                    // Validate file extension
-                    if let Some(extension) = Path::new(&filename).extension() {
-                        let ext_str = extension.to_string_lossy().to_lowercase();
-                        if !SUPPORTED_EXTENSIONS.contains(&ext_str.as_str()) {
-                            warn!("Unsupported file type: {}", filename);
-                            failed_files.push(filename.clone());
-                            field_result = payload.try_next().await;
-                            continue;
-                        }
-                    } else {
-                        warn!("File without extension: {}", filename);
-                        failed_files.push(filename.clone());
-                        field_result = payload.try_next().await;
-                        continue;
+                // Create target directory if it doesn't exist
+                if !target_dir.exists() {
+                    if let Err(e) = fs::create_dir_all(&target_dir) {
+                        error!("[UPLOAD] Failed to create target directory {}: {}", target_dir.display(), e);
+                        return HttpResponse::InternalServerError().json(UploadResponse {
+                            success: false,
+                            message: format!("Failed to create target directory: {}", e),
+                            uploaded: vec![],
+                            failed: vec![],
+                        });
                     }
-
-                    // Determine the full file path
-                    let full_target_path = if target_path.is_empty() {
-                        Path::new(&music_path_str).join(&filename)
-                    } else {
-                        Path::new(&music_path_str).join(&target_path).join(&filename)
-                    };
-
-                    // Security check: ensure file path is within music directory
-                    if !full_target_path.starts_with(&music_path_str) {
-                        warn!("Invalid file path: {} (not within music directory)", full_target_path.display());
-                        failed_files.push(filename.clone());
-                        field_result = payload.try_next().await;
-                        continue;
-                    }
-
-                    // Write the file
-                    match File::create(&full_target_path) {
-                        Ok(mut file) => {
-                            let mut file_size = 0u64;
-                            let mut write_error = false;
-
-                            let mut chunk_result = field.try_next().await;
-                            while chunk_result.is_ok() {
-                                if let Some(chunk) = chunk_result.unwrap() {
-                                    file_size += chunk.len() as u64;
-                                    if file.write_all(&chunk).is_err() {
-                                        write_error = true;
-                                        break;
-                                    }
-                                    chunk_result = field.try_next().await;
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            if write_error {
-                                error!("Failed to write file: {}", filename);
-                                let _ = fs::remove_file(&full_target_path);
-                                failed_files.push(filename.clone());
-                            } else {
-                                info!("Successfully uploaded file: {} ({} bytes)", filename, file_size);
-                                uploaded_files.push(filename);
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to create file {}: {}", filename, e);
-                            failed_files.push(filename.clone());
-                        }
-                    }
-                }
-                _ => {
-                    debug!("Ignoring unknown field: {}", field_name);
                 }
             }
+            "files" => {
+                if file_processed {
+                    warn!("[UPLOAD] Multiple files detected, only processing first file");
+                    // Skip additional files
+                    while let Ok(Some(_)) = field.try_next().await {}
+                    continue;
+                }
+
+                file_processed = true;
+                let filename = content_disposition
+                    .and_then(|cd| cd.get_filename())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                // Validate file extension
+                if let Some(extension) = Path::new(&filename).extension() {
+                    let ext_str = extension.to_string_lossy().to_lowercase();
+                    if !SUPPORTED_EXTENSIONS.contains(&ext_str.as_str()) {
+                        warn!("[UPLOAD] Unsupported file type: {}", filename);
+                        failed_filename = Some(filename.clone());
+                        // Consume remaining field data
+                        while let Ok(Some(_)) = field.try_next().await {}
+                        continue;
+                    }
+                } else {
+                    warn!("[UPLOAD] File without extension: {}", filename);
+                    failed_filename = Some(filename.clone());
+                    // Consume remaining field data
+                    while let Ok(Some(_)) = field.try_next().await {}
+                    continue;
+                }
+
+                // Determine the full file path
+                let full_target_path = if target_path.is_empty() {
+                    Path::new(&music_path_str).join(&filename)
+                } else {
+                    Path::new(&music_path_str).join(&target_path).join(&filename)
+                };
+
+                // Security check: ensure file path is within music directory
+                if !full_target_path.starts_with(&music_path_str) {
+                    warn!("[UPLOAD] Invalid file path: {} (not within music directory)", full_target_path.display());
+                    failed_filename = Some(filename.clone());
+                    // Consume remaining field data
+                    while let Ok(Some(_)) = field.try_next().await {}
+                    continue;
+                }
+
+                // Write the file
+                match File::create(&full_target_path) {
+                    Ok(mut file) => {
+                        let mut file_size = 0u64;
+                        let mut write_error = false;
+
+                        while let Ok(Some(chunk)) = field.try_next().await {
+                            file_size += chunk.len() as u64;
+                            if file.write_all(&chunk).is_err() {
+                                write_error = true;
+                                break;
+                            }
+                        }
+
+                        if write_error {
+                            error!("[UPLOAD] Failed to write file: {}", filename);
+                            let _ = fs::remove_file(&full_target_path);
+                            failed_filename = Some(filename);
+                        } else {
+                            info!("[UPLOAD] Successfully uploaded file: {} ({} bytes) -> {}", filename, file_size, full_target_path.display());
+                            uploaded_filename = Some(filename);
+                        }
+                    }
+                    Err(e) => {
+                        error!("[UPLOAD] Failed to create file {}: {}", filename, e);
+                        failed_filename = Some(filename);
+                    }
+                }
+            }
+            _ => {
+                debug!("[UPLOAD] Ignoring unknown field: {}", field_name);
+                // Consume unknown field data
+                while let Ok(Some(_)) = field.try_next().await {}
+            }
         }
-        field_result = payload.try_next().await;
     }
 
+    // Build response arrays (format stays the same for API compatibility)
+    let uploaded_files = match uploaded_filename {
+        Some(f) => vec![f],
+        None => vec![],
+    };
+    let failed_files = match failed_filename {
+        Some(f) => vec![f],
+        None => vec![],
+    };
+
     if uploaded_files.is_empty() && failed_files.is_empty() {
+        warn!("[UPLOAD] No files provided in request");
         return HttpResponse::BadRequest().json(UploadResponse {
             success: false,
             message: "No files provided".to_string(),
@@ -814,15 +895,18 @@ pub async fn upload_files(
         });
     }
 
+    info!("[UPLOAD] Upload summary: {} successful, {} failed", uploaded_files.len(), failed_files.len());
+
     // Trigger database update after successful upload
     if !uploaded_files.is_empty() {
-        info!("Triggering database update after file upload");
+        info!("[UPLOAD] ========== TRIGGERING DATABASE UPDATE AFTER UPLOAD ==========");
+        info!("[UPLOAD] Files to process: {:?}", uploaded_files);
         match update_database(&music_path_str, &data.db_conn).await {
             Ok(_) => {
-                info!("Database update completed after upload");
+                info!("[UPLOAD] ========== DATABASE UPDATE COMPLETED SUCCESSFULLY ==========");
             }
             Err(e) => {
-                warn!("Database update failed after upload: {}", e);
+                warn!("[UPLOAD] Database update failed after upload: {}", e);
             }
         }
     }
@@ -834,6 +918,7 @@ pub async fn upload_files(
         "Upload failed".to_string()
     };
 
+    info!("[UPLOAD] ========== UPLOAD REQUEST COMPLETE: {} ==========", success);
     HttpResponse::Ok().json(UploadResponse {
         success,
         message,
@@ -1003,13 +1088,17 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
 
 /// Update database: scan for new files, calculate LUFS, and insert
 pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> Result<(), std::io::Error> {
-    info!("Scanning for new files in: {}", music_path);
+    info!("[DB_UPDATE] ========== STARTING DATABASE UPDATE ==========");
+    info!("[DB_UPDATE] Music directory: {}", music_path);
 
     let audio_files = scan_directory_recursive(Path::new(music_path), music_path);
+    info!("[DB_UPDATE] Found {} audio files in directory", audio_files.len());
+
     let mut new_files = 0;
     let mut updated_files = 0;
+    let mut skipped_files = 0;
 
-    for file_path in &audio_files {
+    for (idx, file_path) in audio_files.iter().enumerate() {
         let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
         let relative_path = file_path.strip_prefix(music_path)
             .unwrap_or(file_path)
@@ -1017,14 +1106,18 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
             .to_string();
         let full_path = file_path.to_string_lossy().to_string();
 
+        info!("[DB_UPDATE] [{}/{}] Checking file: {}", idx + 1, audio_files.len(), filename);
+        debug!("[DB_UPDATE]   Relative path: {}", relative_path);
+
         match MusicEntity::find()
             .filter(MusicColumn::FilePath.eq(&relative_path))
             .one(db_conn)
             .await
         {
             Ok(None) => {
-                info!("Found new file: {}", filename);
+                info!("[DB_UPDATE]   NEW FILE detected - calling FFmpeg for LUFS...");
                 if let Some(lufs_value) = get_lufs(&full_path) {
+                    info!("[DB_UPDATE]   LUFS calculated: {} - inserting to database...", lufs_value);
                     let music = MusicActiveModel {
                         filename: Set(filename.clone()),
                         file_path: Set(relative_path),
@@ -1034,44 +1127,47 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                     };
                     match music.insert(db_conn).await {
                         Ok(_) => {
-                            info!("Inserted: {} (LUFS: {})", filename, lufs_value);
+                            info!("[DB_UPDATE]   INSERTED: {} (LUFS: {})", filename, lufs_value);
                             new_files += 1;
                         }
                         Err(e) => {
-                            error!("Failed to insert {}: {}", filename, e);
+                            error!("[DB_UPDATE]   FAILED to insert {}: {}", filename, e);
                         }
                     }
                 } else {
-                    warn!("Failed to calculate LUFS for {}", filename);
+                    warn!("[DB_UPDATE]   SKIPPED: Failed to calculate LUFS for {}", filename);
                 }
             }
             Ok(Some(existing_music)) => {
                 if existing_music.lufs.is_none() || existing_music.lufs == Some(0.5) {
-                    info!("Updating LUFS for: {}", filename);
+                    info!("[DB_UPDATE]   EXISTING FILE without LUFS - updating...");
                     if let Some(lufs_value) = get_lufs(&full_path) {
                         let mut active_model: MusicActiveModel = existing_music.clone().into();
                         active_model.lufs = Set(Some(lufs_value));
                         match active_model.update(db_conn).await {
                             Ok(_) => {
-                                info!("Updated: {} (LUFS: {})", filename, lufs_value);
+                                info!("[DB_UPDATE]   UPDATED: {} (LUFS: {})", filename, lufs_value);
                                 updated_files += 1;
                             }
                             Err(e) => {
-                                error!("Failed to update {}: {}", filename, e);
+                                error!("[DB_UPDATE]   FAILED to update {}: {}", filename, e);
                             }
                         }
                     } else {
-                        warn!("Failed to calculate LUFS for {}", filename);
+                        warn!("[DB_UPDATE]   SKIPPED: Failed to calculate LUFS for {}", filename);
                     }
+                } else {
+                    debug!("[DB_UPDATE]   SKIPPED: File already in database with LUFS: {}", existing_music.lufs.unwrap());
+                    skipped_files += 1;
                 }
             }
             Err(e) => {
-                error!("Database error while checking file {}: {}", relative_path, e);
+                error!("[DB_UPDATE]   DATABASE ERROR while checking file {}: {}", relative_path, e);
             }
         }
     }
 
-    info!("Checking for deleted files...");
+    info!("[DB_UPDATE] Checking for deleted files...");
     let mut deleted_files = 0;
     match MusicEntity::find().all(db_conn).await {
         Ok(all_music) => {
@@ -1079,24 +1175,25 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                 let full_path = Path::new(music_path).join(&music.file_path);
                 if !full_path.exists() {
                     let filename = music.filename.clone();
-                    info!("Deleting non-existent file from database: {}", filename);
+                    info!("[DB_UPDATE] Deleting non-existent file from database: {}", filename);
                     match music.delete(db_conn).await {
                         Ok(_) => {
                             deleted_files += 1;
                         }
                         Err(e) => {
-                            error!("Failed to delete {}: {}", filename, e);
+                            error!("[DB_UPDATE] Failed to delete {}: {}", filename, e);
                         }
                     }
                 }
             }
         }
         Err(e) => {
-            error!("Database error while checking for deleted files: {}", e);
+            error!("[DB_UPDATE] Database error while checking for deleted files: {}", e);
         }
     }
 
-    info!("Update complete: {} new files, {} updated files, {} deleted files", new_files, updated_files, deleted_files);
+    info!("[DB_UPDATE] ========== DATABASE UPDATE COMPLETE ==========");
+    info!("[DB_UPDATE] Summary: {} new, {} updated, {} skipped, {} deleted", new_files, updated_files, skipped_files, deleted_files);
     Ok(())
 }
 

@@ -22,7 +22,6 @@
         <input
           ref="fileInput"
           type="file"
-          multiple
           accept=".mp3,.ogg,.wav,.aac,.flac"
           @change="handleFileSelect"
           style="display: none"
@@ -30,14 +29,11 @@
         <button @click="openFileSelector" class="select-files-btn">
           点击选择文件
         </button>
-        <div v-if="selectedFiles.length > 0" class="selected-files">
-          <div class="files-count">已选择 {{ selectedFiles.length }} 个文件</div>
+        <div v-if="selectedFile" class="selected-files">
+          <div class="files-count">已选择文件</div>
           <div class="files-list">
-            <div v-for="(file, index) in selectedFiles.slice(0, 5)" :key="index" class="file-item">
-              {{ file.name }}
-            </div>
-            <div v-if="selectedFiles.length > 5" class="file-item more-files">
-              还有 {{ selectedFiles.length - 5 }} 个文件...
+            <div class="file-item">
+              {{ selectedFile.name }}
             </div>
           </div>
         </div>
@@ -48,7 +44,7 @@
         <button
           @click="uploadFiles"
           class="upload-btn"
-          :disabled="selectedFiles.length === 0 || isUploading"
+          :disabled="!selectedFile || isUploading"
         >
           {{ isUploading ? '上传中...' : '上传到 ' + (selectedPath || '根目录') }}
         </button>
@@ -107,14 +103,14 @@ interface UploadResponse {
   failed: string[]
 }
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'close'): void
   (e: 'uploadComplete'): void
 }>()
 
 const directoryTree = ref<DirectoryNode | null>(null)
 const selectedPath = ref<string>('')
-const selectedFiles = ref<File[]>([])
+const selectedFile = ref<File | null>(null)
 const isUploading = ref<boolean>(false)
 const uploadResult = ref<UploadResponse | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -147,14 +143,14 @@ const openFileSelector = () => {
 
 const handleFileSelect = (event: Event) => {
   const target = event.target as HTMLInputElement
-  if (target.files) {
-    selectedFiles.value = Array.from(target.files)
+  if (target.files && target.files.length > 0) {
+    selectedFile.value = target.files[0]
     uploadResult.value = null
   }
 }
 
 const uploadFiles = async () => {
-  if (selectedFiles.value.length === 0) {
+  if (!selectedFile.value) {
     alert('请先选择文件')
     return
   }
@@ -165,10 +161,7 @@ const uploadFiles = async () => {
   try {
     const formData = new FormData()
     formData.append('targetPath', selectedPath.value)
-
-    for (const file of selectedFiles.value) {
-      formData.append('files', file)
-    }
+    formData.append('files', selectedFile.value)
 
     const response = await fetch('/api/files/upload', {
       method: 'POST',
@@ -180,10 +173,12 @@ const uploadFiles = async () => {
 
     if (result.success) {
       // Clear file selection on success
-      selectedFiles.value = []
+      selectedFile.value = null
       if (fileInput.value) {
         fileInput.value.value = ''
       }
+      // Emit upload complete event to refresh data in parent component
+      emit('uploadComplete')
     }
   } catch (error) {
     console.error('Failed to upload files:', error)
@@ -191,7 +186,7 @@ const uploadFiles = async () => {
       success: false,
       message: '上传失败: ' + error,
       uploaded: [],
-      failed: selectedFiles.value.map((f) => f.name),
+      failed: [selectedFile.value?.name || 'unknown'],
     }
   } finally {
     isUploading.value = false
