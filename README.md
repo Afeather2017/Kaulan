@@ -39,14 +39,24 @@ cargo build
 
 ### Running the Application
 
+The music directory can be provided via:
+1. **CLI argument** (highest priority) - `cargo run /path/to/music`
+2. **Config file** - `~/.config/kaulan/config.json`
+3. **Environment variable** - `KAULAN_MUSIC_DIR`
+
+If none of the above are configured, the application will abort with an error message.
+
 ```bash
 cd backend
 
-# Run with default music directory (~/Music or ./music)
-cargo run run /path/to/music
+# Option 1: Provide music directory via CLI argument
+cargo run /path/to/music
 
-# Or with a custom music directory
-cargo run run /absolute/path/to/your/music
+# Option 2: Use config file (see Configuration section below)
+# The application will read from ~/.config/kaulan/config.json
+
+# Option 3: Use environment variable
+KAULAN_MUSIC_DIR=/path/to/music cargo run
 ```
 
 The backend API will start on `http://localhost:2080`
@@ -80,9 +90,25 @@ music/
 
 ### 2. Starting the Server
 
+**First time setup** - Create a config file:
+
+```bash
+# Create config directory
+mkdir -p ~/.config/kaulan
+
+# Create config file with your music directory
+echo '{"music_directory": "/path/to/music"}' > ~/.config/kaulan/config.json
+
+# Start the server (will read from config file)
+cd backend
+cargo run
+```
+
+**Or use CLI argument directly:**
+
 ```bash
 cd backend
-cargo run run ~/Music
+cargo run /path/to/music
 ```
 
 On first run, the server will:
@@ -214,6 +240,33 @@ Get the current music directory path.
 }
 ```
 
+#### POST /api/settings/music-directory
+
+Set the music directory path. The change is saved to a config file and takes effect on the next application restart.
+
+**Request:**
+```json
+{
+  "path": "/new/path/to/music"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "message": "Music directory will be set to '/new/path/to/music' on next restart."
+}
+```
+
+**Response (Error):**
+```json
+{
+  "success": false,
+  "message": "Directory does not exist: /invalid/path"
+}
+```
+
 #### POST /api/database/update
 
 Trigger a database update to scan for new files, update LUFS values, and remove deleted files.
@@ -289,6 +342,33 @@ The application performs these operations automatically:
 - FLAC (`.flac`)
 
 ## Configuration
+
+### Config File
+
+The application uses a JSON configuration file to persist the music directory path across restarts.
+
+**Config File Locations:**
+
+| Platform | Standalone Mode | Tauri Mode |
+|----------|----------------|------------|
+| Linux | `~/.config/kaulan/config.json` | `~/.config/<app-name>/config.json` |
+| macOS | `~/Library/Application Support/kaulan/config.json` | `~/Library/Application Support/<app-name>/config.json` |
+| Windows | `%APPDATA%\kaulan\config.json` | `%APPDATA%\<app-name>\config.json` |
+
+**Config Format:**
+```json
+{
+  "music_directory": "/path/to/music"
+}
+```
+
+**Music Directory Priority (highest to lowest):**
+1. CLI argument (if provided) - **Overrides config file**
+2. Config file (if exists)
+3. Environment variable `KAULAN_MUSIC_DIR`
+4. **Application aborts** if none of the above are configured
+
+**Note:** The application will no longer fall back to a default directory. If no music directory is configured via CLI argument, config file, or environment variable, the application will abort with an error message.
 
 ### Backend Configuration
 

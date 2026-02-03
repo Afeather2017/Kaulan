@@ -120,7 +120,7 @@ async fn test_upload_files_then_check_database_via_api() {
 
     // STEP 3: Use GET /api/music endpoint to verify the file appears
     let app_state = AppState {
-        music_path: Arc::new(RwLock::new(music_path_str.clone())),
+        music_path: Arc::new(music_path_str.clone()),
         db_conn: db.clone(),
     };
 

@@ -73,7 +73,7 @@ async fn test_upload_single_file_to_root() {
     let db = setup_test_db().await.expect("Failed to setup DB");
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn: db,
     });
 
@@ -119,7 +119,7 @@ async fn test_upload_to_subdirectory() {
     let db = setup_test_db().await.expect("Failed to setup DB");
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn: db,
     });
 
@@ -163,7 +163,7 @@ async fn test_upload_unsupported_file_type_rejected() {
     let db = setup_test_db().await.expect("Failed to setup DB");
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn: db,
     });
 
@@ -208,7 +208,7 @@ async fn test_upload_path_traversal_protection() {
     let db = setup_test_db().await.expect("Failed to setup DB");
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn: db,
     });
 
@@ -256,7 +256,7 @@ async fn test_upload_updates_database() {
     let db = setup_test_db().await.expect("Failed to setup DB");
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn: db.clone(),
     });
 
@@ -318,7 +318,7 @@ async fn test_upload_empty_request() {
     let db = setup_test_db().await.expect("Failed to setup DB");
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn: db,
     });
 
@@ -357,7 +357,7 @@ async fn test_upload_to_nested_subdirectories() {
     let db = setup_test_db().await.expect("Failed to setup DB");
 
     let app_state = web::Data::new(AppState {
-        music_path: Arc::new(RwLock::new(music_path.clone())),
+        music_path: Arc::new(music_path.clone()),
         db_conn: db,
     });
 
