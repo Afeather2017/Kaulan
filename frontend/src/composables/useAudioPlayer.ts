@@ -62,9 +62,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
 
     if (audioElement.value) {
       audioElement.value.src = `${apiBase}/music/${encodeURIComponent(song.name)}`
-      isPlaying.value = true
       try {
         await audioElement.value.play()
+        isPlaying.value = true
       } catch (error) {
         console.error('Failed to play audio:', error)
         isPlaying.value = false
