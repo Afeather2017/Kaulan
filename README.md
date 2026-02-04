@@ -11,6 +11,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Collection Management** - User-defined playlists/collections
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Real-time Search** - Search across all songs instantly
+- **Remote Log Streaming** - View real-time logs via TCP on port 2081
 
 ## Quick Start
 
@@ -60,6 +61,13 @@ KAULAN_MUSIC_DIR=/path/to/music cargo run
 ```
 
 The backend API will start on `http://localhost:2080`
+
+A log streaming server is also available on port 2081 for real-time log viewing:
+
+```bash
+# Connect to see real-time logs
+nc localhost 2081
+```
 
 In a separate terminal, start the frontend:
 
@@ -374,7 +382,8 @@ The application uses a JSON configuration file to persist the music directory pa
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Port | 2080 | HTTP server port |
+| HTTP Port | 2080 | HTTP API server port |
+| Log Streaming Port | 2081 | TCP log streaming server (nc compatible) |
 | Bind Address | 0.0.0.0 | Server bind address |
 | Music Directory | `~/Music` or `./music` | Path to music files |
 | Database | `music.db` | SQLite database in music directory |
