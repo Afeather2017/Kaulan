@@ -1,22 +1,44 @@
 use std::env;
+use std::sync::Arc;
 
 // Import from the library
 use kaulan::{start_server, update_database, establish_connection};
 
-/// Initialize tracing subscriber for logging
-fn init_tracing() {
+// Import log broadcast module
+use kaulan::log_broadcast::{LogBroadcaster, create_broadcast_layer, start_log_server};
+
+// Import needed for tracing setup
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::prelude::*;
+
+/// Initialize tracing subscriber for logging with broadcast support
+///
+/// Returns the log broadcaster that can be used to start the TCP streaming server
+fn init_tracing() -> Arc<LogBroadcaster> {
     // Set default log level from RUST_LOG env var, or default to info
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
+    // Create the log broadcaster
+    let broadcaster = Arc::new(LogBroadcaster::new(256));
+
+    // Create the broadcast layer
+    let broadcast_layer = create_broadcast_layer(broadcaster.clone());
+
+    // Build the subscriber with both console and broadcast layers
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer())
+        .with(broadcast_layer)
         .init();
+
+    broadcaster
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    init_tracing();
+    // Initialize tracing with broadcast support
+    let broadcaster = init_tracing();
 
     let args: Vec<String> = env::args().collect();
 
@@ -43,6 +65,9 @@ async fn main() -> std::io::Result<()> {
 
     match command.as_str() {
         "run" => {
+            // Start the log streaming server on port 2081
+            tokio::spawn(start_log_server(broadcaster));
+
             // Start the server (spawns in background)
             match start_server(cli_path).await {
                 Ok(server_info) => {
