@@ -104,6 +104,7 @@ backend/src/
 │   ├── collection_item.rs # Collection-Item junction table (id, collection_id, music_id, created_at)
 │   ├── mod.rs
 │   └── prelude.rs
+├── log_broadcast.rs # TCP log streaming server on port 2081
 └── lufsgen.rs       # FFmpeg-based LUFS analysis utility
 ```
 
@@ -185,6 +186,11 @@ frontend/src/
 
 ### Other Endpoints
 - `POST /api/generate-lufs` - Generate LUFS values via FFmpeg (debug mode only)
+
+### Log Streaming
+- **TCP Port 2081** - Real-time log streaming (nc compatible)
+  - Connect with: `nc localhost 2081`
+  - See [`docs/log-streaming.md`](docs/log-streaming.md) for details
 
 ## Known Issues / Work in Progress
 
