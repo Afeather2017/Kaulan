@@ -1,0 +1,100 @@
+//! Music streaming and metadata API handlers.
+//!
+//! This module provides endpoints for:
+//! - Streaming individual music files
+//! - Getting all music from the database
+
+use actix_web::{get, web, HttpResponse, Responder};
+use crate::entities::music::{Entity as MusicEntity, Model as MusicModel, Column as MusicColumn};
+use crate::types::{AppState, MusicResponse};
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
+use std::fs;
+use std::path::Path;
+use tracing::{debug, info, warn, error};
+
+/// Stream a music file by filename
+///
+/// This endpoint looks up the music file in the database by filename,
+/// then streams the actual audio file from disk.
+///
+/// # Path Parameters
+/// * `filename` - The filename to look up in the database
+///
+/// # Returns
+/// - Audio file stream with `audio/mpeg` content type if found
+/// - `404 Not Found` if music not in database or file missing on disk
+/// - `500 Internal Server Error` for database errors
+#[get("/api/music/{filename}")]
+pub async fn get_music(
+    path: web::Path<String>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let filename = path.into_inner();
+    debug!("Music request received for filename: {}", filename);
+
+    match MusicEntity::find()
+        .filter(MusicColumn::Filename.eq(&filename))
+        .one(&data.db_conn)
+        .await
+    {
+        Ok(Some(music)) => {
+            let file_path = Path::new(&*data.music_path).join(&music.file_path);
+
+            match fs::read(&file_path) {
+                Ok(content) => {
+                    debug!("Successfully served music file: {}", filename);
+                    let mut response = HttpResponse::Ok();
+                    response.insert_header(("Content-Type", "audio/mpeg"));
+                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
+                    response.insert_header(("Pragma", "no-cache"));
+                    response.insert_header(("Expires", "0"));
+                    response.body(content)
+                }
+                Err(_) => {
+                    warn!("File not found on disk: {}", file_path.display());
+                    HttpResponse::NotFound().body("File not found")
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("Music not found in database: {}", filename);
+            HttpResponse::NotFound().body("Music not found")
+        }
+        Err(e) => {
+            error!("Database error while fetching music {}: {}", filename, e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
+/// Get all music from the database
+///
+/// Returns a list of all music entries with their metadata including
+/// filename, file path, LUFS value, and creation timestamp.
+///
+/// # Returns
+/// JSON array of `MusicResponse` objects
+#[get("/api/music")]
+pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
+    debug!("Get all music request received");
+    match MusicEntity::find().all(&data.db_conn).await {
+        Ok(music_list) => {
+            info!("Returning {} music entries", music_list.len());
+            let response: Vec<MusicResponse> = music_list
+                .into_iter()
+                .map(|music: MusicModel| MusicResponse {
+                    id: music.id,
+                    filename: music.filename,
+                    file_path: music.file_path,
+                    lufs: music.lufs,
+                    created_at: music.created_at.to_rfc3339(),
+                })
+                .collect();
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => {
+            error!("Database error while fetching all music: {}", e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}

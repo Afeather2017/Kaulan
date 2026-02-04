@@ -96,7 +96,24 @@ npm run test        # Run tests (vitest)
 ```
 backend/src/
 ├── main.rs          # Binary entry point
-├── lib.rs           # Library with API endpoints and business logic
+├── lib.rs           # Library re-exports and module declarations
+├── config/
+│   └── mod.rs       # Configuration file management
+├── types/
+│   └── mod.rs       # Shared request/response types
+├── handlers/
+│   ├── mod.rs       # Handler exports
+│   ├── music.rs     # Music API endpoints
+│   ├── playlists.rs # Playlist API endpoints (folder-based)
+│   ├── collections.rs # Collection API endpoints
+│   ├── settings.rs  # Settings API endpoints
+│   ├── upload.rs    # File upload API endpoints
+│   └── database.rs  # Database update API endpoints
+├── services/
+│   ├── mod.rs       # Service exports
+│   └── scanner.rs   # Directory scanning and database operations
+├── server/
+│   └── mod.rs       # Server startup logic
 ├── database/mod.rs  # SQLite connection, table creation
 ├── entities/        # SeaORM entities
 │   ├── music.rs           # Music table (id, filename, file_path, lufs, created_at)
