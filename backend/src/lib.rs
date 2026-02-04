@@ -17,6 +17,7 @@ use dirs::config_dir;
 pub mod lufsgen;
 pub mod entities;
 pub mod database;
+pub mod log_broadcast;
 
 use lufsgen::get_lufs;
 use entities::music::{Entity as MusicEntity, Model as MusicModel, ActiveModel as MusicActiveModel, Column as MusicColumn};
