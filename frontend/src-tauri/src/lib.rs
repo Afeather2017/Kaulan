@@ -12,13 +12,17 @@ pub fn run() {
         .manage(MusicDirectory(Mutex::new(String::new())))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Initialize logging for both debug and release builds
+            // Use RUST_LOG environment variable to override log level at runtime
+            // Examples: RUST_LOG=info, RUST_LOG=debug, RUST_LOG=kaulan=debug
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .targets([tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::Stderr,
+                    )])
+                    .build(),
+            )?;
 
             // Read config from Tauri's app data directory for UI display purposes
             let app_handle = app.handle().clone();
