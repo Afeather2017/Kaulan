@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { API_BASE } from '@/utils/api'
 
 export interface MusicInfo {
   name: string
@@ -23,8 +24,6 @@ const viewModeLabels: Record<ViewMode, string> = {
   folder: '文件夹',
   collection: '收藏夹'
 }
-
-const API_BASE = 'http://localhost:2080/api'
 
 export function usePlaylist() {
   // State
