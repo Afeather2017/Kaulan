@@ -147,6 +147,7 @@ import { usePlaylist } from '@/composables/usePlaylist'
 import { useSelection } from '@/composables/useSelection'
 import { useTimer } from '@/composables/useTimer'
 import { useVolume } from '@/composables/useVolume'
+import { usePermissions } from '@/composables/usePermissions'
 
 // Use composables
 const {
@@ -232,6 +233,9 @@ const {
   calculateVolume,
   toggleVolumeMode
 } = useVolume(currentSong, currentSongs)
+
+// Permissions composable for Android file access
+const { requestPermissions } = usePermissions()
 
 // Additional state
 const showSettings = ref(false)
@@ -450,7 +454,14 @@ const handleDeleteSelectedCollections = async () => {
 }
 
 // Initialize
-onMounted(() => {
+onMounted(async () => {
+  // Request storage permissions on Android before accessing music files
+  // On web this is a no-op
+  const granted = await requestPermissions()
+  if (!granted) {
+    console.warn('Storage permissions not granted - music access may fail')
+  }
+
   initAudio()
   refreshData()
 })

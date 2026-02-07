@@ -15,9 +15,9 @@ use chrono::Utc;
 use tracing::{debug, info, warn, error};
 
 /// Supported audio file extensions
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "ogg", "wav", "aac", "flac"];
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "ogg", "wav", "aac", "flac", "m4a", "opus"];
 
-/// Recursively scan directory for audio files
+/// Recursively scan directory for audio files (desktop version using std::fs)
 pub fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<std::path::PathBuf> {
     let mut audio_files = Vec::new();
 
@@ -64,35 +64,38 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
     let mut new_files = 0;
     for file_path in audio_files {
         let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
-        let relative_path = file_path.strip_prefix(music_path)
-            .unwrap_or(&file_path)
+
+        // Use absolute path consistently to avoid duplicates from path normalization issues
+        // Canonicalize resolves "..", ".", symlinks, etc. to get a unique absolute path
+        let absolute_path = file_path.canonicalize()
+            .unwrap_or_else(|_| file_path.clone())
             .to_string_lossy()
             .to_string();
 
         match MusicEntity::find()
-            .filter(MusicColumn::FilePath.eq(&relative_path))
+            .filter(MusicColumn::FilePath.eq(&absolute_path))
             .one(db_conn)
             .await
         {
             Ok(None) => {
-                debug!("Inserting new file into database: {}", relative_path);
+                debug!("Inserting new file into database: {}", absolute_path);
                 let music = MusicActiveModel {
                     filename: Set(filename),
-                    file_path: Set(relative_path.clone()),
+                    file_path: Set(absolute_path.clone()),
                     lufs: Set(Some(0.5)),
                     created_at: Set(Utc::now()),
                     ..Default::default()
                 };
                 match music.insert(db_conn).await {
                     Ok(_) => new_files += 1,
-                    Err(e) => error!("Failed to insert music {}: {}", relative_path, e),
+                    Err(e) => error!("Failed to insert music {}: {}", absolute_path, e),
                 }
             }
             Ok(Some(_)) => {
-                debug!("File already exists in database: {}", relative_path);
+                debug!("File already exists in database: {}", absolute_path);
             }
             Err(e) => {
-                error!("Database error while checking file {}: {}", relative_path, e);
+                error!("Database error while checking file {}: {}", absolute_path, e);
             }
         }
     }
@@ -129,27 +132,29 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
 
     for (idx, file_path) in audio_files.iter().enumerate() {
         let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
-        let relative_path = file_path.strip_prefix(music_path)
-            .unwrap_or(file_path)
+
+        // Use absolute path consistently to avoid duplicates from path normalization issues
+        // Canonicalize resolves "..", ".", symlinks, etc. to get a unique absolute path
+        let absolute_path = file_path.canonicalize()
+            .unwrap_or_else(|_| file_path.clone())
             .to_string_lossy()
             .to_string();
-        let full_path = file_path.to_string_lossy().to_string();
 
         info!("[DB_UPDATE] [{}/{}] Checking file: {}", idx + 1, audio_files.len(), filename);
-        debug!("[DB_UPDATE]   Relative path: {}", relative_path);
+        debug!("[DB_UPDATE]   Absolute path: {}", absolute_path);
 
         match MusicEntity::find()
-            .filter(MusicColumn::FilePath.eq(&relative_path))
+            .filter(MusicColumn::FilePath.eq(&absolute_path))
             .one(db_conn)
             .await
         {
             Ok(None) => {
                 info!("[DB_UPDATE]   NEW FILE detected - calling FFmpeg for LUFS...");
-                if let Some(lufs_value) = get_lufs(&full_path) {
+                if let Some(lufs_value) = get_lufs(&absolute_path) {
                     info!("[DB_UPDATE]   LUFS calculated: {} - inserting to database...", lufs_value);
                     let music = MusicActiveModel {
                         filename: Set(filename.clone()),
-                        file_path: Set(relative_path),
+                        file_path: Set(absolute_path.clone()),
                         lufs: Set(Some(lufs_value)),
                         created_at: Set(Utc::now()),
                         ..Default::default()
@@ -170,7 +175,7 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
             Ok(Some(existing_music)) => {
                 if existing_music.lufs.is_none() || existing_music.lufs == Some(0.5) {
                     info!("[DB_UPDATE]   EXISTING FILE without LUFS - updating...");
-                    if let Some(lufs_value) = get_lufs(&full_path) {
+                    if let Some(lufs_value) = get_lufs(&absolute_path) {
                         let mut active_model: MusicActiveModel = existing_music.clone().into();
                         active_model.lufs = Set(Some(lufs_value));
                         match active_model.update(db_conn).await {
@@ -191,7 +196,7 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                 }
             }
             Err(e) => {
-                error!("[DB_UPDATE]   DATABASE ERROR while checking file {}: {}", relative_path, e);
+                error!("[DB_UPDATE]   DATABASE ERROR while checking file {}: {}", absolute_path, e);
             }
         }
     }
@@ -201,8 +206,8 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
     match MusicEntity::find().all(db_conn).await {
         Ok(all_music) => {
             for music in all_music {
-                let full_path = Path::new(music_path).join(&music.file_path);
-                if !full_path.exists() {
+                // Check if file exists - use the stored absolute path directly
+                if !Path::new(&music.file_path).exists() {
                     let filename = music.filename.clone();
                     info!("[DB_UPDATE] Deleting non-existent file from database: {}", filename);
                     match music.delete(db_conn).await {

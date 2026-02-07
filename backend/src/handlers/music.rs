@@ -5,8 +5,9 @@
 //! - Getting all music from the database
 
 use actix_web::{get, web, HttpResponse, Responder};
+use serde::Serialize;
 use crate::entities::music::{Entity as MusicEntity, Model as MusicModel, Column as MusicColumn};
-use crate::types::{AppState, MusicResponse};
+use crate::types::AppState;
 use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
 use std::fs;
 use std::path::Path;
@@ -38,7 +39,7 @@ pub async fn get_music(
         .await
     {
         Ok(Some(music)) => {
-            let file_path = Path::new(&*data.music_path).join(&music.file_path);
+            let file_path = Path::new(&music.file_path);
 
             match fs::read(&file_path) {
                 Ok(content) => {
@@ -50,7 +51,7 @@ pub async fn get_music(
                     response.insert_header(("Expires", "0"));
                     response.body(content)
                 }
-                Err(_) => {
+                Err(_e) => {
                     warn!("File not found on disk: {}", file_path.display());
                     HttpResponse::NotFound().body("File not found")
                 }
@@ -82,12 +83,14 @@ pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
             info!("Returning {} music entries", music_list.len());
             let response: Vec<MusicResponse> = music_list
                 .into_iter()
-                .map(|music: MusicModel| MusicResponse {
-                    id: music.id,
-                    filename: music.filename,
-                    file_path: music.file_path,
-                    lufs: music.lufs,
-                    created_at: music.created_at.to_rfc3339(),
+                .map(|music: MusicModel| {
+                    MusicResponse {
+                        id: music.id,
+                        filename: music.filename,
+                        file_path: music.file_path,
+                        lufs: music.lufs,
+                        created_at: music.created_at.to_rfc3339(),
+                    }
                 })
                 .collect();
             HttpResponse::Ok().json(response)
@@ -97,4 +100,14 @@ pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
             HttpResponse::InternalServerError().body("Database error")
         }
     }
+}
+
+/// Music response with database metadata
+#[derive(Serialize)]
+pub struct MusicResponse {
+    pub id: i32,
+    pub filename: String,
+    pub file_path: String,
+    pub lufs: Option<f64>,
+    pub created_at: String,
 }

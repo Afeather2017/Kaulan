@@ -220,8 +220,9 @@ onMounted(async () => {
 })
 
 const selectDirectory = async () => {
-  // Use a simple prompt to get the directory path from the user
-  const newPath = prompt('请输入新的音乐目录路径:', musicDirectory.value)
+  // For now, use the same prompt approach for all platforms
+  // SAF integration on Android requires additional work to bypass ACL restrictions
+  let newPath = prompt('请输入新的音乐目录路径:', musicDirectory.value)
 
   if (!newPath || newPath.trim() === '') {
     return
