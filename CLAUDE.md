@@ -173,6 +173,28 @@ frontend/src/
 5. Ensure backend compiles with cargo and frontend compiles with npm build.
 6. Frontend has cargo part, we only use it as a "browser that run the web", so mostly we don't need to ensure it compiles with cargo.
 
+## Logging Features
+
+### Access Logging
+- All HTTP API requests are automatically logged with detailed information
+- Logs include: method, path, query string, client IP, user-agent, status code, response size, and processing time
+- See [`docs/access-logging.md`](docs/access-logging.md) for detailed documentation
+- Access logs are always at INFO level and cannot be disabled
+
+### File Scanning Debug Logging
+- Debug level logs show detailed information about file scanning process
+- When enabled, logs show:
+  - Directories being scanned
+  - Music files found with full paths
+  - Non-audio files that are skipped
+  - Progress counters for file processing
+- Enable with: `RUST_LOG=debug cargo run`
+
+### Log Streaming
+- **TCP Port 2081** - Real-time log streaming (nc compatible)
+  - Connect with: `nc localhost 2081`
+  - See [`docs/log-streaming.md`](docs/log-streaming.md) for details
+
 ## API Endpoints
 
 ### Music Endpoints

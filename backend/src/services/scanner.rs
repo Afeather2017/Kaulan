@@ -20,6 +20,9 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "ogg", "wav", "aac", "flac", 
 /// Recursively scan directory for audio files (desktop version using std::fs)
 pub fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<std::path::PathBuf> {
     let mut audio_files = Vec::new();
+    let dir_str = dir_path.to_string_lossy();
+
+    debug!("Scanning directory: {}", dir_str);
 
     if let Ok(entries) = fs::read_dir(dir_path) {
         for entry in entries.flatten() {
@@ -29,10 +32,14 @@ pub fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<std::
                     if let Some(extension) = path.extension() {
                         let ext_str = extension.to_string_lossy().to_lowercase();
                         if SUPPORTED_EXTENSIONS.contains(&ext_str.as_str()) {
+                            debug!("Found music file: {}", path.display());
                             audio_files.push(path);
+                        } else {
+                            debug!("Skipping non-audio file: {} (.{})", path.file_name().unwrap().to_string_lossy(), ext_str);
                         }
                     }
                 } else if file_type.is_dir() {
+                    debug!("Entering subdirectory: {}", entry.path().display());
                     let mut sub_files = scan_directory_recursive(&entry.path(), _music_path);
                     audio_files.append(&mut sub_files);
                 }
@@ -40,6 +47,7 @@ pub fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<std::
         }
     }
 
+    debug!("Directory scan complete. Found {} audio files in {}", audio_files.len(), dir_str);
     audio_files
 }
 
@@ -62,8 +70,11 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
     info!("Found {} audio files in directory", audio_files.len());
 
     let mut new_files = 0;
-    for file_path in audio_files {
+    let mut existing_files = 0;
+
+    for (idx, file_path) in audio_files.iter().enumerate() {
         let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
+        debug!("Processing file {}/{}: {}", idx + 1, audio_files.len(), filename);
 
         // Use absolute path consistently to avoid duplicates from path normalization issues
         // Canonicalize resolves "..", ".", symlinks, etc. to get a unique absolute path
@@ -87,12 +98,16 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
                     ..Default::default()
                 };
                 match music.insert(db_conn).await {
-                    Ok(_) => new_files += 1,
+                    Ok(_) => {
+                        debug!("Successfully inserted file into database");
+                        new_files += 1;
+                    }
                     Err(e) => error!("Failed to insert music {}: {}", absolute_path, e),
                 }
             }
             Ok(Some(_)) => {
                 debug!("File already exists in database: {}", absolute_path);
+                existing_files += 1;
             }
             Err(e) => {
                 error!("Database error while checking file {}: {}", absolute_path, e);
@@ -100,7 +115,7 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
         }
     }
 
-    info!("Database initialization complete: {} new files added", new_files);
+    info!("Database initialization complete: {} new files, {} existing files", new_files, existing_files);
     Ok(())
 }
 

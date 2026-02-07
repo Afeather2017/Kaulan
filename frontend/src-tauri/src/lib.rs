@@ -8,21 +8,13 @@ struct MusicDirectory(Mutex<String>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize tracing first (must happen before Tauri setup to avoid conflicts)
+    kaulan::init_tracing();
+
     tauri::Builder::default()
         .manage(MusicDirectory(Mutex::new(String::new())))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Initialize logging for both debug and release builds
-            // Use RUST_LOG environment variable to override log level at runtime
-            // Examples: RUST_LOG=info, RUST_LOG=debug, RUST_LOG=kaulan=debug
-            app.handle().plugin(
-                tauri_plugin_log::Builder::default()
-                    .level(log::LevelFilter::Info)
-                    .targets([tauri_plugin_log::Target::new(
-                        tauri_plugin_log::TargetKind::Stderr,
-                    )])
-                    .build(),
-            )?;
 
             // Read config from Tauri's app data directory for UI display purposes
             let app_handle = app.handle().clone();
@@ -69,7 +61,14 @@ pub fn run() {
                     }
                 }
 
-                match kaulan::start_server(Some("/sdcard".to_string())).await {
+                // For Android, use /sdcard as default music directory
+                // For other platforms, use None (will read from config file)
+                #[cfg(target_os = "android")]
+                let music_dir_arg = Some("/sdcard".to_string());
+                #[cfg(not(target_os = "android"))]
+                let music_dir_arg = None;
+
+                match kaulan::start_server(music_dir_arg).await {
                     Ok(server_info) => {
                         log::info!("Backend server started on: http://{}", server_info.url());
                     }

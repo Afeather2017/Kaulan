@@ -33,6 +33,9 @@ pub async fn get_music(
     let filename = path.into_inner();
     debug!("Music request received for filename: {}", filename);
 
+    // Simple access log
+    info!("[ACCESS] GET /api/music/{} - Started", filename);
+
     match MusicEntity::find()
         .filter(MusicColumn::Filename.eq(&filename))
         .one(&data.db_conn)
@@ -44,6 +47,7 @@ pub async fn get_music(
             match fs::read(&file_path) {
                 Ok(content) => {
                     debug!("Successfully served music file: {}", filename);
+                    info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
                     response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
@@ -53,12 +57,14 @@ pub async fn get_music(
                 }
                 Err(_e) => {
                     warn!("File not found on disk: {}", file_path.display());
+                    info!("[ACCESS] GET /api/music/{} - Status: 404", filename);
                     HttpResponse::NotFound().body("File not found")
                 }
             }
         }
         Ok(None) => {
             warn!("Music not found in database: {}", filename);
+            info!("[ACCESS] GET /api/music/{} - Status: 404", filename);
             HttpResponse::NotFound().body("Music not found")
         }
         Err(e) => {
@@ -78,9 +84,11 @@ pub async fn get_music(
 #[get("/api/music")]
 pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
     debug!("Get all music request received");
+    info!("[ACCESS] GET /api/music - Started");
     match MusicEntity::find().all(&data.db_conn).await {
         Ok(music_list) => {
             info!("Returning {} music entries", music_list.len());
+            info!("[ACCESS] GET /api/music - Status: 200");
             let response: Vec<MusicResponse> = music_list
                 .into_iter()
                 .map(|music: MusicModel| {
@@ -97,6 +105,7 @@ pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
         }
         Err(e) => {
             error!("Database error while fetching all music: {}", e);
+            info!("[ACCESS] GET /api/music - Status: 500");
             HttpResponse::InternalServerError().body("Database error")
         }
     }
