@@ -56,7 +56,20 @@ pub fn run() {
             let _handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 log::info!("Starting backend server (will use config file)");
-                match kaulan::start_server(None).await {
+
+                // Set environment variables for Android support
+                #[cfg(target_os = "android")]
+                {
+                    std::env::set_var("TAURI_PLATFORM", "android");
+                    // For Android, we need to use the app's data directory for the database
+                    if let Ok(data_dir) = _handle.path().app_data_dir() {
+                        let data_dir_str = data_dir.to_string_lossy().to_string();
+                        std::env::set_var("TAURI_ANDROID_DATA_DIR", &data_dir_str);
+                        log::info!("Set Android data directory: {}", data_dir_str);
+                    }
+                }
+
+                match kaulan::start_server(Some("/sdcard".to_string())).await {
                     Ok(server_info) => {
                         log::info!("Backend server started on: http://{}", server_info.url());
                     }

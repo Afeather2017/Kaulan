@@ -109,6 +109,7 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
 
     info!("Scanning music files from: {}", music_path);
 
+    // Initialize database with music files
     if let Err(e) = scanner::initialize_database(&music_path, &db_conn).await {
         error!("Failed to initialize database: {}", e);
     }

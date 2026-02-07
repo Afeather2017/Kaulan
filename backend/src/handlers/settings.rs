@@ -40,12 +40,20 @@ pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
 /// }
 /// ```
 ///
+/// For Android SAF, the path will be a content URI:
+/// ```json
+/// {
+///   "path": "content://com.android.externalstorage.documents/tree/primary%3AMusic"
+/// }
+/// ```
+///
 /// # Documentation
 /// See [`docs/settings-and-database-management.md`](../../../docs/settings-and-database-management.md)
 ///
 /// # Behavior
-/// - Validates that the path exists and is a directory
-/// - Saves the path to the config file
+/// - For desktop platforms: Validates that the path exists and is a directory
+/// - For Android SAF (content:// URIs): Skips file system validation
+/// - Saves the path or URI to the config file
 /// - Returns a success message indicating restart is required
 ///
 /// # Config File Location
@@ -56,7 +64,7 @@ pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
 ///
 /// # Returns
 /// - `200 OK` with success message if path is valid and saved
-/// - `400 Bad Request` if path doesn't exist or is not a directory
+/// - `400 Bad Request` if path doesn't exist or is not a directory (desktop only)
 /// - `500 Internal Server Error` if config save fails
 #[post("/api/settings/music-directory")]
 pub async fn set_music_directory(
@@ -64,22 +72,31 @@ pub async fn set_music_directory(
 ) -> impl Responder {
     let new_path = &req.path;
 
-    // Validate the path exists and is a directory
-    let path_obj = Path::new(new_path);
-    if !path_obj.exists() {
-        warn!("Music directory does not exist: {}", new_path);
-        return HttpResponse::BadRequest().json(SetDirectoryResponse {
-            success: false,
-            message: format!("Directory does not exist: {}", new_path),
-        });
-    }
+    // Check if this is a SAF content URI (Android)
+    let is_saf_uri = new_path.starts_with("content://");
 
-    if !path_obj.is_dir() {
-        warn!("Path is not a directory: {}", new_path);
-        return HttpResponse::BadRequest().json(SetDirectoryResponse {
-            success: false,
-            message: format!("Path is not a directory: {}", new_path),
-        });
+    if is_saf_uri {
+        info!("Received SAF tree URI: {}", new_path);
+        // SAF URIs cannot be validated with std::path - skip validation
+        // The URI will be validated when the filesystem layer tries to use it
+    } else {
+        // Validate the path exists and is a directory (desktop platforms)
+        let path_obj = Path::new(new_path);
+        if !path_obj.exists() {
+            warn!("Music directory does not exist: {}", new_path);
+            return HttpResponse::BadRequest().json(SetDirectoryResponse {
+                success: false,
+                message: format!("Directory does not exist: {}", new_path),
+            });
+        }
+
+        if !path_obj.is_dir() {
+            warn!("Path is not a directory: {}", new_path);
+            return HttpResponse::BadRequest().json(SetDirectoryResponse {
+                success: false,
+                message: format!("Path is not a directory: {}", new_path),
+            });
+        }
     }
 
     // Save to config file
@@ -90,7 +107,12 @@ pub async fn set_music_directory(
                 success: true,
                 message: format!(
                     "Music directory will be set to '{}' on next restart.",
-                    new_path
+                    if is_saf_uri {
+                        // Show a user-friendly name for SAF URIs
+                        "[Android Storage Directory]"
+                    } else {
+                        new_path
+                    }
                 ),
             })
         }
