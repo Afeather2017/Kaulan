@@ -3,6 +3,10 @@
 //! This is the main library for the Kaulan music player backend.
 //! It provides HTTP API endpoints, database operations, and file management.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
+
 // Re-export public API for main.rs and external use
 pub use database::establish_connection;
 pub use config::load_config;
@@ -11,6 +15,9 @@ pub use services::scanner::{initialize_database, update_database};
 
 // Re-export types for external use
 pub use types::AppState;
+
+// Re-export log broadcast types
+pub use log_broadcast::{LogBroadcaster, create_broadcast_layer, start_log_server};
 
 // Re-export all handlers for integration tests
 pub use server::{
@@ -23,12 +30,73 @@ pub use server::{
     update_database_endpoint, get_playlists_collection_mode,
 };
 
+/// Global broadcaster for log streaming (initialized once)
+static GLOBAL_BROADCASTER: OnceLock<Arc<LogBroadcaster>> = OnceLock::new();
+
+/// Static flag to ensure tracing is initialized only once
+static TRACING_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Initialize tracing subscriber for logging with broadcast support
+///
+/// This function uses lazy initialization - it will only initialize the tracing
+/// subscriber once, regardless of how many times it's called. Subsequent calls
+/// will return the existing broadcaster.
+///
+/// # Returns
+/// The log broadcaster that can be used to start the TCP streaming server
+///
+/// # Example
+/// ```rust
+/// use kaulan::init_tracing;
+///
+/// let broadcaster = init_tracing();
+/// // Start the log streaming server
+/// tokio::spawn(kaulan::start_log_server(broadcaster));
+/// ```
+pub fn init_tracing() -> Arc<LogBroadcaster> {
+    // Use a OnceLock to ensure we only initialize once
+    GLOBAL_BROADCASTER.get_or_init(|| {
+        // Double-check the atomic flag for extra safety
+        if TRACING_INITIALIZED.load(Ordering::SeqCst) {
+            // This shouldn't happen, but if it does, create a new broadcaster
+            return Arc::new(LogBroadcaster::new(256));
+        }
+
+        // Import needed for tracing setup
+        use tracing_subscriber::util::SubscriberInitExt;
+        use tracing_subscriber::prelude::*;
+
+        // Set default log level from RUST_LOG env var, or default to debug
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"));
+
+        // Create the log broadcaster
+        let broadcaster = Arc::new(LogBroadcaster::new(256));
+
+        // Create the broadcast layer
+        let broadcast_layer = create_broadcast_layer(broadcaster.clone());
+
+        // Build the subscriber with both console and broadcast layers
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer())
+            .with(broadcast_layer)
+            .init();
+
+        // Mark as initialized
+        TRACING_INITIALIZED.store(true, Ordering::SeqCst);
+
+        broadcaster
+    }).clone()
+}
+
 // Declare modules
 pub mod config;
 pub mod types;
 pub mod handlers;
 pub mod services;
 pub mod server;
+pub mod middleware;
 
 // Existing modules (unchanged)
 pub mod lufsgen;
