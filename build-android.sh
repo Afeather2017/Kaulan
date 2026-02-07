@@ -71,6 +71,8 @@ else
     echo "  Using existing keystore: $KEYSTORE"
 fi
 
+rm -f $UNSIGNED_APK $SIGNED_APK
+
 # Step 5: Zipalign
 echo
 echo "[5/6] Zipaligning APK..."
