@@ -16,6 +16,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { API_BASE } from '@/utils/api'
 
 interface Song {
   id: number
@@ -35,7 +36,7 @@ const formatDuration = (seconds: number): string => {
 
 onMounted(async () => {
   try {
-    const response = await fetch('/api/music/songs')
+    const response = await fetch(`${API_BASE}/music/songs`)
     songs.value = await response.json()
   } catch (error) {
     console.error('Failed to fetch songs:', error)

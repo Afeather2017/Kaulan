@@ -18,6 +18,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { API_BASE } from '@/utils/api'
 
 const songCount = ref(0)
 const playlistCount = ref(0)
@@ -25,8 +26,8 @@ const playlistCount = ref(0)
 onMounted(async () => {
   try {
     const [songsRes, playlistsRes] = await Promise.all([
-      fetch('/api/music/songs'),
-      fetch('/api/music/playlists')
+      fetch(`${API_BASE}/music/songs`),
+      fetch(`${API_BASE}/music/playlists`)
     ])
     
     const songs = await songsRes.json()

@@ -162,6 +162,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { API_BASE } from '@/utils/api'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
 type ViewMode = 'folder' | 'collection'
@@ -204,7 +205,7 @@ const isUpdating = ref<boolean>(false)
 
 onMounted(async () => {
   try {
-    const response = await fetch('/api/settings/music-directory')
+    const response = await fetch(`${API_BASE}/settings/music-directory`)
     if (response.ok) {
       const data = await response.json()
       musicDirectory.value = data.path
@@ -227,7 +228,7 @@ const selectDirectory = async () => {
   }
 
   try {
-    const response = await fetch('/api/settings/music-directory', {
+    const response = await fetch(`${API_BASE}/settings/music-directory`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -261,7 +262,7 @@ const selectDirectory = async () => {
 const updateDatabase = async () => {
   isUpdating.value = true
   try {
-    const response = await fetch('/api/database/update', {
+    const response = await fetch(`${API_BASE}/database/update`, {
       method: 'POST',
     })
     const result = await response.json()
