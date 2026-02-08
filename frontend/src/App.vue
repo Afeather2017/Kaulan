@@ -6,6 +6,11 @@
       @search="handleSearch"
     />
 
+    <!-- Scanning Message -->
+    <div v-if="isScanning && playlistNames.length === 0" class="scanning-message">
+      扫描中...
+    </div>
+
     <!-- Content Area -->
     <div class="content-area">
       <!-- Playlist List -->
@@ -191,7 +196,8 @@ const {
   deleteCollection,
   addToCollection: apiAddToCollection,
   removeFromCollection: apiRemoveFromCollection,
-  getAllMusic
+  getAllMusic,
+  isScanning
 } = usePlaylist()
 
 const {
@@ -476,6 +482,15 @@ onMounted(async () => {
   color: #333;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   overflow: hidden;
+}
+
+.scanning-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 18px;
+  color: #888;
 }
 
 .content-area {

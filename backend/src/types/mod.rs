@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Music response with database metadata
 #[derive(Serialize, Deserialize)]
@@ -69,6 +70,7 @@ pub struct RemoveFromCollectionRequest {
 pub struct AppState {
     pub music_path: Arc<String>,
     pub db_conn: DatabaseConnection,
+    pub scan_lock: Arc<TokioMutex<()>>,
 }
 
 /// Directory tree node for representing file system structure

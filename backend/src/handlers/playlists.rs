@@ -24,6 +24,9 @@ use std::path::Path;
 /// JSON object with playlist names as keys and arrays of `MusicInfo` as values
 #[get("/api/playlists")]
 pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
+    // Block until database scan completes
+    let _lock = data.scan_lock.lock().await;
+
     let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> = std::collections::HashMap::new();
 
     match MusicEntity::find().all(&data.db_conn).await {
@@ -71,6 +74,9 @@ pub async fn get_playlist(
     path: web::Path<String>,
     data: web::Data<AppState>,
 ) -> impl Responder {
+    // Block until database scan completes
+    let _lock = data.scan_lock.lock().await;
+
     let playlist_name = path.into_inner();
     let mut songs: Vec<MusicInfo> = Vec::new();
 

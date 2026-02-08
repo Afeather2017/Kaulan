@@ -59,6 +59,9 @@ pub async fn update_database_endpoint(data: web::Data<AppState>) -> impl Respond
 /// JSON object with collection names as keys and arrays of `MusicInfo` as values
 #[get("/api/playlists/collection-mode")]
 pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Responder {
+    // Block until database scan completes
+    let _lock = data.scan_lock.lock().await;
+
     let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> = std::collections::HashMap::new();
 
     match MusicEntity::find().all(&data.db_conn).await {
