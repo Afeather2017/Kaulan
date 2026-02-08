@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build and sign Kaulan Android APK
-# This script handles the Tauri symlink bug and signs the APK for installation
+# This script builds and signs the APK for installation
 
 set -e
 
@@ -26,41 +26,14 @@ echo "Project root: $PROJECT_ROOT"
 echo "Android build tools: $BUILD_TOOLS"
 echo
 
-# Step 1: Initialize Android project with Tauri
-echo "[1/6] Initializing Android project with Tauri..."
-cd "$FRONTEND_DIR"
-npx tauri android init
-echo
-
-# Step 2: Fix Tauri symlink bug
-echo "[2/6] Fixing Tauri symlink..."
-TAURI_SYMLINK="$SRC_TAURI/tauri"
-TAURI_TARGET="../node_modules/@tauri-apps/cli/tauri.js"
-
-# Remove existing symlink if broken or wrong
-if [ -L "$TAURI_SYMLINK" ]; then
-    if [ ! -e "$TAURI_SYMLINK" ] || [ "$(readlink "$TAURI_SYMLINK")" != "$TAURI_TARGET" ]; then
-        rm "$TAURI_SYMLINK"
-    fi
-fi
-
-# Create symlink if it doesn't exist
-if [ ! -e "$TAURI_SYMLINK" ]; then
-    (cd "$SRC_TAURI" && ln -s "$TAURI_TARGET" tauri)
-    echo "  Created symlink: $TAURI_SYMLINK -> $TAURI_TARGET"
-else
-    echo "  Symlink OK"
-fi
-
-# Step 3: Build unsigned APK
-echo
-echo "[3/6] Building APK with Tauri..."
+# Step 1: Build unsigned APK
+echo "[1/4] Building APK with Tauri..."
 cd "$FRONTEND_DIR"
 npx tauri android build
 
-# Step 4: Generate keystore if needed
+# Step 2: Generate keystore if needed
 echo
-echo "[4/6] Checking keystore..."
+echo "[2/4] Checking keystore..."
 if [ ! -f "$KEYSTORE" ]; then
     echo "  Generating new keystore..."
     keytool -genkey -v -keystore "$KEYSTORE" -alias "$KEY_ALIAS" \
@@ -73,14 +46,14 @@ fi
 
 rm -f $ALIGNED_APK $SIGNED_APK
 
-# Step 5: Zipalign
+# Step 3: Zipalign
 echo
-echo "[5/6] Zipaligning APK..."
+echo "[3/4] Zipaligning APK..."
 "$BUILD_TOOLS/zipalign" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
-# Step 6: Sign APK
+# Step 4: Sign APK
 echo
-echo "[6/6] Signing APK..."
+echo "[4/4] Signing APK..."
 "$BUILD_TOOLS/apksigner" sign \
     --ks "$KEYSTORE" \
     --ks-pass "pass:$KEY_STOREPASS" \

@@ -50,7 +50,6 @@ Thumbs.db
 *.temp
 
 
-frontend/src-tauri/gen/
 frontend/src-tauri/target/
 
 .opencode/
