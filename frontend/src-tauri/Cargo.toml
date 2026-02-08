@@ -19,7 +19,7 @@ tauri-build = { version = "2.5.3", features = [] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 log = "0.4"
-tauri = { version = "2.9.5", features = [] }
+tauri = { version = "2.9.5", features = ["devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
