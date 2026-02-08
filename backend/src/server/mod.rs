@@ -8,6 +8,7 @@ use std::env;
 use std::sync::Arc;
 use std::path::PathBuf;
 use tracing::{info, error};
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::types::AppState;
 use crate::config;
@@ -107,25 +108,38 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
     };
     info!("Database connection established");
 
+    // Create the scan lock that will block playlist endpoints until scan completes
+    let scan_lock = Arc::new(TokioMutex::new(()));
+
     info!("Scanning music files from: {}", music_path);
 
-    // Initialize database with music files
-    if let Err(e) = scanner::initialize_database(&music_path, &db_conn).await {
-        error!("Failed to initialize database: {}", e);
-    }
+    // Acquire the scan lock before spawning the scan task
+    // This lock will be held during the entire scan, blocking API requests
+    let scan_lock_for_scan = scan_lock.clone();
+    let db_conn_for_scan = db_conn.clone();
+    let music_path_for_scan = music_path.clone();
 
-    match MusicEntity::find().all(&db_conn).await {
-        Ok(music_list) => {
-            info!("Found {} music files in database", music_list.len());
+    // Spawn database scan as background task with lock held
+    tokio::spawn(async move {
+        let _guard = scan_lock_for_scan.lock().await;
+        if let Err(e) = scanner::initialize_database(&music_path_for_scan, &db_conn_for_scan).await {
+            error!("Failed to initialize database: {}", e);
         }
-        Err(e) => {
-            error!("Failed to count music files: {}", e);
+        match MusicEntity::find().all(&db_conn_for_scan).await {
+            Ok(music_list) => {
+                info!("Found {} music files in database", music_list.len());
+            }
+            Err(e) => {
+                error!("Failed to count music files: {}", e);
+            }
         }
-    }
+        drop(_guard);  // Release lock when scan completes
+    });
 
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn,
+        scan_lock,
     });
 
     let ip = "0.0.0.0".to_string();
@@ -179,9 +193,6 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
             Err(e) => error!("Server error: {}", e),
         }
     });
-
-    // Give the server a moment to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     Ok(ServerInfo { ip, port })
 }

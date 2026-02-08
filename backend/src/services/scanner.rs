@@ -34,12 +34,9 @@ pub fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<std::
                         if SUPPORTED_EXTENSIONS.contains(&ext_str.as_str()) {
                             debug!("Found music file: {}", path.display());
                             audio_files.push(path);
-                        } else {
-                            debug!("Skipping non-audio file: {} (.{})", path.file_name().unwrap().to_string_lossy(), ext_str);
                         }
                     }
                 } else if file_type.is_dir() {
-                    debug!("Entering subdirectory: {}", entry.path().display());
                     let mut sub_files = scan_directory_recursive(&entry.path(), _music_path);
                     audio_files.append(&mut sub_files);
                 }
