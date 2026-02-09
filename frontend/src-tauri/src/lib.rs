@@ -61,10 +61,10 @@ pub fn run() {
                     }
                 }
 
-                // For Android, use /sdcard as default music directory
+                // For Android, use /storage as default music directory
                 // For other platforms, use None (will read from config file)
                 #[cfg(target_os = "android")]
-                let music_dir_arg = Some("/sdcard".to_string());
+                let music_dir_arg = Some("/storage".to_string());
                 #[cfg(not(target_os = "android"))]
                 let music_dir_arg = None;
 
