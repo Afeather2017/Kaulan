@@ -69,8 +69,19 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
     let mut new_files = 0;
     let mut existing_files = 0;
 
+    let music_dir = Path::new(music_path);
+    let music_dir_canonical = music_dir.canonicalize()
+        .unwrap_or_else(|_| music_dir.to_path_buf());
+
     for (idx, file_path) in audio_files.iter().enumerate() {
-        let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
+        // Store relative path from music directory as filename to avoid collisions
+        // e.g., "tests/2-m.mp3" instead of just "2-m.mp3"
+        let filename = if let Ok(rel_path) = file_path.strip_prefix(&music_dir_canonical) {
+            rel_path.to_string_lossy().to_string()
+        } else {
+            // Fallback to base filename if strip_prefix fails
+            file_path.file_name().unwrap().to_string_lossy().to_string()
+        };
         debug!("Processing file {}/{}: {}", idx + 1, audio_files.len(), filename);
 
         // Use absolute path consistently to avoid duplicates from path normalization issues
@@ -142,8 +153,19 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
     let mut updated_files = 0;
     let mut skipped_files = 0;
 
+    let music_dir = Path::new(music_path);
+    let music_dir_canonical = music_dir.canonicalize()
+        .unwrap_or_else(|_| music_dir.to_path_buf());
+
     for (idx, file_path) in audio_files.iter().enumerate() {
-        let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
+        // Store relative path from music directory as filename to avoid collisions
+        // e.g., "tests/2-m.mp3" instead of just "2-m.mp3"
+        let filename = if let Ok(rel_path) = file_path.strip_prefix(&music_dir_canonical) {
+            rel_path.to_string_lossy().to_string()
+        } else {
+            // Fallback to base filename if strip_prefix fails
+            file_path.file_name().unwrap().to_string_lossy().to_string()
+        };
 
         // Use absolute path consistently to avoid duplicates from path normalization issues
         // Canonicalize resolves "..", ".", symlinks, etc. to get a unique absolute path
