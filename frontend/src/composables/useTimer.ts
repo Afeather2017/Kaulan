@@ -53,9 +53,13 @@ export function useTimer(onTimerComplete?: () => void) {
     timerRemaining.value = 0
   }
 
-  // Sync slider and input for timer
+  // Sync slider and input bidirectionally for timer
   watch(timerMinutes, (val) => {
     timerMinutesInput.value = val
+  })
+
+  watch(timerMinutesInput, (val) => {
+    timerMinutes.value = val
   })
 
   // Cleanup

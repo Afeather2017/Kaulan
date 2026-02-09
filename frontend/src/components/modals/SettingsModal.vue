@@ -20,25 +20,23 @@
       <!-- Manual Volume Panel -->
       <div v-if="volumeMode === 'manual'" class="setting-panel active">
         <div class="setting-item">
-          <label class="setting-label">音量设置 (%)</label>
+          <label class="setting-label">音量设置</label>
           <div class="slider-container">
             <input
               type="range"
               class="volume-slider"
               :model-value="manualVolume"
-              @input="$emit('update:manualVolume', Number(($event.target as HTMLInputElement).value))"
+              @input="handleManualVolumeSlider"
               min="0"
               max="1"
               step="0.01"
             />
             <input
-              type="number"
-              class="volume-input"
-              :model-value="manualVolumeInput"
-              @input="$emit('update:manualVolumeInput', Number(($event.target as HTMLInputElement).value))"
-              min="0"
-              max="1"
-              step="0.01"
+              type="text"
+              class="value-input"
+              :value="manualVolumeDisplay"
+              @input="handleManualVolumeInput"
+              @blur="handleManualVolumeBlur"
             />
           </div>
         </div>
@@ -51,28 +49,25 @@
             class="setting-label"
             title="如果音频音量过小，那么此选项可能无法设置为目标音量大小"
           >
-            目标音量 (LUFS)
+            目标音量
           </label>
           <div class="slider-container">
             <input
               type="range"
               class="volume-slider"
               :model-value="fixedLufs"
-              @input="$emit('update:fixedLufs', Number(($event.target as HTMLInputElement).value))"
+              @input="handleFixedLufsSlider"
               min="-100"
               max="0"
               step="1"
             />
             <input
-              type="number"
-              class="volume-input"
-              :model-value="fixedLufsInput"
-              @input="$emit('update:fixedLufsInput', Number(($event.target as HTMLInputElement).value))"
-              min="-100"
-              max="0"
-              step="1"
+              type="text"
+              class="value-input"
+              :value="fixedLufsDisplay"
+              @input="handleFixedLufsInput"
+              @blur="handleFixedLufsBlur"
             />
-            <span class="suffix">LUFS</span>
           </div>
         </div>
       </div>
@@ -112,28 +107,25 @@
           <input
             type="range"
             class="volume-slider"
-            :model-value="timerMinutes"
-            @input="$emit('update:timerMinutes', Number(($event.target as HTMLInputElement).value))"
-            min="0"
-            max="360"
+            :model-value="Math.min(timerMinutes, 120)"
+            @input="handleTimerMinutesSlider"
+            min="1"
+            max="120"
             step="1"
           />
           <input
-            type="number"
-            class="volume-input"
-            :model-value="timerMinutesInput"
-            @input="$emit('update:timerMinutesInput', Number(($event.target as HTMLInputElement).value))"
-            min="0"
-            max="360"
-            step="1"
+            type="text"
+            class="value-input"
+            :value="timerMinutesDisplay"
+            @input="handleTimerMinutesInput"
+            @blur="handleTimerMinutesBlur"
           />
-          <span class="suffix">分钟</span>
         </div>
 
         <!-- Timer Presets -->
         <div class="timer-presets">
           <button
-            v-for="preset in [15, 30, 45, 60]"
+            v-for="preset in [15, 30, 60, 90]"
             :key="preset"
             class="timer-preset-btn"
             @click="$emit('setTimerPreset', preset)"
@@ -161,13 +153,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { API_BASE } from '@/utils/api'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
 type ViewMode = 'folder' | 'collection'
 
-defineProps<{
+const props = defineProps<{
   viewMode: ViewMode
   volumeMode: VolumeMode
   manualVolume: number
@@ -202,6 +194,109 @@ const emit = defineEmits<{
 
 const musicDirectory = ref<string>('Loading...')
 const isUpdating = ref<boolean>(false)
+
+// Temporary state for user input (before blur/commit)
+const manualVolumeInputTemp = ref('')
+const fixedLufsInputTemp = ref('')
+const timerMinutesInputTemp = ref('')
+
+// Computed display values
+const manualVolumeDisplay = computed(() => `${Math.round(props.manualVolume * 100)}%`)
+const fixedLufsDisplay = computed(() => `${props.fixedLufs} LUFS`)
+const timerMinutesDisplay = computed(() => formatTimerMinutes(props.timerMinutes))
+
+const formatTimerMinutes = (minutes: number) => {
+  if (minutes < 60) {
+    return `${minutes}分钟`
+  } else {
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    return mins > 0 ? `${hours}小时${mins}分钟` : `${hours}小时`
+  }
+}
+
+// Manual Volume handlers
+const handleManualVolumeSlider = (e: Event) => {
+  const value = Number((e.target as HTMLInputElement).value)
+  emit('update:manualVolume', value)
+}
+
+const handleManualVolumeInput = (e: Event) => {
+  manualVolumeInputTemp.value = (e.target as HTMLInputElement).value
+}
+
+const handleManualVolumeBlur = () => {
+  let valueStr = manualVolumeInputTemp.value.trim()
+  // Remove % suffix if present
+  if (valueStr.endsWith('%')) {
+    valueStr = valueStr.slice(0, -1)
+  }
+  const value = Number(valueStr)
+  if (!isNaN(value) && value >= 0 && value <= 100) {
+    emit('update:manualVolume', value / 100)
+  }
+  // Reset temp to current display value
+  manualVolumeInputTemp.value = ''
+}
+
+// Fixed LUFS handlers
+const handleFixedLufsSlider = (e: Event) => {
+  const value = Number((e.target as HTMLInputElement).value)
+  emit('update:fixedLufs', value)
+}
+
+const handleFixedLufsInput = (e: Event) => {
+  fixedLufsInputTemp.value = (e.target as HTMLInputElement).value
+}
+
+const handleFixedLufsBlur = () => {
+  let valueStr = fixedLufsInputTemp.value.trim()
+  // Remove "LUFS" suffix if present
+  if (valueStr.endsWith('LUFS') || valueStr.endsWith('lufs')) {
+    valueStr = valueStr.slice(0, -4).trim()
+  }
+  const value = Number(valueStr)
+  if (!isNaN(value) && value >= -100 && value <= 0) {
+    emit('update:fixedLufs', value)
+  }
+  // Reset temp to current display value
+  fixedLufsInputTemp.value = ''
+}
+
+// Timer handlers
+const handleTimerMinutesSlider = (e: Event) => {
+  const value = Number((e.target as HTMLInputElement).value)
+  emit('update:timerMinutes', value)
+}
+
+const handleTimerMinutesInput = (e: Event) => {
+  timerMinutesInputTemp.value = (e.target as HTMLInputElement).value
+}
+
+const handleTimerMinutesBlur = () => {
+  let valueStr = timerMinutesInputTemp.value.trim()
+  // Remove Chinese time units if present
+  valueStr = valueStr.replace(/分钟/g, '').replace(/小时/g, ' ').trim()
+
+  // Parse hours if present
+  const parts = valueStr.split(' ')
+  let totalMinutes = 0
+  if (parts.length === 2) {
+    const hours = Number(parts[0])
+    const mins = Number(parts[1])
+    if (!isNaN(hours)) totalMinutes += hours * 60
+    if (!isNaN(mins)) totalMinutes += mins
+  } else {
+    totalMinutes = Number(valueStr)
+  }
+
+  // Allow any positive value (slider is limited to 1-120, but manual input can be larger)
+  if (!isNaN(totalMinutes) && totalMinutes >= 1) {
+    emit('update:timerMinutes', Math.min(totalMinutes, 999))
+  }
+  // Reset temp to current display value
+  timerMinutesInputTemp.value = ''
+}
 
 onMounted(async () => {
   try {
@@ -439,6 +534,30 @@ const updateDatabase = async () => {
   font-size: 15px;
   color: #777;
   min-width: 30px;
+}
+
+.value-input {
+  width: 100px;
+  padding: 8px 12px;
+  border: 1px solid #1db954;
+  border-radius: 5px;
+  font-size: 18px;
+  font-weight: bold;
+  color: #1db954;
+  text-align: center;
+  transition: all 0.2s;
+  background-color: #f0fff4;
+}
+
+.value-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.3);
+  border-color: #1db954;
+}
+
+.value-input::placeholder {
+  color: #1db954;
+  opacity: 0.5;
 }
 
 .timer-status {
