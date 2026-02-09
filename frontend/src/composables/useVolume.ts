@@ -48,13 +48,21 @@ export function useVolume(currentSong: Ref<MusicInfo | null>, currentSongs: Ref<
     volumeMode.value = modes[(currentIndex + 1) % modes.length]
   }
 
-  // Sync slider and input for manual volume
+  // Sync slider and input bidirectionally for manual volume
   watch(manualVolume, (val) => {
     manualVolumeInput.value = val
   })
 
+  watch(manualVolumeInput, (val) => {
+    manualVolume.value = val
+  })
+
   watch(fixedLufs, (val) => {
     fixedLufsInput.value = val
+  })
+
+  watch(fixedLufsInput, (val) => {
+    fixedLufs.value = val
   })
 
   return {
