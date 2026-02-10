@@ -363,8 +363,11 @@ const updateDatabase = async () => {
     })
     const result = await response.json()
     if (result.success) {
-      alert('数据库更新成功！')
-      emit('databaseUpdated')
+      alert('数据库更新成功，正在重新加载...')
+      // Reload the page to refresh all data
+      setTimeout(() => {
+        window.location.reload()
+      }, 1000)
     } else {
       alert('数据库更新失败: ' + result.message)
     }
