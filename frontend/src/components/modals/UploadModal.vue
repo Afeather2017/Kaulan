@@ -88,7 +88,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { API_BASE } from '@/utils/api'
+import { getApiBase } from '@/utils/api'
 
 interface DirectoryNode {
   name: string
@@ -122,7 +122,7 @@ onMounted(async () => {
 
 const loadDirectoryTree = async () => {
   try {
-    const response = await fetch(`${API_BASE}/files/directory-tree`)
+    const response = await fetch(`${getApiBase()}/files/directory-tree`)
     if (response.ok) {
       directoryTree.value = await response.json()
     } else {
@@ -164,7 +164,7 @@ const uploadFiles = async () => {
     formData.append('targetPath', selectedPath.value)
     formData.append('files', selectedFile.value)
 
-    const response = await fetch(`${API_BASE}/files/upload`, {
+    const response = await fetch(`${getApiBase()}/files/upload`, {
       method: 'POST',
       body: formData,
     })

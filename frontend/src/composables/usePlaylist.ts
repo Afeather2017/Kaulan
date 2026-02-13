@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { API_BASE } from '@/utils/api'
+import { getApiBase } from '@/utils/api'
 
 export interface MusicInfo {
   name: string
@@ -58,7 +58,7 @@ export function usePlaylist() {
   const fetchPlaylists = async () => {
     try {
       isScanning.value = true
-      const response = await fetch(`${API_BASE}/playlists`)
+      const response = await fetch(`${getApiBase()}/playlists`)
       if (response.ok) {
         playlists.value = await response.json()
       }
@@ -72,7 +72,7 @@ export function usePlaylist() {
   // Fetch collections from backend
   const fetchCollections = async () => {
     try {
-      const response = await fetch(`${API_BASE}/collections`)
+      const response = await fetch(`${getApiBase()}/collections`)
       if (response.ok) {
         collections.value = await response.json()
         // Add virtual "所有音乐" collection
@@ -91,7 +91,7 @@ export function usePlaylist() {
   const fetchPlaylistsCollectionMode = async () => {
     try {
       isScanning.value = true
-      const response = await fetch(`${API_BASE}/playlists/collection-mode`)
+      const response = await fetch(`${getApiBase()}/playlists/collection-mode`)
       if (response.ok) {
         playlists.value = await response.json()
       }
@@ -140,7 +140,7 @@ export function usePlaylist() {
   // Collection API methods
   const createCollection = async (name: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE}/collections`, {
+      const response = await fetch(`${getApiBase()}/collections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim() })
@@ -163,7 +163,7 @@ export function usePlaylist() {
 
   const deleteCollection = async (collectionId: number): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE}/collections/${collectionId}`, {
+      const response = await fetch(`${getApiBase()}/collections/${collectionId}`, {
         method: 'DELETE'
       })
       return response.ok
@@ -175,7 +175,7 @@ export function usePlaylist() {
 
   const addToCollection = async (collectionId: number, musicIds: number[]): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE}/collections/${collectionId}/items`, {
+      const response = await fetch(`${getApiBase()}/collections/${collectionId}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ music_ids: musicIds })
@@ -189,7 +189,7 @@ export function usePlaylist() {
 
   const removeFromCollection = async (collectionId: number, musicIds: number[]): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE}/collections/${collectionId}/items`, {
+      const response = await fetch(`${getApiBase()}/collections/${collectionId}/items`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ music_ids: musicIds })
@@ -202,7 +202,7 @@ export function usePlaylist() {
   }
 
   const getAllMusic = async (): Promise<any[]> => {
-    const response = await fetch(`${API_BASE}/music`)
+    const response = await fetch(`${getApiBase()}/music`)
     if (response.ok) {
       return await response.json()
     }

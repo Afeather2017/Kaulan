@@ -23,7 +23,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { API_BASE } from '@/utils/api'
+import { getApiBase } from '@/utils/api'
 
 interface Song {
   id: number
@@ -43,7 +43,7 @@ const loading = ref(true)
 
 onMounted(async () => {
   try {
-    const response = await fetch(`${API_BASE}/music/playlists`)
+    const response = await fetch(`${getApiBase()}/music/playlists`)
     playlists.value = await response.json()
   } catch (error) {
     console.error('Failed to fetch playlists:', error)
