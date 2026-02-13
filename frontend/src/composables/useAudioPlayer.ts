@@ -1,4 +1,5 @@
 import { ref, watch, onUnmounted } from 'vue'
+import { getApiBase } from '@/utils/api'
 
 export interface MusicInfo {
   name: string
@@ -24,7 +25,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const playMode = ref<PlayMode>('sequential')
   const playedSongIndexes = ref<Set<number>>(new Set())
   const currentIndex = ref(-1)
-  const apiBase = 'http://localhost:2080/api'
+  const apiBase = getApiBase()
 
   // Random song index with no repeat (ported from swplayer)
   const randomSongIndexNoRepeat = (): number => {

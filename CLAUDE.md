@@ -141,10 +141,21 @@ frontend/src/
 ├── App.vue          # Main music player component (contains most UI)
 ├── router/
 │   └── index.ts     # Vue Router configuration
-└── views/
-    ├── Home.vue     # Dashboard with stats
-    ├── Library.vue  # Music library view
-    └── Playlists.vue # Playlist view
+├── views/
+│   ├── Home.vue     # Dashboard with stats
+│   ├── Library.vue  # Music library view
+│   └── Playlists.vue # Playlist view
+├── components/
+│   └── modals/
+│       ├── SettingsModal.vue  # Settings panel with server URL config
+│       └── UploadModal.vue    # File upload modal
+├── composables/
+│   ├── useAudioPlayer.ts  # Audio playback logic
+│   └── usePlaylist.ts     # Playlist/collection management
+└── utils/
+    ├── api.ts        # Dynamic API base configuration
+    ├── cookies.ts    # Cookie operations for server URL
+    └── validation.ts # URL validation utilities
 ```
 
 **Note:** `App.vue` contains the actual player implementation including collections feature. `Library.vue` and `Playlists.vue` are older stub files.
@@ -249,6 +260,28 @@ frontend/src/
 - TypeScript
 - Vite
 - Vue Router
+- vue-cookies (for server URL persistence)
 
 **External Tools:**
 - FFmpeg required for LUFS generation
+
+## Configurable Server URL
+
+### Overview
+The frontend supports a configurable backend server URL. Users can set a custom server address through the settings panel, which is saved to browser cookies and persists across page reloads.
+
+### How It Works
+
+1. **Cookie Storage**: Server URL is stored in cookie `kaulan_server_url` (365-day expiration)
+2. **Default URL**: `http://localhost:2080/api` is used if no cookie is set
+3. **Dynamic API Base**: All API calls use `getApiBase()` to get the current server URL
+4. **URL Normalization**: URLs are automatically normalized to end with `/api`
+
+### Key Files
+- `frontend/src/utils/api.ts` - Dynamic API base with cookie support
+- `frontend/src/utils/cookies.ts` - Cookie CRUD operations
+- `frontend/src/utils/validation.ts` - URL validation
+- `frontend/src/components/modals/SettingsModal.vue` - Server URL UI
+
+### Usage
+See [`docs/configurable-server-url.md`](docs/configurable-server-url.md) for full documentation including user instructions, validation behavior, and technical details.

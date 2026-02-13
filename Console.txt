@@ -1,0 +1,4 @@
+[Error] TypeError: undefined is not an object (evaluating '$cookies.get')
+	getServerUrl (cookies.ts:7)
+	getApiBase (api.ts:4)
+	Module Code (api.ts:17)

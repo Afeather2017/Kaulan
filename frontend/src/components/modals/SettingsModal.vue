@@ -145,6 +145,45 @@
         </div>
       </div>
 
+      <!-- Server URL Configuration -->
+      <hr class="settings-divider" />
+      <div class="mode-toggle">
+        <div class="mode-label">服务器地址</div>
+        <div class="mode-value" :class="{ 'url-changed': serverUrlInput !== getApiBase() }">
+          {{ serverUrlInput === 'http://localhost:2080/api' ? '默认' : '自定义' }}
+        </div>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">API 服务器地址</label>
+        <div class="url-input-container">
+          <input
+            type="text"
+            class="url-input"
+            :class="{ 'url-invalid': !serverUrlValid }"
+            :value="serverUrlInput"
+            @input="serverUrlInput = ($event.target as HTMLInputElement).value"
+            @blur="validateServerUrlInput"
+            placeholder="http://localhost:2080/api"
+          />
+        </div>
+        <div v-if="serverUrlError" class="url-error">{{ serverUrlError }}</div>
+        <div class="url-actions">
+          <button
+            @click="saveServerUrl"
+            class="save-url-btn"
+            :disabled="isSavingServerUrl || !serverUrlValid"
+          >
+            {{ isSavingServerUrl ? '保存中...' : '保存地址' }}
+          </button>
+          <button
+            @click="resetServerUrl"
+            class="reset-url-btn"
+          >
+            重置为默认
+          </button>
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button @click="$emit('close')" class="confirm-btn">确认</button>
       </div>
@@ -154,7 +193,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { API_BASE } from '@/utils/api'
+import { getApiBase, setApiBase, resetApiBase } from '@/utils/api'
+import { validateServerUrl } from '@/utils/validation'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
 type ViewMode = 'folder' | 'collection'
@@ -194,6 +234,12 @@ const emit = defineEmits<{
 
 const musicDirectory = ref<string>('Loading...')
 const isUpdating = ref<boolean>(false)
+
+// Server URL configuration state
+const serverUrlInput = ref<string>('')
+const serverUrlError = ref<string>('')
+const isSavingServerUrl = ref<boolean>(false)
+const serverUrlValid = ref<boolean>(true)
 
 // Temporary state for user input (before blur/commit)
 const manualVolumeInputTemp = ref('')
@@ -299,8 +345,11 @@ const handleTimerMinutesBlur = () => {
 }
 
 onMounted(async () => {
+  // Initialize server URL input
+  serverUrlInput.value = getApiBase()
+
   try {
-    const response = await fetch(`${API_BASE}/settings/music-directory`)
+    const response = await fetch(`${getApiBase()}/settings/music-directory`)
     if (response.ok) {
       const data = await response.json()
       musicDirectory.value = data.path
@@ -324,7 +373,7 @@ const selectDirectory = async () => {
   }
 
   try {
-    const response = await fetch(`${API_BASE}/settings/music-directory`, {
+    const response = await fetch(`${getApiBase()}/settings/music-directory`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -358,7 +407,7 @@ const selectDirectory = async () => {
 const updateDatabase = async () => {
   isUpdating.value = true
   try {
-    const response = await fetch(`${API_BASE}/database/update`, {
+    const response = await fetch(`${getApiBase()}/database/update`, {
       method: 'POST',
     })
     const result = await response.json()
@@ -376,6 +425,54 @@ const updateDatabase = async () => {
     alert('数据库更新失败: ' + error)
   } finally {
     isUpdating.value = false
+  }
+}
+
+// Server URL handlers
+const saveServerUrl = async () => {
+  const validation = validateServerUrl(serverUrlInput.value)
+  if (!validation.valid) {
+    serverUrlError.value = validation.error || 'Invalid URL'
+    serverUrlValid.value = false
+    return
+  }
+
+  isSavingServerUrl.value = true
+  serverUrlError.value = ''
+  serverUrlValid.value = true
+
+  try {
+    setApiBase(serverUrlInput.value)
+    alert('服务器地址已保存，正在重新加载...')
+    setTimeout(() => {
+      window.location.reload()
+    }, 500)
+  } catch (error) {
+    serverUrlError.value = '保存失败: ' + error
+    serverUrlValid.value = false
+  } finally {
+    isSavingServerUrl.value = false
+  }
+}
+
+const resetServerUrl = () => {
+  if (confirm('确定要重置服务器地址为默认值吗？')) {
+    resetApiBase()
+    alert('服务器地址已重置，正在重新加载...')
+    setTimeout(() => {
+      window.location.reload()
+    }, 500)
+  }
+}
+
+const validateServerUrlInput = () => {
+  const validation = validateServerUrl(serverUrlInput.value)
+  if (!validation.valid) {
+    serverUrlError.value = validation.error || 'Invalid URL'
+    serverUrlValid.value = false
+  } else {
+    serverUrlError.value = ''
+    serverUrlValid.value = true
   }
 }
 </script>
@@ -716,5 +813,101 @@ const updateDatabase = async () => {
 
 .upload-music-btn:hover {
   background-color: #2980b9;
+}
+
+/* Server URL styles */
+.url-input-container {
+  margin-bottom: 10px;
+}
+
+.url-input {
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 14px;
+  font-family: monospace;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.url-input:focus {
+  border-color: #1db954;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.2);
+}
+
+.url-input.url-invalid {
+  border-color: #e74c3c;
+}
+
+.url-input.url-invalid:focus {
+  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.2);
+}
+
+.url-error {
+  color: #e74c3c;
+  font-size: 13px;
+  margin-top: -8px;
+  margin-bottom: 10px;
+  padding-left: 2px;
+}
+
+.url-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.save-url-btn {
+  flex: 1;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  background-color: #1db954;
+  color: white;
+}
+
+.save-url-btn:hover:not(:disabled) {
+  background-color: #1ed760;
+}
+
+.save-url-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.reset-url-btn {
+  flex: 1;
+  padding: 10px 20px;
+  border: 1px solid #e74c3c;
+  border-radius: 5px;
+  background-color: #fff;
+  color: #e74c3c;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reset-url-btn:hover {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.url-changed {
+  color: #e67e22 !important;
+}
+
+.mode-value {
+  font-size: 16px;
+  color: #1db954;
+  font-weight: 500;
+  min-width: 100px;
+  text-align: right;
 }
 </style>
