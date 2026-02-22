@@ -43,7 +43,7 @@ pub async fn get_music(
         Ok(Some(music)) => {
             let file_reader = get_file_reader();
 
-            match file_reader.read_file(&music.file_path) {
+            match file_reader.read_file(&music.file_path).await {
                 Ok(content) => {
                     debug!("Successfully served music file: {}", filename);
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);

@@ -41,17 +41,14 @@ fun requestPermissions(permissions: Array<String>, callback: (Map<String, Boolea
 }
 
 // Get the storage permissions needed for this Android version
+// NOTE: We only need READ permissions - the app does NOT write to external storage.
+// Database is stored in app's internal storage (no permission needed).
 fun getStoragePermissions(): Array<String> {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        // Android 13+ (API 33+): Use READ_MEDIA_AUDIO
+        // Android 13+ (API 33+): Use READ_MEDIA_AUDIO for audio files only
         arrayOf(Manifest.permission.READ_MEDIA_AUDIO)
     } else {
-        // Android < 13: Use READ_EXTERNAL_STORAGE and WRITE_EXTERNAL_STORAGE
-        mutableListOf<String>().apply {
-            add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }
-        }.toTypedArray()
+        // Android < 13: Use READ_EXTERNAL_STORAGE (read-only access is sufficient)
+        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 }

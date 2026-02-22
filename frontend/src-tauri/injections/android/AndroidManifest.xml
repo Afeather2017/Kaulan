@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Network permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- For Android 12 and below - READ ONLY access -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+                     android:maxSdkVersion="32" />
+
+    <!-- For Android 13+ - Audio files ONLY -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- NOTE: We do NOT declare WRITE_EXTERNAL_STORAGE or READ_MEDIA_IMAGES/VIDEO
+         because we only need to READ audio files for playback. -->
+</manifest>

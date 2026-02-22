@@ -4,6 +4,7 @@
 //! allowing platform-specific implementations (std::fs for desktop,
 //! MediaStore API for Android).
 
+use async_trait::async_trait;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::fs;
@@ -20,6 +21,7 @@ static MUSIC_FILE_LISTER: OnceLock<Box<dyn MusicFileLister>> = OnceLock::new();
 /// This trait allows different implementations for file reading:
 /// - StdFileReader: Uses std::fs::read (default for desktop)
 /// - MediaStoreFileReader: Uses Android MediaStore content URIs
+#[async_trait]
 pub trait FileReader: Send + Sync {
     /// Read the entire contents of a file into a bytes vector
     ///
@@ -29,7 +31,7 @@ pub trait FileReader: Send + Sync {
     /// # Returns
     /// - `Ok(Vec<u8>)` - File contents as bytes
     /// - `Err(std::io::Error)` - I/O error occurred
-    fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
 }
 
 /// Trait for listing music files in a directory
@@ -37,6 +39,7 @@ pub trait FileReader: Send + Sync {
 /// This trait allows different implementations for scanning music files:
 /// - StdMusicFileLister: Uses std::fs recursive directory scan (default for desktop)
 /// - MediaStoreMusicFileLister: Uses Android MediaStore API
+#[async_trait]
 pub trait MusicFileLister: Send + Sync {
     /// List all music files in the given base path
     ///
@@ -46,7 +49,7 @@ pub trait MusicFileLister: Send + Sync {
     /// # Returns
     /// - `Ok(Vec<MusicFileInfo>)` - List of music files with metadata
     /// - `Err(std::io::Error)` - I/O error occurred
-    fn list_music_files(&self, base_path: &str) -> Result<Vec<MusicFileInfo>, std::io::Error>;
+    async fn list_music_files(&self, base_path: &str) -> Result<Vec<MusicFileInfo>, std::io::Error>;
 }
 
 /// Information about a music file
@@ -72,9 +75,15 @@ pub struct MusicFileInfo {
 /// capabilities, suitable for desktop platforms.
 pub struct StdFileReader;
 
+#[async_trait]
 impl FileReader for StdFileReader {
-    fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
-        fs::read(path)
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
+        // Use tokio::task::spawn_blocking for std::fs operations
+        // to avoid blocking the async runtime
+        let path = path.to_string();
+        tokio::task::spawn_blocking(move || std::fs::read(path))
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
     }
 }
 
@@ -87,25 +96,30 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "ogg", "wav", "aac", "flac", 
 /// using the standard library, suitable for desktop platforms.
 pub struct StdMusicFileLister;
 
+#[async_trait]
 impl MusicFileLister for StdMusicFileLister {
-    fn list_music_files(&self, base_path: &str) -> Result<Vec<MusicFileInfo>, std::io::Error> {
-        let mut audio_files = Vec::new();
-        let dir_path = Path::new(base_path);
+    async fn list_music_files(&self, base_path: &str) -> Result<Vec<MusicFileInfo>, std::io::Error> {
+        // Use spawn_blocking for synchronous directory scanning
+        let base_path = base_path.to_string();
+        tokio::task::spawn_blocking(move || {
+            let mut audio_files = Vec::new();
+            let dir_path = Path::new(&base_path);
 
-        debug!("Scanning directory with StdMusicFileLister: {}", base_path);
-
-        scan_directory_recursive(dir_path, &mut audio_files);
-
-        debug!("StdMusicFileLister scan complete. Found {} audio files", audio_files.len());
-        Ok(audio_files)
+            debug!("Scanning directory with StdMusicFileLister: {}", base_path);
+            scan_directory_recursive_sync(dir_path, &mut audio_files);
+            debug!("StdMusicFileLister scan complete. Found {} audio files", audio_files.len());
+            Ok(audio_files)
+        })
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
     }
 }
 
-/// Recursively scan directory for audio files
+/// Recursively scan directory for audio files (synchronous helper)
 ///
 /// This is a helper function for StdMusicFileLister that performs
-/// the actual recursive directory traversal.
-fn scan_directory_recursive(dir_path: &Path, audio_files: &mut Vec<MusicFileInfo>) {
+/// the actual recursive directory traversal synchronously.
+fn scan_directory_recursive_sync(dir_path: &Path, audio_files: &mut Vec<MusicFileInfo>) {
     if let Ok(entries) = fs::read_dir(dir_path) {
         for entry in entries.flatten() {
             if let Ok(file_type) = entry.file_type() {
@@ -136,7 +150,7 @@ fn scan_directory_recursive(dir_path: &Path, audio_files: &mut Vec<MusicFileInfo
                         }
                     }
                 } else if file_type.is_dir() {
-                    scan_directory_recursive(&entry.path(), audio_files);
+                    scan_directory_recursive_sync(&entry.path(), audio_files);
                 }
             }
         }
@@ -193,15 +207,15 @@ pub fn get_music_file_lister() -> &'static dyn MusicFileLister {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_std_file_reader() {
+    #[tokio::test]
+    async fn test_std_file_reader() {
         // Create a temporary file
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, b"Hello, World!").unwrap();
 
         let reader = StdFileReader;
-        let content = reader.read_file(file_path.to_str().unwrap()).unwrap();
+        let content = reader.read_file(file_path.to_str().unwrap()).await.unwrap();
         assert_eq!(content, b"Hello, World!");
     }
 
