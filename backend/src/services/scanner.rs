@@ -22,13 +22,13 @@ use tracing::{debug, info, warn, error};
 ///
 /// Returns a list of MusicFileInfo structs containing file path, filename,
 /// and optional metadata (title, artist, album, duration).
-pub fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<MusicFileInfo> {
+pub async fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Vec<MusicFileInfo> {
     let lister = get_music_file_lister();
     let dir_str = dir_path.to_string_lossy();
 
     debug!("Scanning directory: {}", dir_str);
 
-    match lister.list_music_files(&dir_str) {
+    match lister.list_music_files(&dir_str).await {
         Ok(files) => {
             debug!("Directory scan complete. Found {} audio files in {}", files.len(), dir_str);
             files
@@ -75,7 +75,7 @@ fn normalize_path(path: &str) -> String {
 /// - `Err(DbErr)` - Database error occurred
 pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
     info!("Initializing database with music from: {}", music_path);
-    let audio_files = scan_directory_recursive(Path::new(music_path), music_path);
+    let audio_files = scan_directory_recursive(Path::new(music_path), music_path).await;
     info!("Found {} audio files in directory", audio_files.len());
 
     let mut new_files = 0;
@@ -142,7 +142,7 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
     info!("[DB_UPDATE] ========== STARTING DATABASE UPDATE ==========");
     info!("[DB_UPDATE] Music directory: {}", music_path);
 
-    let audio_files = scan_directory_recursive(Path::new(music_path), music_path);
+    let audio_files = scan_directory_recursive(Path::new(music_path), music_path).await;
     info!("[DB_UPDATE] Found {} audio files in directory", audio_files.len());
 
     let mut new_files = 0;

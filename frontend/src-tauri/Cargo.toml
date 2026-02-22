@@ -27,3 +27,4 @@ tauri-plugin-android-mediastore = { path = "../../../tauri-plugin-android-medias
 kaulan = { path = "../../backend", default-features = false }
 tokio = { workspace = true }
 base64 = "0.22"
+async-trait = "0.1"

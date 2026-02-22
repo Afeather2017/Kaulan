@@ -8,6 +8,8 @@
 //! - Read file contents using content URIs (e.g., content://media/external/audio/media/123)
 
 #[cfg(target_os = "android")]
+use async_trait::async_trait;
+#[cfg(target_os = "android")]
 use kaulan::{FileReader, MusicFileLister, MusicFileInfo};
 #[cfg(target_os = "android")]
 use tauri_plugin_android_mediastore::{AndroidMediastoreExt, FileReaderOpenRequest, FileReaderReadToEndRequest, FileReaderCloseRequest};
@@ -31,19 +33,19 @@ impl MediaStoreFileReader {
 }
 
 #[cfg(target_os = "android")]
+#[async_trait]
 impl FileReader for MediaStoreFileReader {
-    fn read_file(&self, path: &str) -> Result<Vec<u8>, io::Error> {
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, io::Error> {
         // If it's a content URI, use the MediaStore plugin
         if path.starts_with("content://") {
             log::debug!("Reading content URI via MediaStore: {}", path);
 
-            // Open a file reader session
-            let open_result = tauri::async_runtime::block_on(async {
-                self.app_handle.android_mediastore()
-                    .file_reader_open(FileReaderOpenRequest {
-                        content_uri: path.to_string(),
-                    })
-            });
+            // Open a file reader session - direct await, no block_on needed!
+            let open_result = self.app_handle.android_mediastore()
+                .file_reader_open(FileReaderOpenRequest {
+                    content_uri: path.to_string(),
+                })
+                .await;
 
             let session_id = match open_result {
                 Ok(response) if response.success => {
@@ -59,21 +61,19 @@ impl FileReader for MediaStoreFileReader {
                 }
             };
 
-            // Read all data to end
-            let read_result = tauri::async_runtime::block_on(async {
-                self.app_handle.android_mediastore()
-                    .file_reader_read_to_end(FileReaderReadToEndRequest {
-                        session_id,
-                    })
-            });
+            // Read all data to end - direct await, no block_on needed!
+            let read_result = self.app_handle.android_mediastore()
+                .file_reader_read_to_end(FileReaderReadToEndRequest {
+                    session_id,
+                })
+                .await;
 
-            // Close the session
-            let _ = tauri::async_runtime::block_on(async {
-                self.app_handle.android_mediastore()
-                    .file_reader_close(FileReaderCloseRequest {
-                        session_id,
-                    })
-            });
+            // Close the session - direct await, no block_on needed!
+            let _ = self.app_handle.android_mediastore()
+                .file_reader_close(FileReaderCloseRequest {
+                    session_id,
+                })
+                .await;
 
             match read_result {
                 Ok(response) if response.success => {
@@ -104,7 +104,10 @@ impl FileReader for MediaStoreFileReader {
         } else {
             // Fall back to std::fs for regular paths (shouldn't happen on Android)
             log::warn!("MediaStoreFileReader called with non-content URI: {}", path);
-            std::fs::read(path)
+            let path = path.to_string();
+            tokio::task::spawn_blocking(move || std::fs::read(path))
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
         }
     }
 }
@@ -148,13 +151,13 @@ impl MediaStoreMusicFileLister {
 }
 
 #[cfg(target_os = "android")]
+#[async_trait]
 impl MusicFileLister for MediaStoreMusicFileLister {
-    fn list_music_files(&self, _base_path: &str) -> Result<Vec<MusicFileInfo>, io::Error> {
+    async fn list_music_files(&self, _base_path: &str) -> Result<Vec<MusicFileInfo>, io::Error> {
         log::info!("Querying MediaStore for audio files...");
 
-        let response = tauri::async_runtime::block_on(async {
-            self.app_handle.android_mediastore().get_audio_files()
-        });
+        // Direct await - no block_on needed!
+        let response = self.app_handle.android_mediastore().get_audio_files().await;
 
         match response {
             Ok(audio_files_response) => {
@@ -202,8 +205,9 @@ impl MediaStoreFileReader {
 }
 
 #[cfg(not(target_os = "android"))]
+#[async_trait::async_trait]
 impl kaulan::FileReader for MediaStoreFileReader {
-    fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
         log::warn!("MediaStoreFileReader::read_file called on desktop (stub): {}", path);
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
@@ -224,8 +228,9 @@ impl MediaStoreMusicFileLister {
 }
 
 #[cfg(not(target_os = "android"))]
+#[async_trait::async_trait]
 impl kaulan::MusicFileLister for MediaStoreMusicFileLister {
-    fn list_music_files(&self, _base_path: &str) -> Result<Vec<kaulan::MusicFileInfo>, std::io::Error> {
+    async fn list_music_files(&self, _base_path: &str) -> Result<Vec<kaulan::MusicFileInfo>, std::io::Error> {
         log::warn!("MediaStoreMusicFileLister::list_music_files called on desktop (stub)");
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,

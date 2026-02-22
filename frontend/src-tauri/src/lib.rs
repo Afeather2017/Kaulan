@@ -19,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_android_mediastore::init())
         .setup(|app| {
+            log::info!("======================= Start =======================");
 
             // Read config from Tauri's app data directory for UI display purposes
             let app_handle = app.handle().clone();

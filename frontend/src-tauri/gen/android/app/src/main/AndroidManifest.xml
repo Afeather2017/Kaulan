@@ -4,8 +4,7 @@
     <!-- For Android 12 and below -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
                      android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <!-- For Android 13+ -->
+    <!-- For Android 13+ - Only need audio permission for a music player -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <!-- AndroidTV support -->
