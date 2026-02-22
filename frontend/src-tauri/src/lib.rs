@@ -3,6 +3,9 @@ use std::sync::Mutex;
 use tauri::{Manager, State};
 use serde_json::json;
 
+// MediaStore adapter module
+mod mediastore_adapter;
+
 // State to hold the current music directory
 struct MusicDirectory(Mutex<String>);
 
@@ -14,6 +17,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(MusicDirectory(Mutex::new(String::new())))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_android_mediastore::init())
         .setup(|app| {
 
             // Read config from Tauri's app data directory for UI display purposes
@@ -43,6 +47,16 @@ pub fn run() {
             // Store in state for UI display
             let state = app.state::<MusicDirectory>();
             *state.0.lock().unwrap() = music_path.clone();
+
+            // Set up custom file operations implementations for Android
+            #[cfg(target_os = "android")]
+            {
+                log::info!("Setting up MediaStore adapters for Android");
+                let app_handle_for_adapter = app.handle().clone();
+                let _ = kaulan::set_file_reader(Box::new(mediastore_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())));
+                let _ = kaulan::set_music_file_lister(Box::new(mediastore_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter)));
+                log::info!("MediaStore adapters configured successfully");
+            }
 
             // Start the backend server with no CLI argument (uses config file)
             let _handle = app.handle().clone();

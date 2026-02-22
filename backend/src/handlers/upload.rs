@@ -8,7 +8,7 @@ use actix_web::{get, post, web, HttpResponse, Responder};
 use actix_multipart::Multipart;
 use futures::TryStreamExt;
 use crate::types::{AppState, DirectoryNode, UploadResponse};
-use crate::services::scanner::SUPPORTED_EXTENSIONS;
+use crate::file_ops::SUPPORTED_EXTENSIONS;
 use crate::services::scanner;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};

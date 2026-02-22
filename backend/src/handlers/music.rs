@@ -8,22 +8,21 @@ use actix_web::{get, web, HttpResponse, Responder};
 use serde::Serialize;
 use crate::entities::music::{Entity as MusicEntity, Model as MusicModel, Column as MusicColumn};
 use crate::types::AppState;
+use crate::file_ops::get_file_reader;
 use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
-use std::fs;
-use std::path::Path;
 use tracing::{debug, info, warn, error};
 
 /// Stream a music file by filename
 ///
 /// This endpoint looks up the music file in the database by filename,
-/// then streams the actual audio file from disk.
+/// then streams the actual audio file from disk or content URI.
 ///
 /// # Path Parameters
 /// * `filename` - The filename to look up in the database
 ///
 /// # Returns
 /// - Audio file stream with `audio/mpeg` content type if found
-/// - `404 Not Found` if music not in database or file missing on disk
+/// - `404 Not Found` if music not in database or file missing
 /// - `500 Internal Server Error` for database errors
 #[get("/api/music/{filename}")]
 pub async fn get_music(
@@ -42,9 +41,9 @@ pub async fn get_music(
         .await
     {
         Ok(Some(music)) => {
-            let file_path = Path::new(&music.file_path);
+            let file_reader = get_file_reader();
 
-            match fs::read(&file_path) {
+            match file_reader.read_file(&music.file_path) {
                 Ok(content) => {
                     debug!("Successfully served music file: {}", filename);
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
@@ -56,7 +55,7 @@ pub async fn get_music(
                     response.body(content)
                 }
                 Err(_e) => {
-                    warn!("File not found on disk: {}", file_path.display());
+                    warn!("File not found or could not be read: {}", music.file_path);
                     info!("[ACCESS] GET /api/music/{} - Status: 404", filename);
                     HttpResponse::NotFound().body("File not found")
                 }
