@@ -20,7 +20,7 @@ android {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "afeather.kaulan"
         minSdk = 24
-        targetSdk = 28
+        targetSdk = 35
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
@@ -52,7 +52,8 @@ android {
         buildConfig = true
     }
     lint {
-        disable += "ExpiredTargetSdkVersion"
+        // No longer need to disable ExpiredTargetSdkVersion warning
+        // since we're now using targetSdk = 35
     }
 }
 
