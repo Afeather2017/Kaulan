@@ -1,82 +1,129 @@
 <template>
   <div id="app" class="music-player">
-    <!-- Search Bar -->
-    <SearchBar
-      v-model="searchQuery"
-      @search="handleSearch"
-    />
+    <div class="app-window">
+      <div class="top-bar">
+        <button class="icon-btn settings-btn" aria-label="Settings" @click="handleShowSettingsModal">
+          ⚙
+        </button>
+        <SearchBar
+          v-model="searchQuery"
+          @search="handleSearch"
+        />
+      </div>
 
-    <!-- Scanning Message -->
-    <div v-if="isScanning && playlistNames.length === 0" class="scanning-message">
-      扫描中...
-    </div>
+      <div class="action-bar">
+        <button v-if="showBackButton" class="action-btn" @click="handleActionBack">
+          返回
+        </button>
+        <div class="action-spacer"></div>
+        <button v-if="showChooseButton" class="action-btn" @click="handleChooseAction">
+          选择
+        </button>
+      </div>
 
-    <!-- Content Area -->
-    <div class="content-area">
-      <!-- Playlist List -->
-      <PlaylistListView
-        v-if="currentView === 'playlists'"
-        :title="viewModeLabels[viewMode]"
-        :view-mode="viewMode"
-        :playlist-names="playlistNames"
-        :playlists="playlists"
-        :select-mode="collectionSelectMode"
-        :selected-playlists="selectedCollectionsList"
-        :show-select-button="viewMode === 'collection'"
-        :has-selected-non-all-music="hasSelectedNonAllMusicCollection()"
-        @toggle-select-mode="toggleCollectionSelectMode"
-        @toggle-selection="toggleCollectionSelection"
-        @select="handleSelectPlaylist"
-        @show-create-modal="handleShowCreateModal"
-        @delete-selected="handleDeleteSelectedCollections"
-      />
+      <!-- Scanning Message -->
+      <div v-if="isScanning && playlistNames.length === 0" class="scanning-message">
+        扫描中...
+      </div>
 
-      <!-- Song List -->
-      <SongListView
-        v-if="currentView === 'songs'"
-        :title="selectedPlaylist?.name || ''"
-        :songs="currentSongs"
-        :select-mode="selectMode"
-        :selected-songs="selectedSongs"
+      <div class="main-area" :class="{ 'wide-layout': isWideLayout }">
+        <div class="list-panel" v-show="!showLyric || isWideLayout">
+          <div class="content-area">
+            <!-- Playlist List -->
+            <PlaylistListView
+              v-if="currentView === 'playlists'"
+              :title="viewModeLabels[viewMode]"
+              :view-mode="viewMode"
+              :playlist-names="playlistNames"
+              :playlists="playlists"
+              :select-mode="collectionSelectMode"
+              :selected-playlists="selectedCollectionsList"
+              :show-select-button="false"
+              :has-selected-non-all-music="hasSelectedNonAllMusicCollection()"
+              :show-header="false"
+              @toggle-select-mode="toggleCollectionSelectMode"
+              @toggle-selection="toggleCollectionSelection"
+              @select="handleSelectPlaylist"
+              @show-create-modal="handleShowCreateModal"
+              @delete-selected="handleDeleteSelectedCollections"
+            />
+
+            <!-- Song List -->
+            <SongListView
+              v-if="currentView === 'songs'"
+              :title="selectedPlaylist?.name || ''"
+              :songs="currentSongs"
+              :select-mode="selectMode"
+              :selected-songs="selectedSongs"
+              :current-song-name="currentSong?.name"
+              :show-remove-button="viewMode === 'collection' && selectedPlaylist?.name !== '所有音乐'"
+              :show-add-button="viewMode === 'folder' || selectedPlaylist?.name === '所有音乐'"
+              :show-header="false"
+              @back="handleBackToPlaylists"
+              @toggle-select-mode="toggleSelectMode"
+              @toggle-selection="toggleSongSelection"
+              @play="handlePlaySong"
+              @remove="handleRemoveFromCollection"
+              @show-add-modal="handleShowAddToCollectionModal"
+            />
+
+            <!-- Search Results -->
+            <SongListView
+              v-if="currentView === 'search'"
+              title="搜索结果"
+              :songs="searchResults"
+              :select-mode="false"
+              :selected-songs="new Set()"
+              :show-remove-button="false"
+              :show-add-button="false"
+              :show-header="false"
+              @back="handleBackToPlaylists"
+              @play="handlePlaySong"
+            />
+          </div>
+        </div>
+
+        <div class="right-panel" v-if="isWideLayout || showLyric">
+          <div class="right-panel-content">
+            <div v-if="showLyric" class="lyric-panel">
+              <div class="lyric-placeholder">LYRIC</div>
+            </div>
+            <div v-else class="cover-panel"></div>
+
+            <PlayerControls
+              v-if="isWideLayout && !selectMode"
+              :current-time="currentTime"
+              :duration="audioElement?.duration || 0"
+              :is-playing="isPlaying"
+              :play-mode="playMode"
+              :current-song-name="currentSong?.name"
+              @seek="seekToTime"
+              @toggle-play-mode="togglePlayMode"
+              @previous="previousSong"
+              @toggle-play="togglePlay"
+              @next="nextSong"
+              @toggle-lyric="handleToggleLyric"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Player Controls (mobile) -->
+      <PlayerControls
+        v-if="!isWideLayout && !selectMode"
+        :current-time="currentTime"
+        :duration="audioElement?.duration || 0"
+        :is-playing="isPlaying"
+        :play-mode="playMode"
         :current-song-name="currentSong?.name"
-        :show-remove-button="viewMode === 'collection' && selectedPlaylist?.name !== '所有音乐'"
-        :show-add-button="viewMode === 'folder' || selectedPlaylist?.name === '所有音乐'"
-        @back="handleBackToPlaylists"
-        @toggle-select-mode="toggleSelectMode"
-        @toggle-selection="toggleSongSelection"
-        @play="handlePlaySong"
-        @remove="handleRemoveFromCollection"
-        @show-add-modal="handleShowAddToCollectionModal"
-      />
-
-      <!-- Search Results -->
-      <SongListView
-        v-if="currentView === 'search'"
-        title="搜索结果"
-        :songs="searchResults"
-        :select-mode="false"
-        :selected-songs="new Set()"
-        :show-remove-button="false"
-        :show-add-button="false"
-        @back="handleBackToPlaylists"
-        @play="handlePlaySong"
+        @seek="seekToTime"
+        @toggle-play-mode="togglePlayMode"
+        @previous="previousSong"
+        @toggle-play="togglePlay"
+        @next="nextSong"
+        @toggle-lyric="handleToggleLyric"
       />
     </div>
-
-    <!-- Player Controls -->
-    <PlayerControls
-      v-if="!selectMode"
-      :current-time="currentTime"
-      :duration="audioElement?.duration || 0"
-      :is-playing="isPlaying"
-      :play-mode="playMode"
-      @seek="seekToTime"
-      @toggle-play-mode="togglePlayMode"
-      @previous="previousSong"
-      @toggle-play="togglePlay"
-      @next="nextSong"
-      @show-settings="handleShowSettingsModal"
-    />
 
     <!-- Settings Modal -->
     <SettingsModal
@@ -138,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import SearchBar from '@/components/SearchBar.vue'
 import PlaylistListView from '@/components/PlaylistListView.vue'
 import SongListView, { type SongInfo } from '@/components/SongListView.vue'
@@ -250,11 +297,34 @@ const selectedCollections = ref<number[]>([])
 const newCollectionName = ref('')
 const showCreateCollection = ref(false)
 const showUploadModal = ref(false)
+const showLyric = ref(false)
+const isWideLayout = ref(false)
+const hasUserToggledLyric = ref(false)
 
 // Computed helper for audio player
 const currentPlaylistSongs = computed(() => {
   return selectedPlaylist.value?.songs || []
 })
+
+const showBackButton = computed(() => {
+  return showLyric.value || currentView.value !== 'playlists'
+})
+
+const showChooseButton = computed(() => {
+  if (showLyric.value) return false
+  if (currentView.value === 'playlists') return viewMode.value === 'collection'
+  if (currentView.value === 'songs') return true
+  return false
+})
+
+const updateLayoutMode = () => {
+  if (typeof window === 'undefined') return
+  const isWide = window.matchMedia('(min-aspect-ratio: 1/1)').matches
+  isWideLayout.value = isWide
+  if (isWide && !hasUserToggledLyric.value) {
+    showLyric.value = true
+  }
+}
 
 // Watch for volume changes and update audio
 watch([volumeMode, manualVolume, fixedLufs, currentSong], () => {
@@ -285,6 +355,24 @@ const handleBackToPlaylists = () => {
   selectedCollectionsList.value.clear()
 }
 
+const handleActionBack = () => {
+  if (showLyric.value) {
+    showLyric.value = false
+    return
+  }
+  handleBackToPlaylists()
+}
+
+const handleChooseAction = () => {
+  if (currentView.value === 'playlists') {
+    toggleCollectionSelectMode()
+    return
+  }
+  if (currentView.value === 'songs') {
+    toggleSelectMode()
+  }
+}
+
 const handlePlaySong = async (song: SongInfo, index?: number) => {
   if (index !== undefined) {
     await playSongAtIndex(song, index)
@@ -295,6 +383,11 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
 
 const handleShowSettingsModal = () => {
   showSettings.value = true
+}
+
+const handleToggleLyric = () => {
+  showLyric.value = !showLyric.value
+  hasUserToggledLyric.value = true
 }
 
 const hideSettingsModal = () => {
@@ -470,42 +563,175 @@ onMounted(async () => {
 
   initAudio()
   refreshData()
+  updateLayoutMode()
+  window.addEventListener('resize', updateLayoutMode)
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', updateLayoutMode)
+  }
 })
 </script>
 
 <style scoped>
 .music-player {
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
-  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
   background-color: #f5f5f5;
   color: #333;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   overflow: hidden;
 }
 
+.app-window {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+  overflow: hidden;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background-color: #fff;
+  border-bottom: 1px solid #eee;
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+
+.icon-btn:hover {
+  background-color: #e6e6e6;
+}
+
+.action-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #fff;
+  border-bottom: 1px solid #eee;
+}
+
+.action-spacer {
+  flex: 1;
+}
+
+.action-btn {
+  background: none;
+  border: none;
+  color: #1db954;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 6px 8px;
+}
+
 .scanning-message {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 200px;
+  height: 120px;
   font-size: 18px;
   color: #888;
 }
 
-.content-area {
+.main-area {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+}
+
+.main-area.wide-layout {
+  flex-direction: row;
+}
+
+.list-panel {
+  flex: 1;
+  min-height: 0;
+  background-color: #fff;
+}
+
+.right-panel {
+  flex: 1;
+  min-height: 0;
+  background-color: #fafafa;
+  border-left: 1px solid #eee;
+}
+
+.right-panel-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.lyric-panel {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid #eee;
+  border-bottom: 1px solid #eee;
+  background-color: #fff;
+}
+
+.lyric-placeholder {
+  font-size: 20px;
+  color: #888;
+  letter-spacing: 2px;
+}
+
+.cover-panel {
+  flex: 1;
+  width: 100%;
+  border-top: 1px solid #eee;
+  border-bottom: 1px solid #eee;
+  background-color: #fff;
+}
+
+.content-area {
+  height: 100%;
   overflow-y: auto;
   padding: 15px;
   background-color: #fff;
   position: relative;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 900px) and (min-aspect-ratio: 1/1) {
   .music-player {
-    max-width: 500px;
-    margin: 0 auto;
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    align-items: stretch;
+  }
+
+  .app-window {
+    width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
   }
 }
 </style>
