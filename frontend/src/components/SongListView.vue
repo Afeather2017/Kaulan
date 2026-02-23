@@ -1,6 +1,6 @@
 <template>
   <div class="song-list">
-    <div class="list-header">
+    <div v-if="showHeader" class="list-header">
       <button class="back-button" @click="$emit('back')">
         ← 返回
       </button>
@@ -59,7 +59,7 @@ export interface SongInfo {
   path: string
 }
 
-defineProps<{
+withDefaults(defineProps<{
   title: string
   songs: SongInfo[]
   selectMode: boolean
@@ -67,7 +67,10 @@ defineProps<{
   currentSongName?: string
   showRemoveButton: boolean
   showAddButton: boolean
-}>()
+  showHeader?: boolean
+}>(), {
+  showHeader: true
+})
 
 defineEmits<{
   (e: 'back'): void

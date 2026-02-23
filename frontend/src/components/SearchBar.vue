@@ -27,36 +27,37 @@ defineEmits<{
 
 <style scoped>
 .search-bar {
-  padding: 15px;
-  background-color: #fff;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  padding: 0;
+  background-color: transparent;
+  box-shadow: none;
   position: relative;
-  z-index: 10;
+  z-index: 1;
   display: flex;
   align-items: center;
+  flex: 1;
 }
 
 .search-input {
   flex: 1;
-  padding: 11px 15px;
+  padding: 10px 12px;
   border: 1px solid #ddd;
-  border-radius: 20px 0 0 20px;
+  border-radius: 10px 0 0 10px;
   font-size: 16px;
   outline: none;
-  height: 42px;
+  height: 36px;
   box-sizing: border-box;
 }
 
 .search-button {
-  padding: 11px 20px;
+  padding: 8px 12px;
   background-color: #1db954;
   color: white;
   border: none;
-  border-radius: 0 20px 20px 0;
+  border-radius: 0 10px 10px 0;
   cursor: pointer;
   font-weight: bold;
   font-size: 16px;
-  height: 42px;
+  height: 36px;
   box-sizing: border-box;
 }
 

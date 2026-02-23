@@ -3,10 +3,42 @@
     <div class="modal-content" @click.stop>
       <h3>播放器设置</h3>
 
-      <!-- View Mode Toggle -->
-      <div class="mode-toggle" @click="$emit('toggleViewMode')">
-        <div class="mode-label">分类方式</div>
-        <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
+      <!-- Server URL Configuration -->
+      <div class="mode-toggle">
+        <div class="mode-label">服务器地址</div>
+        <div class="mode-value" :class="{ 'url-changed': serverUrlInput !== getApiBase() }">
+          {{ serverUrlInput === 'http://localhost:2080/api' ? '默认' : '自定义' }}
+        </div>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">API 服务器地址</label>
+        <div class="url-input-container">
+          <input
+            type="text"
+            class="url-input"
+            :class="{ 'url-invalid': !serverUrlValid }"
+            :value="serverUrlInput"
+            @input="serverUrlInput = ($event.target as HTMLInputElement).value"
+            @blur="validateServerUrlInput"
+            placeholder="http://localhost:2080/api"
+          />
+        </div>
+        <div v-if="serverUrlError" class="url-error">{{ serverUrlError }}</div>
+        <div class="url-actions">
+          <button
+            @click="saveServerUrl"
+            class="save-url-btn"
+            :disabled="isSavingServerUrl || !serverUrlValid"
+          >
+            {{ isSavingServerUrl ? '保存中...' : '保存地址' }}
+          </button>
+          <button
+            @click="resetServerUrl"
+            class="reset-url-btn"
+          >
+            重置为默认
+          </button>
+        </div>
       </div>
 
       <hr class="settings-divider" />
@@ -72,28 +104,6 @@
         </div>
       </div>
 
-      <!-- Music Directory -->
-      <hr class="settings-divider" />
-      <div class="mode-toggle">
-        <div class="mode-label">音乐目录</div>
-      </div>
-      <div class="setting-item">
-        <div class="directory-display">{{ musicDirectory }}</div>
-        <button @click="selectDirectory" class="select-directory-btn">
-          更改目录
-        </button>
-      </div>
-      <div class="setting-item">
-        <button @click="updateDatabase" class="update-database-btn" :disabled="isUpdating">
-          {{ isUpdating ? '更新中...' : '更新数据库' }}
-        </button>
-      </div>
-      <div class="setting-item">
-        <button @click="$emit('openUploadModal')" class="upload-music-btn">
-          上传音乐文件
-        </button>
-      </div>
-
       <!-- Sleep Timer -->
       <hr class="settings-divider" />
       <div class="setting-item">
@@ -145,43 +155,33 @@
         </div>
       </div>
 
-      <!-- Server URL Configuration -->
+      <!-- Music Directory -->
       <hr class="settings-divider" />
       <div class="mode-toggle">
-        <div class="mode-label">服务器地址</div>
-        <div class="mode-value" :class="{ 'url-changed': serverUrlInput !== getApiBase() }">
-          {{ serverUrlInput === 'http://localhost:2080/api' ? '默认' : '自定义' }}
-        </div>
+        <div class="mode-label">音乐目录</div>
       </div>
       <div class="setting-item">
-        <label class="setting-label">API 服务器地址</label>
-        <div class="url-input-container">
-          <input
-            type="text"
-            class="url-input"
-            :class="{ 'url-invalid': !serverUrlValid }"
-            :value="serverUrlInput"
-            @input="serverUrlInput = ($event.target as HTMLInputElement).value"
-            @blur="validateServerUrlInput"
-            placeholder="http://localhost:2080/api"
-          />
-        </div>
-        <div v-if="serverUrlError" class="url-error">{{ serverUrlError }}</div>
-        <div class="url-actions">
-          <button
-            @click="saveServerUrl"
-            class="save-url-btn"
-            :disabled="isSavingServerUrl || !serverUrlValid"
-          >
-            {{ isSavingServerUrl ? '保存中...' : '保存地址' }}
-          </button>
-          <button
-            @click="resetServerUrl"
-            class="reset-url-btn"
-          >
-            重置为默认
-          </button>
-        </div>
+        <div class="directory-display">{{ musicDirectory }}</div>
+        <button @click="selectDirectory" class="select-directory-btn">
+          更改目录
+        </button>
+      </div>
+      <div class="setting-item">
+        <button @click="updateDatabase" class="update-database-btn" :disabled="isUpdating">
+          {{ isUpdating ? '更新中...' : '更新数据库' }}
+        </button>
+      </div>
+      <div class="setting-item">
+        <button @click="$emit('openUploadModal')" class="upload-music-btn">
+          上传音乐文件
+        </button>
+      </div>
+
+      <!-- View Mode Toggle -->
+      <hr class="settings-divider" />
+      <div class="mode-toggle" @click="$emit('toggleViewMode')">
+        <div class="mode-label">分类方式</div>
+        <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
       </div>
 
       <div class="modal-actions">

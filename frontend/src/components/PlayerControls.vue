@@ -1,5 +1,15 @@
 <template>
   <div class="player-controls">
+    <button
+      v-if="currentSongName"
+      class="current-song"
+      @click="$emit('toggleLyric')"
+    >
+      {{ currentSongName }}
+    </button>
+    <div v-else class="current-song placeholder">
+      无正在播放
+    </div>
     <!-- Progress Bar -->
     <div class="progress-bar">
       <div class="progress-time">{{ formatTime(currentTime) }}</div>
@@ -27,7 +37,7 @@
         <span v-else>▶</span>
       </button>
       <button class="control-btn" @click="$emit('next')">⏭</button>
-      <button class="control-btn" @click="$emit('showSettings')">≡</button>
+      <button class="control-btn" @click="$emit('showCurrentPlaylist')">≡</button>
     </div>
   </div>
 </template>
@@ -38,6 +48,7 @@ defineProps<{
   duration: number
   isPlaying: boolean
   playMode: 'sequential' | 'shuffle' | 'loop'
+  currentSongName?: string
 }>()
 
 defineEmits<{
@@ -46,7 +57,8 @@ defineEmits<{
   (e: 'previous'): void
   (e: 'togglePlay'): void
   (e: 'next'): void
-  (e: 'showSettings'): void
+  (e: 'showCurrentPlaylist'): void
+  (e: 'toggleLyric'): void
 }>()
 
 const formatTime = (seconds: number) => {
@@ -64,6 +76,27 @@ const formatTime = (seconds: number) => {
   box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
   position: relative;
   z-index: 10;
+}
+
+.current-song {
+  width: 100%;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  background: none;
+  border: none;
+  margin-bottom: 10px;
+  cursor: pointer;
+  padding: 4px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.current-song.placeholder {
+  cursor: default;
+  color: #888;
 }
 
 .progress-bar {

@@ -1,6 +1,6 @@
 <template>
   <div class="playlist-list">
-    <div class="list-header">
+    <div v-if="showHeader" class="list-header">
       <h2>{{ title }}</h2>
       <button v-if="showSelectButton" class="select-mode-btn" @click="$emit('toggleSelectMode')">
         {{ selectMode ? '取消勾选' : '选择' }}
@@ -45,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+withDefaults(defineProps<{
   title: string
   viewMode: 'folder' | 'collection'
   playlistNames: string[]
@@ -54,7 +54,10 @@ defineProps<{
   selectedPlaylists: Set<string>
   showSelectButton: boolean
   hasSelectedNonAllMusic: boolean
-}>()
+  showHeader?: boolean
+}>(), {
+  showHeader: true
+})
 
 defineEmits<{
   (e: 'toggleSelectMode'): void
