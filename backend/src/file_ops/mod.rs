@@ -78,12 +78,25 @@ pub struct StdFileReader;
 #[async_trait]
 impl FileReader for StdFileReader {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
+        debug!("StdFileReader::read_file called with path: {}", path);
         // Use tokio::task::spawn_blocking for std::fs operations
         // to avoid blocking the async runtime
         let path = path.to_string();
-        tokio::task::spawn_blocking(move || std::fs::read(path))
+        let path_clone = path.clone();
+        tokio::task::spawn_blocking(move || {
+            debug!("StdFileReader: Attempting to read file: {}", path_clone);
+            let result = std::fs::read(&path_clone);
+            match &result {
+                Ok(bytes) => debug!("StdFileReader: Successfully read {} bytes from {}", bytes.len(), path_clone),
+                Err(e) => debug!("StdFileReader: Failed to read file {}: {}", path_clone, e),
+            }
+            result
+        })
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+            .map_err(|e| {
+                debug!("StdFileReader: Task join error for path {}: {}", path, e);
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            })?
     }
 }
 
@@ -169,6 +182,7 @@ fn scan_directory_recursive_sync(dir_path: &Path, audio_files: &mut Vec<MusicFil
 /// - `Ok(())` - Successfully set the reader
 /// - `Err(Box<dyn FileReader>)` - A reader was already set, returns the new one
 pub fn set_file_reader(reader: Box<dyn FileReader>) -> Result<(), Box<dyn FileReader>> {
+    debug!("set_file_reader: Setting custom file reader");
     FILE_READER.set(reader)
 }
 
@@ -192,7 +206,13 @@ pub fn set_music_file_lister(lister: Box<dyn MusicFileLister>) -> Result<(), Box
 /// Returns the custom reader if one was set, otherwise returns
 /// the default StdFileReader.
 pub fn get_file_reader() -> &'static dyn FileReader {
-    FILE_READER.get().map(|b| b.as_ref()).unwrap_or(&StdFileReader)
+    let reader = FILE_READER.get().map(|b| b.as_ref()).unwrap_or(&StdFileReader);
+    if FILE_READER.get().is_some() {
+        debug!("get_file_reader: Returning custom file reader");
+    } else {
+        debug!("get_file_reader: Returning default StdFileReader");
+    }
+    reader
 }
 
 /// Get the current music file lister (custom or default)

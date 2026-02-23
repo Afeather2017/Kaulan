@@ -41,11 +41,14 @@ pub async fn get_music(
         .await
     {
         Ok(Some(music)) => {
+            debug!("Found music in database: filename={}, file_path={}", music.filename, music.file_path);
+
             let file_reader = get_file_reader();
+            debug!("File reader obtained for reading: {}", music.file_path);
 
             match file_reader.read_file(&music.file_path).await {
                 Ok(content) => {
-                    debug!("Successfully served music file: {}", filename);
+                    debug!("Successfully served music file: {} ({} bytes)", filename, content.len());
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
@@ -54,8 +57,8 @@ pub async fn get_music(
                     response.insert_header(("Expires", "0"));
                     response.body(content)
                 }
-                Err(_e) => {
-                    warn!("File not found or could not be read: {}", music.file_path);
+                Err(e) => {
+                    warn!("File not found or could not be read: {} - Error: {}", music.file_path, e);
                     info!("[ACCESS] GET /api/music/{} - Status: 404", filename);
                     HttpResponse::NotFound().body("File not found")
                 }

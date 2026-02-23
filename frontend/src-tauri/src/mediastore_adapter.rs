@@ -36,11 +36,14 @@ impl MediaStoreFileReader {
 #[async_trait]
 impl FileReader for MediaStoreFileReader {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, io::Error> {
+        log::debug!("MediaStoreFileReader::read_file called with path: {}", path);
+
         // If it's a content URI, use the MediaStore plugin
         if path.starts_with("content://") {
-            log::debug!("Reading content URI via MediaStore: {}", path);
+            log::info!("Reading content URI via MediaStore: {}", path);
 
             // Open a file reader session - direct await, no block_on needed!
+            log::debug!("Attempting to open file reader session for: {}", path);
             let open_result = self.app_handle.android_mediastore()
                 .file_reader_open(FileReaderOpenRequest {
                     content_uri: path.to_string(),
@@ -49,19 +52,22 @@ impl FileReader for MediaStoreFileReader {
 
             let session_id = match open_result {
                 Ok(response) if response.success => {
-                    log::debug!("Opened file reader session: {}", response.session_id);
+                    log::debug!("Successfully opened file reader session: {}", response.session_id);
                     response.session_id
                 }
                 Ok(response) => {
                     let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                    log::error!("Failed to open file reader for {}: success=false, error={}", path, error);
                     return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to open file reader: {}", error)));
                 }
                 Err(e) => {
+                    log::error!("Plugin error while opening file reader for {}: {:?}", path, e);
                     return Err(io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e)));
                 }
             };
 
             // Read all data to end - direct await, no block_on needed!
+            log::debug!("Reading file content for session: {}", session_id);
             let read_result = self.app_handle.android_mediastore()
                 .file_reader_read_to_end(FileReaderReadToEndRequest {
                     session_id,
@@ -69,41 +75,61 @@ impl FileReader for MediaStoreFileReader {
                 .await;
 
             // Close the session - direct await, no block_on needed!
-            let _ = self.app_handle.android_mediastore()
+            log::debug!("Closing file reader session: {}", session_id);
+            let close_result = self.app_handle.android_mediastore()
                 .file_reader_close(FileReaderCloseRequest {
                     session_id,
                 })
                 .await;
 
+            match close_result {
+                Ok(response) => {
+                    if response.success {
+                        log::debug!("Successfully closed session: {}", session_id);
+                    } else {
+                        log::warn!("Failed to close session {}: {}", session_id, response.error.unwrap_or_default());
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Error closing session {}: {:?}", session_id, e);
+                }
+            }
+
             match read_result {
                 Ok(response) if response.success => {
                     if let Some(data_base64) = response.data {
+                        log::debug!("Received {} bytes of base64-encoded data", data_base64.len());
                         // Decode base64 to bytes using the new API
                         use base64::Engine;
                         match base64::engine::general_purpose::STANDARD.decode(&data_base64) {
                             Ok(bytes) => {
-                                log::debug!("Successfully read {} bytes from MediaStore", bytes.len());
+                                log::info!("Successfully read {} bytes from MediaStore: {}", bytes.len(), path);
                                 Ok(bytes)
                             }
                             Err(e) => {
+                                log::error!("Base64 decode error for {}: {}", path, e);
                                 Err(io::Error::new(io::ErrorKind::InvalidData, format!("Base64 decode error: {}", e)))
                             }
                         }
                     } else {
+                        log::error!("No data received for {}", path);
                         Err(io::Error::new(io::ErrorKind::UnexpectedEof, "No data received"))
                     }
                 }
                 Ok(response) => {
                     let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                    log::error!("Failed to read file {}: success=false, error={}", path, error);
                     Err(io::Error::new(io::ErrorKind::Other, format!("Failed to read file: {}", error)))
                 }
                 Err(e) => {
+                    log::error!("Plugin error while reading file {}: {:?}", path, e);
                     Err(io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e)))
                 }
             }
         } else {
             // Fall back to std::fs for regular paths (shouldn't happen on Android)
             log::warn!("MediaStoreFileReader called with non-content URI: {}", path);
+            log::warn!("Falling back to std::fs for: {}", path);
             let path = path.to_string();
             tokio::task::spawn_blocking(move || std::fs::read(path))
                 .await
