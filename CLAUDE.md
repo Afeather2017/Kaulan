@@ -121,6 +121,8 @@ backend/src/
 │   ├── collection_item.rs # Collection-Item junction table (id, collection_id, music_id, created_at)
 │   ├── mod.rs
 │   └── prelude.rs
+├── file_ops/
+│   └── mod.rs       # Pluggable file operations (FileReader, MusicFileLister traits)
 ├── log_broadcast.rs # TCP log streaming server on port 2081
 └── lufsgen.rs       # FFmpeg-based LUFS analysis utility
 ```
@@ -133,6 +135,10 @@ backend/src/
 - `collection_item` table provides many-to-many relationship between collections and music
 - Backend scans music directory on startup via `initialize_database()`
 - Two view modes: folder-based playlists and user-defined collections
+- **Pluggable file operations** - `file_ops` module provides traits for platform-specific file access:
+  - `FileReader` - Read file contents (std::fs on desktop, MediaStore on Android)
+  - `MusicFileLister` - List music files (recursive scan on desktop, MediaStore query on Android)
+  - See [`docs/android/mediastore-integration.md`](docs/android/mediastore-integration.md) for Android implementation
 
 ### Frontend Structure
 ```
@@ -156,6 +162,10 @@ frontend/src/
     ├── api.ts        # Dynamic API base configuration
     ├── cookies.ts    # Cookie operations for server URL
     └── validation.ts # URL validation utilities
+
+frontend/src-tauri/src/
+├── lib.rs              # Tauri app setup, MediaStore adapter initialization
+└── mediastore_adapter.rs # MediaStore implementations for Android (FileReader, MusicFileLister)
 ```
 
 **Note:** `App.vue` contains the actual player implementation including collections feature. `Library.vue` and `Playlists.vue` are older stub files.
@@ -261,6 +271,7 @@ frontend/src/
 - sea-orm 0.12 with SQLite
 - serde, tokio, chrono
 - actix-cors
+- async-trait (for pluggable file operations)
 
 **Frontend:**
 - Vue 3 with Composition API
@@ -268,6 +279,10 @@ frontend/src/
 - Vite
 - Vue Router
 - vue-cookies (for server URL persistence)
+
+**Android (Tauri):**
+- tauri-plugin-android-mediastore - MediaStore API integration for Android music scanning
+- See [`docs/android/mediastore-integration.md`](docs/android/mediastore-integration.md) for details
 
 **External Tools:**
 - FFmpeg required for LUFS generation
