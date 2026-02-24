@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import { isAndroid } from './utils/platform'
+import '@fortawesome/fontawesome-free/css/all.css'
 
 // Apply Android-specific touch styles to prevent zooming and unwanted scrolling
 if (isAndroid()) {
