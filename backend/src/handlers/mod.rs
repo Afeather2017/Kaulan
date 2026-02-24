@@ -8,3 +8,4 @@ pub mod collections;
 pub mod settings;
 pub mod upload;
 pub mod database;
+pub mod lyrics;

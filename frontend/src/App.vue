@@ -86,7 +86,19 @@
         <div class="right-panel" v-if="isWideLayout || showLyric">
           <div class="right-panel-content">
             <div v-if="showLyric" class="lyric-panel">
-              <div class="lyric-placeholder">LYRIC</div>
+              <div v-if="!hasLyrics" class="lyric-empty">暂无歌词</div>
+              <div v-else class="lyric-container" ref="lyricContainerRef">
+                <div v-for="(line, index) in lyrics"
+                     :key="index"
+                     :class="['lyric-line', { active: index === currentLyricIndex }]">
+                  <!-- Display all language versions for this timestamp -->
+                  <template v-for="(text, textIndex) in line.texts" :key="textIndex">
+                    <div :class="['lyric-text', `lyric-lang-${textIndex}`]">
+                      {{ text || '\u00A0' }}
+                    </div>
+                  </template>
+                </div>
+              </div>
             </div>
             <div v-else class="cover-panel"></div>
 
@@ -212,6 +224,7 @@ import { useSelection } from '@/composables/useSelection'
 import { useTimer } from '@/composables/useTimer'
 import { useVolume } from '@/composables/useVolume'
 import { usePermissions } from '@/composables/usePermissions'
+import { useLyrics } from '@/composables/useLyrics'
 
 // Use composables
 const {
@@ -302,6 +315,9 @@ const {
 // Permissions composable for Android file access
 const { requestPermissions } = usePermissions()
 
+// Lyrics composable for synchronized lyrics display
+const { lyrics, currentLyricIndex, hasLyrics, updateCurrentLyric } = useLyrics(currentSong)
+
 // Additional state
 const showSettings = ref(false)
 const showAddToCollection = ref(false)
@@ -311,6 +327,7 @@ const showCreateCollection = ref(false)
 const showUploadModal = ref(false)
 const showCurrentPlaylistModal = ref(false)
 const showLyric = ref(false)
+const lyricContainerRef = ref<HTMLElement | null>(null)
 const isWideLayout = ref(false)
 const hasUserToggledLyric = ref(false)
 
@@ -348,6 +365,29 @@ watch([volumeMode, manualVolume, fixedLufs, currentSong], () => {
 watch(viewMode, async () => {
   backToPlaylists()
   await refreshData()
+})
+
+// Watch currentTime to update lyrics
+watch(currentTime, (newTime) => {
+  updateCurrentLyric(newTime)
+})
+
+// Auto-scroll to current lyric
+watch(currentLyricIndex, (newIndex) => {
+  if (!lyricContainerRef.value || newIndex < 0) return
+
+  // Get all lyric line elements
+  const lyricLines = lyricContainerRef.value.querySelectorAll('.lyric-line')
+  if (lyricLines.length === 0) return
+
+  const activeLine = lyricLines[newIndex] as HTMLElement
+  if (!activeLine) return
+
+  // Scroll the active line to center of container
+  activeLine.scrollIntoView({
+    behavior: 'smooth',
+    block: 'center'
+  })
 })
 
 // Event handlers
@@ -707,19 +747,65 @@ onBeforeUnmount(() => {
 
 .lyric-panel {
   flex: 1;
-  width: 100%;
+  overflow-y: auto;
+  background-color: #fafafa;
+}
+
+.lyric-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-top: 1px solid #eee;
-  border-bottom: 1px solid #eee;
-  background-color: #fff;
+  height: 100%;
+  font-size: 16px;
+  color: #999;
 }
 
-.lyric-placeholder {
+.lyric-container {
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-items: center;
+}
+
+.lyric-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+  transition: all 0.3s ease;
+  padding: 8px 16px;
+}
+
+.lyric-text {
+  font-size: 16px;
+  color: #999;
+  line-height: 1.6;
+}
+
+/* Original language (first text) */
+.lyric-lang-0 {
+  font-weight: 500;
+}
+
+/* Translation language (second text) - smaller */
+.lyric-lang-1 {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.lyric-line.active .lyric-text {
+  color: #1db954;
+  font-weight: 600;
+}
+
+.lyric-line.active .lyric-lang-0 {
   font-size: 20px;
-  color: #888;
-  letter-spacing: 2px;
+}
+
+.lyric-line.active .lyric-lang-1 {
+  font-size: 16px;
+  opacity: 0.9;
 }
 
 .cover-panel {

@@ -22,6 +22,7 @@ use crate::handlers::collections;
 use crate::handlers::settings;
 use crate::handlers::upload;
 use crate::handlers::database;
+use crate::handlers::lyrics;
 
 // Re-export handler modules for convenience and for integration tests
 pub use music::{get_music, get_all_music};
@@ -38,6 +39,7 @@ pub use collections::{
 pub use settings::{get_music_directory, set_music_directory};
 pub use upload::{get_directory_tree, upload_files};
 pub use database::{update_database_endpoint, get_playlists_collection_mode};
+pub use lyrics::{get_lyrics};
 
 /// Represents the server address information
 #[derive(Debug, Clone)]
@@ -163,6 +165,8 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
                 // Music endpoints
                 .service(get_music)
                 .service(get_all_music)
+                // Lyrics endpoints
+                .service(get_lyrics)
                 // Playlist endpoints (order matters - specific routes before parameterized ones)
                 .service(get_playlists_collection_mode)
                 .service(get_all_playlists)

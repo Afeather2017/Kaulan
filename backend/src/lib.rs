@@ -32,6 +32,7 @@ pub use server::{
     get_music_directory, set_music_directory,
     get_directory_tree, upload_files,
     update_database_endpoint, get_playlists_collection_mode,
+    get_lyrics,
 };
 
 /// Global broadcaster for log streaming (initialized once)
@@ -137,6 +138,7 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(temp_dir.path().to_str().unwrap().to_string()),
             db_conn: establish_connection(temp_dir.path().to_str().unwrap()).await.unwrap(),
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
         });
 
         let app = test::init_service(
@@ -169,6 +171,7 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
         });
 
         let app = test::init_service(
@@ -203,6 +206,7 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
         });
 
         let app = test::init_service(
@@ -230,6 +234,7 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
         });
 
         let app = test::init_service(
