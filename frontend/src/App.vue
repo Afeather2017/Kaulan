@@ -372,15 +372,15 @@ watch(currentTime, (newTime) => {
   updateCurrentLyric(newTime)
 })
 
-// Auto-scroll to current lyric
-watch(currentLyricIndex, (newIndex) => {
-  if (!lyricContainerRef.value || newIndex < 0) return
+// Helper function to scroll to current lyric
+const scrollToCurrentLyric = () => {
+  if (!lyricContainerRef.value || currentLyricIndex.value < 0) return
 
   // Get all lyric line elements
   const lyricLines = lyricContainerRef.value.querySelectorAll('.lyric-line')
   if (lyricLines.length === 0) return
 
-  const activeLine = lyricLines[newIndex] as HTMLElement
+  const activeLine = lyricLines[currentLyricIndex.value] as HTMLElement
   if (!activeLine) return
 
   // Scroll the active line to center of container
@@ -388,6 +388,17 @@ watch(currentLyricIndex, (newIndex) => {
     behavior: 'smooth',
     block: 'center'
   })
+}
+
+// Auto-scroll to current lyric when index changes
+watch(currentLyricIndex, scrollToCurrentLyric)
+
+// Scroll to current lyric when lyric panel is shown
+watch(showLyric, (isShown) => {
+  if (isShown) {
+    // Use setTimeout to ensure the DOM is rendered after v-show takes effect
+    setTimeout(scrollToCurrentLyric, 50)
+  }
 })
 
 // Event handlers
@@ -409,7 +420,8 @@ const handleBackToPlaylists = () => {
 }
 
 const handleActionBack = () => {
-  if (showLyric.value) {
+  // In wide layout, lyrics are always visible - don't toggle them off
+  if (showLyric.value && !isWideLayout.value) {
     showLyric.value = false
     return
   }
@@ -443,6 +455,10 @@ const handleShowCurrentPlaylist = () => {
 }
 
 const handleToggleLyric = () => {
+  // In wide layout, lyrics are always visible - don't allow toggle
+  if (isWideLayout.value) {
+    return
+  }
   showLyric.value = !showLyric.value
   hasUserToggledLyric.value = true
 }
