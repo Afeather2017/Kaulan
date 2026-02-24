@@ -1,0 +1,287 @@
+//! Lyrics API handlers.
+//!
+//! This module provides endpoints for:
+//! - Streaming LRC (lyrics) files synchronized with music playback
+
+use actix_web::{get, web, HttpResponse, Responder};
+use crate::entities::music::{Entity as MusicEntity, Column as MusicColumn};
+use crate::types::AppState;
+use crate::file_ops::get_file_reader;
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
+use tracing::{debug, info, warn, error};
+use std::path::Path;
+
+/// Stream lyrics file (LRC format) by music filename
+///
+/// This endpoint looks up the music file in the database by filename,
+/// constructs the corresponding `.lrc` file path, and streams the lyrics content.
+///
+/// LRC files should have the same base name as the audio file:
+/// - `song.mp3` → `song.lrc`
+/// - `album/track.flac` → `album/track.lrc`
+///
+/// # Path Parameters
+/// * `filename` - The filename to look up in the database (e.g., `song.mp3`)
+///
+/// # Returns
+/// - LRC file content with `text/plain; charset=utf-8` content type if found
+/// - `404 Not Found` if music not in database or LRC file missing
+/// - `500 Internal Server Error` for database errors
+///
+/// # Example
+/// ```bash
+/// curl http://localhost:2080/api/lyrics/song.mp3
+/// ```
+#[get("/api/lyrics/{filename}")]
+pub async fn get_lyrics(
+    path: web::Path<String>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let filename = path.into_inner();
+    debug!("Lyrics request received for filename: {}", filename);
+
+    // Simple access log
+    info!("[ACCESS] GET /api/lyrics/{} - Started", filename);
+
+    match MusicEntity::find()
+        .filter(MusicColumn::Filename.eq(&filename))
+        .one(&data.db_conn)
+        .await
+    {
+        Ok(Some(music)) => {
+            debug!("Found music in database: filename={}, file_path={}", music.filename, music.file_path);
+
+            // Construct LRC file path by replacing the file extension with .lrc
+            let lrc_path = Path::new(&music.file_path)
+                .with_extension("lrc")
+                .to_string_lossy()
+                .to_string();
+
+            debug!("Attempting to read lyrics file: {}", lrc_path);
+
+            let file_reader = get_file_reader();
+
+            match file_reader.read_file(&lrc_path).await {
+                Ok(content) => {
+                    debug!("Successfully served lyrics file: {} ({} bytes)", lrc_path, content.len());
+                    info!("[ACCESS] GET /api/lyrics/{} - Status: 200", filename);
+                    let mut response = HttpResponse::Ok();
+                    response.insert_header(("Content-Type", "text/plain; charset=utf-8"));
+                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
+                    response.insert_header(("Pragma", "no-cache"));
+                    response.insert_header(("Expires", "0"));
+                    response.body(content)
+                }
+                Err(e) => {
+                    debug!("Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}", lrc_path, e);
+                    info!("[ACCESS] GET /api/lyrics/{} - Status: 404", filename);
+                    HttpResponse::NotFound().body("Lyrics not found")
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("Music not found in database: {}", filename);
+            info!("[ACCESS] GET /api/lyrics/{} - Status: 404", filename);
+            HttpResponse::NotFound().body("Music not found")
+        }
+        Err(e) => {
+            error!("Database error while fetching music {}: {}", filename, e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, App, web};
+    use std::sync::Arc;
+
+    /// Helper function to create a test directory with music and lyrics files
+    async fn create_test_setup() -> (tempfile::TempDir, web::Data<AppState>) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let music_dir = temp_dir.path();
+
+        // Create test audio file
+        let audio_path = music_dir.join("test-song.mp3");
+        std::fs::write(&audio_path, b"fake audio content").unwrap();
+
+        // Create test lyrics file
+        let lyrics_path = music_dir.join("test-song.lrc");
+        std::fs::write(
+            &lyrics_path,
+            "[00:00.54]First lyric line\n[00:02.52]Second lyric line\n[00:05.00]Third lyric line"
+        ).unwrap();
+
+        // Setup database connection
+        let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Initialize database to scan the music file
+        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+            .await
+            .unwrap();
+
+        let app_state = web::Data::new(AppState {
+            music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            db_conn,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+        });
+
+        (temp_dir, app_state)
+    }
+
+    #[actix_web::test]
+    async fn test_get_lyrics_with_lrc_file() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(get_lyrics)
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/lyrics/test-song.mp3")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert!(resp.status().is_success());
+        assert_eq!(resp.status().as_u16(), 200);
+
+        // Check content type
+        let content_type = resp.headers().get("Content-Type").unwrap();
+        assert!(content_type.to_str().unwrap().contains("text/plain"));
+
+        // Check body content
+        let body = test::read_body(resp).await;
+        let content = String::from_utf8(body.to_vec()).unwrap();
+        assert!(content.contains("[00:00.54]First lyric line"));
+        assert!(content.contains("[00:02.52]Second lyric line"));
+    }
+
+    #[actix_web::test]
+    async fn test_get_lyrics_missing_lrc_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let music_dir = temp_dir.path();
+
+        // Create test audio file WITHOUT lyrics file
+        let audio_path = music_dir.join("no-lyrics.mp3");
+        std::fs::write(&audio_path, b"fake audio content").unwrap();
+
+        // Setup database connection
+        let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Initialize database to scan the music file
+        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+            .await
+            .unwrap();
+
+        let app_state = web::Data::new(AppState {
+            music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            db_conn,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(get_lyrics)
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/lyrics/no-lyrics.mp3")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 404);
+    }
+
+    #[actix_web::test]
+    async fn test_get_lyrics_music_not_in_database() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let music_dir = temp_dir.path();
+
+        let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let app_state = web::Data::new(AppState {
+            music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            db_conn,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(get_lyrics)
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/lyrics/nonexistent.mp3")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 404);
+    }
+
+    #[actix_web::test]
+    async fn test_get_lyrics_utf8_content() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let music_dir = temp_dir.path();
+
+        // Create test audio file
+        let audio_path = music_dir.join("japanese.mp3");
+        std::fs::write(&audio_path, b"fake audio content").unwrap();
+
+        // Create test lyrics file with UTF-8 content (Japanese and Chinese)
+        let lyrics_path = music_dir.join("japanese.lrc");
+        std::fs::write(
+            &lyrics_path,
+            "[00:00.54]欢迎光临。\n[00:02.52]是美容店的店员茉子哦♪\n[00:05.00]ときめきもどぎまぎも"
+        ).unwrap();
+
+        // Setup database connection
+        let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Initialize database to scan the music file
+        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+            .await
+            .unwrap();
+
+        let app_state = web::Data::new(AppState {
+            music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            db_conn,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(get_lyrics)
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/lyrics/japanese.mp3")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert!(resp.status().is_success());
+
+        // Check body content for UTF-8 characters
+        let body = test::read_body(resp).await;
+        let content = String::from_utf8(body.to_vec()).unwrap();
+        assert!(content.contains("欢迎光临"));
+        assert!(content.contains("ときめきもどぎまぎも"));
+    }
+}

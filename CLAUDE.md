@@ -212,6 +212,13 @@ frontend/src/
 - `GET /api/music/{filename}` - Stream audio file
 - `GET /api/music` - Get all music from database
 
+### Lyrics Endpoints
+- `GET /api/lyrics/{filename}` - Stream LRC lyrics file
+  - Looks up music by filename in database
+  - Constructs corresponding `.lrc` file path
+  - Returns 404 if LRC file doesn't exist (graceful degradation)
+  - See [`docs/lyrics-display.md`](docs/lyrics-display.md) for details
+
 ### Playlist Endpoints (Folder-based)
 - `GET /api/playlists` - Get all playlists (folder-based)
 - `GET /api/playlists/{name}` - Get specific playlist by name
