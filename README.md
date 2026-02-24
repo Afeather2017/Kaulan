@@ -6,6 +6,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 
 - **Music Library Management** - Automatically scans and organizes music files
 - **Mobile-First Design** - Responsive UI optimized for mobile devices
+- **Android Support** - Native Android app using MediaStore API for music access
 - **Audio Streaming** - Direct streaming from server to browser
 - **File System Playlists** - Automatic playlist creation from folder structure
 - **Collection Management** - User-defined playlists/collections
@@ -348,6 +349,8 @@ The application performs these operations automatically:
 - WAV (`.wav`)
 - AAC (`.aac`)
 - FLAC (`.flac`)
+- M4A (`.m4a`)
+- Opus (`.opus`)
 
 ## Configuration
 
@@ -401,6 +404,41 @@ server: {
   }
 }
 ```
+
+## Android Build
+
+Kaulan can be built as a native Android app using Tauri's mobile support. The Android version uses the MediaStore API to access music files on the device.
+
+### Building for Android
+
+```bash
+cd frontend
+
+# Build Android APK
+npm run tauri android build
+
+# For development with live reload
+npm run tauri android dev
+```
+
+### Android-Specific Features
+
+- **MediaStore Integration** - Uses Android's MediaStore API to scan and play music
+- **Scoped Storage Support** - Compatible with Android 10+ scoped storage restrictions
+- **Content URI Streaming** - Reads audio files via content URIs instead of file paths
+- **Permission Handling** - Requests `READ_MEDIA_AUDIO` permission on Android 13+
+
+See [`docs/android/mediastore-integration.md`](docs/android/mediastore-integration.md) for detailed technical documentation.
+
+### Android Permissions
+
+The app requires the following permission:
+
+```xml
+<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+```
+
+This permission is automatically requested when the app first launches.
 
 ## Development
 
