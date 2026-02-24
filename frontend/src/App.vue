@@ -3,7 +3,7 @@
     <div class="app-window">
       <div class="top-bar">
         <button class="icon-btn settings-btn" aria-label="Settings" @click="handleShowSettingsModal">
-          ⚙
+          <i class="fas fa-cog"></i>
         </button>
         <SearchBar
           v-model="searchQuery"
@@ -102,6 +102,7 @@
               @previous="previousSong"
               @toggle-play="togglePlay"
               @next="nextSong"
+              @show-current-playlist="handleShowCurrentPlaylist"
               @toggle-lyric="handleToggleLyric"
             />
           </div>
@@ -121,6 +122,7 @@
         @previous="previousSong"
         @toggle-play="togglePlay"
         @next="nextSong"
+        @show-current-playlist="handleShowCurrentPlaylist"
         @toggle-lyric="handleToggleLyric"
       />
     </div>
@@ -181,6 +183,15 @@
       @close="showUploadModal = false"
       @upload-complete="handleUploadComplete"
     />
+
+    <!-- Current Playlist Modal -->
+    <CurrentPlaylistModal
+      v-if="showCurrentPlaylistModal"
+      :playlist="selectedPlaylist"
+      :current-song-name="currentSong?.name"
+      @close="showCurrentPlaylistModal = false"
+      @play="handlePlaySong"
+    />
   </div>
 </template>
 
@@ -191,6 +202,7 @@ import PlaylistListView from '@/components/PlaylistListView.vue'
 import SongListView, { type SongInfo } from '@/components/SongListView.vue'
 import PlayerControls from '@/components/PlayerControls.vue'
 import SettingsModal from '@/components/modals/SettingsModal.vue'
+import CurrentPlaylistModal from '@/components/modals/CurrentPlaylistModal.vue'
 import AddToCollectionModal from '@/components/modals/AddToCollectionModal.vue'
 import CreateCollectionModal from '@/components/modals/CreateCollectionModal.vue'
 import UploadModal from '@/components/modals/UploadModal.vue'
@@ -297,6 +309,7 @@ const selectedCollections = ref<number[]>([])
 const newCollectionName = ref('')
 const showCreateCollection = ref(false)
 const showUploadModal = ref(false)
+const showCurrentPlaylistModal = ref(false)
 const showLyric = ref(false)
 const isWideLayout = ref(false)
 const hasUserToggledLyric = ref(false)
@@ -383,6 +396,10 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
 
 const handleShowSettingsModal = () => {
   showSettings.value = true
+}
+
+const handleShowCurrentPlaylist = () => {
+  showCurrentPlaylistModal.value = true
 }
 
 const handleToggleLyric = () => {

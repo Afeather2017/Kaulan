@@ -27,17 +27,23 @@
     <!-- Control Buttons -->
     <div class="control-buttons">
       <button class="control-btn" @click="$emit('togglePlayMode')">
-        <span v-if="playMode === 'sequential'">↻</span>
-        <span v-else-if="playMode === 'shuffle'">⤮</span>
-        <span v-else>①</span>
+        <i v-if="playMode === 'sequential'" class="fas fa-redo"></i>
+        <i v-else-if="playMode === 'shuffle'" class="fas fa-random"></i>
+        <i v-else class="fas fa-redo-alt"></i>
       </button>
-      <button class="control-btn" @click="$emit('previous')">⏮</button>
+      <button class="control-btn" @click="$emit('previous')">
+        <i class="fas fa-step-backward"></i>
+      </button>
       <button class="control-btn" @click="$emit('togglePlay')">
-        <span v-if="isPlaying">⏸</span>
-        <span v-else>▶</span>
+        <i v-if="isPlaying" class="fas fa-pause"></i>
+        <i v-else class="fas fa-play"></i>
       </button>
-      <button class="control-btn" @click="$emit('next')">⏭</button>
-      <button class="control-btn" @click="$emit('showCurrentPlaylist')">≡</button>
+      <button class="control-btn" @click="$emit('next')">
+        <i class="fas fa-step-forward"></i>
+      </button>
+      <button class="control-btn" @click="$emit('showCurrentPlaylist')">
+        <i class="fas fa-list"></i>
+      </button>
     </div>
   </div>
 </template>

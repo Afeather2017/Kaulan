@@ -20,7 +20,7 @@
         />
       </div>
       <div class="playlist-cover">
-        <span>♪</span>
+        <i class="fas fa-music"></i>
       </div>
       <div class="playlist-info">
         <h3>{{ playlistName }}</h3>
