@@ -228,8 +228,9 @@ import { usePlaylist } from '@/composables/usePlaylist'
 import { useSelection } from '@/composables/useSelection'
 import { useTimer } from '@/composables/useTimer'
 import { useVolume } from '@/composables/useVolume'
-import { usePermissions } from '@/composables/usePermissions'
 import { useLyrics } from '@/composables/useLyrics'
+import { getApiBase } from '@/utils/api'
+import { checkIsAndroid } from '@/utils/platform'
 
 // Search behavior docs: docs/search.md
 // Use composables
@@ -327,9 +328,6 @@ const {
   currentTime.value = 0
 })
 
-// Permissions composable for Android file access
-const { requestPermissions } = usePermissions()
-
 // Lyrics composable for synchronized lyrics display
 const { lyrics, currentLyricIndex, hasLyrics, updateCurrentLyric } = useLyrics(currentSong)
 
@@ -345,6 +343,28 @@ const showLyric = ref(false)
 const lyricContainerRef = ref<HTMLElement | null>(null)
 const isWideLayout = ref(false)
 const hasUserToggledLyric = ref(false)
+
+const triggerDatabaseUpdate = async () => {
+  const isAndroid = await checkIsAndroid()
+  if (!isAndroid) return
+  try {
+    console.log('[app] onMounted: triggering database update')
+    const response = await fetch(`${getApiBase()}/database/update`, { method: 'POST' })
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.warn('[app] onMounted: database update failed:', response.status, errorText)
+      return
+    }
+    const result = await response.json()
+    if (!result.success) {
+      console.warn('[app] onMounted: database update returned failure:', result.message)
+    } else {
+      console.log('[app] onMounted: database update completed')
+    }
+  } catch (error) {
+    console.error('[app] onMounted: database update error:', error)
+  }
+}
 
 // Computed helper for audio player
 const {
@@ -658,12 +678,8 @@ const handleDeleteSelectedCollections = async () => {
 
 // Initialize
 onMounted(async () => {
-  // Request storage permissions on Android before accessing music files
-  // On web this is a no-op
-  const granted = await requestPermissions()
-  if (!granted) {
-    console.warn('Storage permissions not granted - music access may fail')
-  }
+  // Android permission-gated scan flow: docs/startup-scan-android-vs-desktop.md
+  await triggerDatabaseUpdate()
 
   initAudio()
   refreshData()
