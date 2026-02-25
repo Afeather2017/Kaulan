@@ -51,11 +51,13 @@ sequenceDiagram
     Plugin->>MediaStore: Open content URI
     MediaStore-->>Plugin: Session ID
     Plugin-->>Adapter: session_id
-    Adapter->>Plugin: file_reader_read_to_end()
-    Plugin->>MediaStore: Read file data
-    MediaStore-->>Plugin: Base64 data
-    Plugin-->>Adapter: Base64 data
-    Adapter-->>Backend: Decoded bytes
+    loop Read chunks (1MB)
+        Adapter->>Plugin: file_reader_read(size=1MB)
+        Plugin->>MediaStore: Read file chunk
+        MediaStore-->>Plugin: Base64 data
+        Plugin-->>Adapter: Base64 data
+        Adapter-->>Backend: Decoded bytes
+    end
     Backend-->>App: Stream audio
     Adapter->>Plugin: file_reader_close()
 ```
@@ -297,43 +299,30 @@ When a user plays a song:
 The current implementation loads entire music files into memory before streaming them to the client. This applies to both desktop and Android platforms:
 
 ```
-MediaStore/StdFileReader ──► Read Entire File ──► Vec<u8> ──► HttpResponse
-        (entire file)           (into RAM)        (5-50MB)    (send at once)
+MediaStore/StdFileReader ──► Read Chunk (1MB) ──► Bytes ──► HttpResponse::streaming
+        (1MB)                    (buffer)         (send immediately)
 ```
 
 **Impact:**
 
-| File Type | Typical Size | Memory Usage per Song |
-|-----------|--------------|----------------------|
-| MP3 (320kbps, 5min) | ~5-8 MB | 5-8 MB |
-| FLAC (5min) | ~20-50 MB | 20-50 MB |
-| Base64 overhead (Android) | +33% | Additional ~2-17 MB |
+| File Type | Typical Size | Memory Usage per Stream |
+|-----------|--------------|-------------------------|
+| MP3 (320kbps, 5min) | ~5-8 MB | ~1 MB buffer |
+| FLAC (5min) | ~20-50 MB | ~1 MB buffer |
+| Base64 overhead (Android) | +33% | +~0.33 MB per chunk |
 
 **Consequences:**
 
-1. **High memory usage** - Each song fully loaded into RAM before playback starts
-2. **Playback delay** - User must wait for entire file to load before hearing audio
-3. **Base64 overhead** - Android MediaStore returns base64-encoded data, adding ~33% memory overhead during transfer
-4. **Limited concurrent playback** - Multiple simultaneous streams multiply memory usage
+1. **Low memory usage** - Fixed-size buffer per stream regardless of file size
+2. **Faster playback start** - Audio begins once the first chunk arrives
+3. **Bounded base64 overhead** - Overhead applies per chunk, not for entire file
+4. **Better concurrency** - Multiple streams scale with chunk size, not file size
 
 **Source Files:**
 
-- [`backend/src/handlers/music.rs:49-58`](../../../backend/src/handlers/music.rs) - Loads entire file via `read_file()` then sends as response body
-- [`frontend/src-tauri/src/mediastore_adapter.rs:71-113`](../../../frontend/src-tauri/src/mediastore_adapter.rs) - Uses `file_reader_read_to_end()` for entire file transfer
-
-**Future Improvement:**
-
-A proper streaming implementation would:
-
-1. Read files in fixed-size chunks (e.g., 8-64 KB)
-2. Send each chunk immediately via actix-web's streaming body
-3. Maintain only a small buffer regardless of file size
-
-This would require:
-- Adding a `read_stream()` method to `FileReader` trait
-- Implementing chunked reading for both `StdFileReader` and `MediaStoreFileReader`
-- Using `file_reader_read` (chunked) instead of `file_reader_read_to_end` in the MediaStore plugin
-- Updating music handler to use `StreamingBody` or similar actix-web streaming type
+- [`backend/src/handlers/music.rs`](../../../backend/src/handlers/music.rs) - Streams audio using `read_stream()`
+- [`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs) - Defines `read_stream()` on `FileReader`
+- [`frontend/src-tauri/src/mediastore_adapter.rs`](../../../frontend/src-tauri/src/mediastore_adapter.rs) - Uses `file_reader_read()` with 1MB chunks
 
 ## Build Configuration
 
@@ -357,10 +346,7 @@ tauri-plugin-android-mediastore = "0.1"
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "android-mediastore:allow-get-audio-files",
-    "android-mediastore:allow-file-reader-open",
-    "android-mediastore:allow-file-reader-read-to-end",
-    "android-mediastore:allow-file-reader-close"
+    "android-mediastore:default"
   ]
 }
 ```

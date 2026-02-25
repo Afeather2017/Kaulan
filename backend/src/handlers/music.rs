@@ -5,6 +5,7 @@
 //! - Getting all music from the database
 
 use actix_web::{get, web, HttpResponse, Responder};
+use futures::TryStreamExt;
 use serde::Serialize;
 use crate::entities::music::{Entity as MusicEntity, Model as MusicModel, Column as MusicColumn};
 use crate::types::AppState;
@@ -46,16 +47,17 @@ pub async fn get_music(
             let file_reader = get_file_reader();
             debug!("File reader obtained for reading: {}", music.file_path);
 
-            match file_reader.read_file(&music.file_path).await {
-                Ok(content) => {
-                    debug!("Successfully served music file: {} ({} bytes)", filename, content.len());
+            const CHUNK_SIZE: usize = 1024 * 1024;
+            match file_reader.read_stream(&music.file_path, CHUNK_SIZE).await {
+                Ok(stream) => {
+                    debug!("Streaming music file: {}", filename);
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
                     response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
                     response.insert_header(("Pragma", "no-cache"));
                     response.insert_header(("Expires", "0"));
-                    response.body(content)
+                    response.streaming(stream.map_err(actix_web::Error::from))
                 }
                 Err(e) => {
                     warn!("File not found or could not be read: {} - Error: {}", music.file_path, e);

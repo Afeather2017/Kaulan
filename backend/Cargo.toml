@@ -27,6 +27,8 @@ dirs = "5"
 base64 = "0.22"
 thiserror = "1"
 async-trait = "0.1"
+bytes = "1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 [dev-dependencies]
 tempfile = "3"

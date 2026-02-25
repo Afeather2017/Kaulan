@@ -28,3 +28,5 @@ kaulan = { path = "../../backend", default-features = false }
 tokio = { workspace = true }
 base64 = "0.22"
 async-trait = "0.1"
+bytes = "1"
+futures = "0.3"
