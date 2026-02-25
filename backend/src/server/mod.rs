@@ -113,14 +113,6 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
     // Create the scan lock that will block playlist endpoints until scan completes
     let scan_lock = Arc::new(TokioMutex::new(()));
 
-    let initial_scan_done = match scanner::get_initial_scan_done(&db_conn).await {
-        Ok(done) => done,
-        Err(e) => {
-            error!("Failed to read startup scan flag: {}", e);
-            false
-        }
-    };
-
     info!("Scanning music files from: {}", music_path);
 
     // Acquire the scan lock before spawning the scan task
@@ -129,27 +121,43 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
     let db_conn_for_scan = db_conn.clone();
     let music_path_for_scan = music_path.clone();
 
-    if !initial_scan_done {
-        // Spawn database scan as background task with lock held
-        tokio::spawn(async move {
-            let _guard = scan_lock_for_scan.lock().await;
-            if let Err(e) = scanner::initialize_database(&music_path_for_scan, &db_conn_for_scan).await {
-                error!("Failed to initialize database: {}", e);
-            } else if let Err(e) = scanner::set_initial_scan_done(&db_conn_for_scan, true).await {
-                error!("Failed to update startup scan flag: {}", e);
-            }
-            match MusicEntity::find().all(&db_conn_for_scan).await {
-                Ok(music_list) => {
-                    info!("Found {} music files in database", music_list.len());
-                }
-                Err(e) => {
-                    error!("Failed to count music files: {}", e);
-                }
-            }
-            drop(_guard);  // Release lock when scan completes
-        });
+    // Startup scan behavior is documented in docs/startup-scan-android-vs-desktop.md.
+    if cfg!(target_os = "android") {
+        // On Android, MediaStore access depends on runtime permissions.
+        // Skip the startup scan and let the frontend trigger /database/update
+        // after permissions are granted.
+        info!("Skipping startup scan on Android. Waiting for explicit /database/update after permissions.");
     } else {
-        info!("Skipping startup scan (initial scan already completed). Use Update Database to rescan.");
+        let initial_scan_done = match scanner::get_initial_scan_done(&db_conn).await {
+            Ok(done) => done,
+            Err(e) => {
+                error!("Failed to read startup scan flag: {}", e);
+                false
+            }
+        };
+
+        if !initial_scan_done {
+            // Spawn database scan as background task with lock held
+            tokio::spawn(async move {
+                let _guard = scan_lock_for_scan.lock().await;
+                if let Err(e) = scanner::initialize_database(&music_path_for_scan, &db_conn_for_scan).await {
+                    error!("Failed to initialize database: {}", e);
+                } else if let Err(e) = scanner::set_initial_scan_done(&db_conn_for_scan, true).await {
+                    error!("Failed to update startup scan flag: {}", e);
+                }
+                match MusicEntity::find().all(&db_conn_for_scan).await {
+                    Ok(music_list) => {
+                        info!("Found {} music files in database", music_list.len());
+                    }
+                    Err(e) => {
+                        error!("Failed to count music files: {}", e);
+                    }
+                }
+                drop(_guard);  // Release lock when scan completes
+            });
+        } else {
+            info!("Skipping startup scan (initial scan already completed). Use Update Database to rescan.");
+        }
     }
 
     let app_state = web::Data::new(AppState {

@@ -224,6 +224,26 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                             error!("[DB_UPDATE]   FAILED to insert {}: {}", filename, e);
                         }
                     }
+                } else if is_content_uri(&normalized_path) {
+                    // Android MediaStore entries may not be accessible by FFmpeg.
+                    // Insert with default LUFS so the file is still playable.
+                    warn!("[DB_UPDATE]   LUFS unavailable for content URI - inserting with default LUFS: {}", filename);
+                    let music = MusicActiveModel {
+                        filename: Set(filename.clone()),
+                        file_path: Set(normalized_path.clone()),
+                        lufs: Set(Some(0.5)),
+                        created_at: Set(Utc::now()),
+                        ..Default::default()
+                    };
+                    match music.insert(db_conn).await {
+                        Ok(_) => {
+                            info!("[DB_UPDATE]   INSERTED: {} (LUFS: default 0.5)", filename);
+                            new_files += 1;
+                        }
+                        Err(e) => {
+                            error!("[DB_UPDATE]   FAILED to insert {}: {}", filename, e);
+                        }
+                    }
                 } else {
                     warn!("[DB_UPDATE]   SKIPPED: Failed to calculate LUFS for {}", filename);
                 }
@@ -243,6 +263,10 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                                 error!("[DB_UPDATE]   FAILED to update {}: {}", filename, e);
                             }
                         }
+                    } else if is_content_uri(&normalized_path) {
+                        // Keep default LUFS for content URIs when FFmpeg is unavailable.
+                        warn!("[DB_UPDATE]   LUFS unavailable for content URI - keeping default for {}", filename);
+                        skipped_files += 1;
                     } else {
                         warn!("[DB_UPDATE]   SKIPPED: Failed to calculate LUFS for {}", filename);
                     }
