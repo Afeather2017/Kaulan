@@ -61,5 +61,13 @@ pub async fn establish_connection(music_path: &str) -> Result<DatabaseConnection
     db.execute(backend.build(&collection_item_stmt)).await?;
     debug!("Collection_item table created/verified");
 
+    // Create db_meta table for startup scan state
+    let db_meta_stmt: TableCreateStatement = schema
+        .create_table_from_entity(entities::db_meta::Entity)
+        .if_not_exists()
+        .to_owned();
+    db.execute(backend.build(&db_meta_stmt)).await?;
+    debug!("Db_meta table created/verified");
+
     Ok(db)
 }

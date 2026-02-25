@@ -9,7 +9,7 @@ use kaulan::{
 };
 use sea_orm::{Database, DatabaseConnection, DbErr, EntityTrait, ConnectionTrait, Schema, sea_query::{TableCreateStatement}};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Creates an in-memory SQLite database for testing
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -38,6 +38,7 @@ async fn test_get_music_directory() {
     let app_state = AppState {
         music_path: Arc::new(test_music_path.clone()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -70,6 +71,7 @@ async fn test_update_database_empty() {
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -110,6 +112,7 @@ async fn test_update_database_with_new_files() {
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(

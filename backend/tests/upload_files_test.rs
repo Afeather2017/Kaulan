@@ -9,13 +9,41 @@
 use actix_web::{test, App, http, web};
 use kaulan::{AppState, upload_files, get_all_music};
 use sea_orm::{Database, DatabaseConnection, DbErr, ConnectionTrait, Schema, sea_query::TableCreateStatement};
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex as TokioMutex;
 use std::fs;
 use actix_web::web::Bytes;
 
-/// Path to test music files
-const TEST_MUSIC_DIR: &str = "/home/afeather/Codes/kaulan/test-music";
+fn find_test_mp3_path() -> PathBuf {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("test_music");
+    let mut stack = vec![base];
+
+    while let Some(dir) = stack.pop() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("mp3"))
+                    .unwrap_or(false)
+                {
+                    return path;
+                }
+            }
+        }
+    }
+
+    panic!("No .mp3 files found under test_music");
+}
+
+fn read_test_mp3() -> Vec<u8> {
+    let path = find_test_mp3_path();
+    fs::read(&path).expect("Failed to read test MP3 file")
+}
 
 /// Creates an in-memory SQLite database for testing
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -75,6 +103,7 @@ async fn test_upload_single_file_to_root() {
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     });
 
     let app = test::init_service(
@@ -82,8 +111,7 @@ async fn test_upload_single_file_to_root() {
     ).await;
 
     // Read test file
-    let test_file_path = format!("{}/0.5sinwave.mp3", TEST_MUSIC_DIR);
-    let file_content = fs::read(&test_file_path).expect("Failed to read test file");
+    let file_content = read_test_mp3();
 
     // Create multipart body
     let (boundary, body) = create_multipart_body_bytes(&[("0.5sinwave.mp3", &file_content)], None);
@@ -121,14 +149,14 @@ async fn test_upload_to_subdirectory() {
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     });
 
     let app = test::init_service(
         App::new().app_data(app_state).service(upload_files)
     ).await;
 
-    let test_file_path = format!("{}/1-m.mp3", TEST_MUSIC_DIR);
-    let file_content = fs::read(&test_file_path).expect("Failed to read test file");
+    let file_content = read_test_mp3();
 
     // Upload to subdirectory "test-subfolder"
     let (boundary, body) = create_multipart_body_bytes(&[("1-m.mp3", &file_content)], Some("test-subfolder"));
@@ -165,6 +193,7 @@ async fn test_upload_unsupported_file_type_rejected() {
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     });
 
     let app = test::init_service(
@@ -210,14 +239,14 @@ async fn test_upload_path_traversal_protection() {
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     });
 
     let app = test::init_service(
         App::new().app_data(app_state).service(upload_files)
     ).await;
 
-    let test_file_path = format!("{}/3-m.mp3", TEST_MUSIC_DIR);
-    let file_content = fs::read(&test_file_path).expect("Failed to read test file");
+    let file_content = read_test_mp3();
 
     // Try to upload with path traversal in target path
     let (boundary, body) = create_multipart_body_bytes(
@@ -258,6 +287,7 @@ async fn test_upload_updates_database() {
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     });
 
     let app = test::init_service(
@@ -276,8 +306,7 @@ async fn test_upload_updates_database() {
     assert_eq!(initial_music.as_array().unwrap().len(), 0);
 
     // Upload a file
-    let test_file_path = format!("{}/4-m.mp3", TEST_MUSIC_DIR);
-    let file_content = fs::read(&test_file_path).expect("Failed to read test file");
+    let file_content = read_test_mp3();
 
     let (boundary, body) = create_multipart_body_bytes(&[("4-m.mp3", &file_content)], None);
 
@@ -320,6 +349,7 @@ async fn test_upload_empty_request() {
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     });
 
     let app = test::init_service(
@@ -359,14 +389,14 @@ async fn test_upload_to_nested_subdirectories() {
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     });
 
     let app = test::init_service(
         App::new().app_data(app_state).service(upload_files)
     ).await;
 
-    let test_file_path = format!("{}/5-m.mp3", TEST_MUSIC_DIR);
-    let file_content = fs::read(&test_file_path).expect("Failed to read test file");
+    let file_content = read_test_mp3();
 
     // Upload to nested subdirectory
     let (boundary, body) = create_multipart_body_bytes(

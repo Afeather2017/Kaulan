@@ -15,3 +15,8 @@ pub use super::collection_item::Model as CollectionItem;
 pub use super::collection_item::Entity as CollectionItemEntity;
 pub use super::collection_item::ActiveModel as CollectionItemActiveModel;
 pub use super::collection_item::Column as CollectionItemColumn;
+
+pub use super::db_meta::Model as DbMeta;
+pub use super::db_meta::Entity as DbMetaEntity;
+pub use super::db_meta::ActiveModel as DbMetaActiveModel;
+pub use super::db_meta::Column as DbMetaColumn;

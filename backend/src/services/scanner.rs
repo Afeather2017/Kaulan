@@ -7,9 +7,10 @@
 //! - LUFS calculation integration
 
 use crate::entities::music::{Entity as MusicEntity, ActiveModel as MusicActiveModel, Column as MusicColumn};
+use crate::entities::db_meta::{Entity as DbMetaEntity, ActiveModel as DbMetaActiveModel};
 use crate::lufsgen::get_lufs;
 use crate::file_ops::{get_music_file_lister, MusicFileInfo};
-use sea_orm::{DatabaseConnection, EntityTrait, Set, ActiveModelTrait, ModelTrait, ColumnTrait, QueryFilter};
+use sea_orm::{DatabaseConnection, EntityTrait, Set, ActiveModelTrait, ModelTrait, ColumnTrait, QueryFilter, DbErr};
 use std::path::Path;
 use chrono::Utc;
 use tracing::{debug, info, warn, error};
@@ -120,6 +121,48 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
     }
 
     info!("Database initialization complete: {} new files, {} existing files", new_files, existing_files);
+    Ok(())
+}
+
+/// Get or initialize the startup scan flag.
+///
+/// If the metadata row doesn't exist, it is created with `initial_scan_done = false`.
+///
+/// See docs/startup-scan.md for behavior details.
+pub async fn get_initial_scan_done(db_conn: &DatabaseConnection) -> Result<bool, DbErr> {
+    if let Some(meta) = DbMetaEntity::find_by_id(1).one(db_conn).await? {
+        return Ok(meta.initial_scan_done);
+    }
+
+    let meta = DbMetaActiveModel {
+        id: Set(1),
+        initial_scan_done: Set(false),
+        updated_at: Set(Utc::now()),
+        ..Default::default()
+    };
+    meta.insert(db_conn).await?;
+    Ok(false)
+}
+
+/// Update the startup scan flag.
+///
+/// See docs/startup-scan.md for behavior details.
+pub async fn set_initial_scan_done(db_conn: &DatabaseConnection, done: bool) -> Result<(), DbErr> {
+    if let Some(meta) = DbMetaEntity::find_by_id(1).one(db_conn).await? {
+        let mut active_model: DbMetaActiveModel = meta.into();
+        active_model.initial_scan_done = Set(done);
+        active_model.updated_at = Set(Utc::now());
+        active_model.update(db_conn).await?;
+        return Ok(());
+    }
+
+    let meta = DbMetaActiveModel {
+        id: Set(1),
+        initial_scan_done: Set(done),
+        updated_at: Set(Utc::now()),
+        ..Default::default()
+    };
+    meta.insert(db_conn).await?;
     Ok(())
 }
 
