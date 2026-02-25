@@ -5,9 +5,12 @@
 //! MediaStore API for Android).
 
 use async_trait::async_trait;
-use std::path::Path;
-use std::sync::OnceLock;
+use bytes::Bytes;
+use futures::Stream;
 use std::fs;
+use std::path::Path;
+use std::pin::Pin;
+use std::sync::OnceLock;
 use tracing::debug;
 
 /// Static storage for custom file reader implementation
@@ -32,6 +35,21 @@ pub trait FileReader: Send + Sync {
     /// - `Ok(Vec<u8>)` - File contents as bytes
     /// - `Err(std::io::Error)` - I/O error occurred
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
+
+    /// Read a file as a stream of byte chunks
+    ///
+    /// # Arguments
+    /// * `path` - File path or content URI to read
+    /// * `chunk_size` - Size of each chunk in bytes
+    ///
+    /// # Returns
+    /// - `Ok(Stream)` - Stream of file chunks
+    /// - `Err(std::io::Error)` - I/O error occurred
+    async fn read_stream(
+        &self,
+        path: &str,
+        chunk_size: usize,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>;
 }
 
 /// Trait for listing music files in a directory
@@ -97,6 +115,17 @@ impl FileReader for StdFileReader {
                 debug!("StdFileReader: Task join error for path {}: {}", path, e);
                 std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
             })?
+    }
+
+    async fn read_stream(
+        &self,
+        path: &str,
+        chunk_size: usize,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error> {
+        debug!("StdFileReader::read_stream called with path: {}", path);
+        let file = tokio::fs::File::open(path).await?;
+        let stream = tokio_util::io::ReaderStream::with_capacity(file, chunk_size);
+        Ok(Box::pin(stream))
     }
 }
 
@@ -237,6 +266,26 @@ mod tests {
         let reader = StdFileReader;
         let content = reader.read_file(file_path.to_str().unwrap()).await.unwrap();
         assert_eq!(content, b"Hello, World!");
+    }
+
+    #[tokio::test]
+    async fn test_std_file_reader_stream() {
+        use futures::StreamExt;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("stream.bin");
+        let data = vec![0_u8; 1024 * 1024 + 17];
+        fs::write(&file_path, &data).unwrap();
+
+        let reader = StdFileReader;
+        let mut stream = reader.read_stream(file_path.to_str().unwrap(), 1024 * 1024).await.unwrap();
+        let mut collected = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk.unwrap();
+            collected.extend_from_slice(&bytes);
+        }
+
+        assert_eq!(collected, data);
     }
 
     #[test]

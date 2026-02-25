@@ -10,11 +10,25 @@
 #[cfg(target_os = "android")]
 use async_trait::async_trait;
 #[cfg(target_os = "android")]
+use bytes::Bytes;
+#[cfg(target_os = "android")]
+use futures::{stream, Stream};
+#[cfg(target_os = "android")]
 use kaulan::{FileReader, MusicFileLister, MusicFileInfo};
 #[cfg(target_os = "android")]
-use tauri_plugin_android_mediastore::{AndroidMediastoreExt, FileReaderOpenRequest, FileReaderReadToEndRequest, FileReaderCloseRequest};
+use tauri_plugin_android_mediastore::{
+    AndroidMediastoreExt,
+    FileReaderCloseRequest,
+    FileReaderOpenRequest,
+    FileReaderReadRequest,
+    FileReaderReadToEndRequest,
+};
 #[cfg(target_os = "android")]
 use std::io;
+#[cfg(target_os = "android")]
+use std::pin::Pin;
+#[cfg(target_os = "android")]
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 /// MediaStore-based FileReader for Android
 ///
@@ -29,6 +43,30 @@ pub struct MediaStoreFileReader {
 impl MediaStoreFileReader {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
         Self { app_handle }
+    }
+}
+
+#[cfg(target_os = "android")]
+struct SessionGuard {
+    app_handle: tauri::AppHandle,
+    session_id: i64,
+    closed: Arc<AtomicBool>,
+}
+
+#[cfg(target_os = "android")]
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        let app_handle = self.app_handle.clone();
+        let session_id = self.session_id;
+        tokio::spawn(async move {
+            let _ = app_handle.android_mediastore()
+                .file_reader_close(FileReaderCloseRequest { session_id })
+                .await;
+        });
     }
 }
 
@@ -136,6 +174,117 @@ impl FileReader for MediaStoreFileReader {
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
         }
     }
+
+    async fn read_stream(
+        &self,
+        path: &str,
+        chunk_size: usize,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>> + Send>>, io::Error> {
+        log::debug!("MediaStoreFileReader::read_stream called with path: {}", path);
+
+        if !path.starts_with("content://") {
+            log::warn!("MediaStoreFileReader::read_stream called with non-content URI: {}", path);
+            return Err(io::Error::new(io::ErrorKind::Unsupported, "Expected content URI"));
+        }
+
+        log::info!("Streaming content URI via MediaStore: {}", path);
+        let open_result = self.app_handle.android_mediastore()
+            .file_reader_open(FileReaderOpenRequest {
+                content_uri: path.to_string(),
+            })
+            .await;
+
+        let session_id = match open_result {
+            Ok(response) if response.success => response.session_id,
+            Ok(response) => {
+                let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to open file reader: {}", error)));
+            }
+            Err(e) => {
+                return Err(io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e)));
+            }
+        };
+
+        let closed = Arc::new(AtomicBool::new(false));
+        let guard = SessionGuard {
+            app_handle: self.app_handle.clone(),
+            session_id,
+            closed: closed.clone(),
+        };
+
+        let app_handle = self.app_handle.clone();
+        let stream = stream::unfold((app_handle, session_id, closed, guard, false), move |state| async move {
+            let (app_handle, session_id, closed, guard, done) = state;
+            if done {
+                return None;
+            }
+            let read_result = app_handle.android_mediastore()
+                .file_reader_read(FileReaderReadRequest {
+                    session_id,
+                    size: chunk_size as i32,
+                })
+                .await;
+
+            match read_result {
+                Ok(response) if response.success => {
+                    if response.is_eof {
+                        closed.store(true, Ordering::SeqCst);
+                        let _ = app_handle.android_mediastore()
+                            .file_reader_close(FileReaderCloseRequest { session_id })
+                            .await;
+                        return None;
+                    }
+
+                    match response.data {
+                        Some(data_base64) => {
+                            use base64::Engine;
+                            match base64::engine::general_purpose::STANDARD.decode(&data_base64) {
+                                Ok(bytes) => {
+                                    let item = Ok(Bytes::from(bytes));
+                                    Some((item, (app_handle, session_id, closed, guard, false)))
+                                }
+                                Err(e) => {
+                                    let _ = app_handle.android_mediastore()
+                                        .file_reader_close(FileReaderCloseRequest { session_id })
+                                        .await;
+                                    closed.store(true, Ordering::SeqCst);
+                                    let err = io::Error::new(io::ErrorKind::InvalidData, format!("Base64 decode error: {}", e));
+                                    Some((Err(err), (app_handle, session_id, closed, guard, true)))
+                                }
+                            }
+                        }
+                        None => {
+                            let _ = app_handle.android_mediastore()
+                                .file_reader_close(FileReaderCloseRequest { session_id })
+                                .await;
+                            closed.store(true, Ordering::SeqCst);
+                            let err = io::Error::new(io::ErrorKind::UnexpectedEof, "No data received");
+                            Some((Err(err), (app_handle, session_id, closed, guard, true)))
+                        }
+                    }
+                }
+                Ok(response) => {
+                    let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                    let _ = app_handle.android_mediastore()
+                        .file_reader_close(FileReaderCloseRequest { session_id })
+                        .await;
+                    closed.store(true, Ordering::SeqCst);
+                    let err = io::Error::new(io::ErrorKind::Other, format!("Failed to read file: {}", error));
+                    Some((Err(err), (app_handle, session_id, closed, guard, true)))
+                }
+                Err(e) => {
+                    let _ = app_handle.android_mediastore()
+                        .file_reader_close(FileReaderCloseRequest { session_id })
+                        .await;
+                    closed.store(true, Ordering::SeqCst);
+                    let err = io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e));
+                    Some((Err(err), (app_handle, session_id, closed, guard, true)))
+                }
+            }
+        });
+
+        Ok(Box::pin(stream))
+    }
 }
 
 /// MediaStore-based MusicFileLister for Android
@@ -235,6 +384,18 @@ impl MediaStoreFileReader {
 impl kaulan::FileReader for MediaStoreFileReader {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
         log::warn!("MediaStoreFileReader::read_file called on desktop (stub): {}", path);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "MediaStore is only available on Android"
+        ))
+    }
+
+    async fn read_stream(
+        &self,
+        path: &str,
+        _chunk_size: usize,
+    ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send>>, std::io::Error> {
+        log::warn!("MediaStoreFileReader::read_stream called on desktop (stub): {}", path);
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "MediaStore is only available on Android"
