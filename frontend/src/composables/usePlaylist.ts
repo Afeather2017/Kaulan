@@ -41,15 +41,21 @@ export function usePlaylist() {
   })
 
   const currentSongs = computed(() => {
-    if (searchQuery.value) return []
     return selectedPlaylist.value?.songs || []
   })
 
+  // Search behavior docs: docs/search.md
   const searchResults = computed(() => {
     if (!searchQuery.value) return []
     const query = searchQuery.value.toLowerCase()
-    const allSongs = Object.values(playlists.value).flat()
-    return allSongs.filter(song =>
+    let scopeSongs: MusicInfo[] = []
+    if (selectedPlaylist.value) {
+      scopeSongs = selectedPlaylist.value.songs
+    } else {
+      const allMusic = playlists.value['所有音乐']
+      scopeSongs = allMusic || Object.values(playlists.value).flat()
+    }
+    return scopeSongs.filter(song =>
       song.name.toLowerCase().includes(query)
     )
   })
@@ -132,9 +138,8 @@ export function usePlaylist() {
   }
 
   const showSearchResults = () => {
-    if (searchQuery.value && searchResults.value.length > 0) {
-      currentView.value = 'search'
-    }
+    if (!searchQuery.value) return
+    currentView.value = 'search'
   }
 
   // Collection API methods

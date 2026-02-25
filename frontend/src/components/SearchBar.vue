@@ -1,8 +1,8 @@
 <template>
   <div class="search-bar">
     <input
-      :model-value="modelValue"
-      @update:model-value="$emit('update:modelValue', $event)"
+      :value="modelValue"
+      @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       type="text"
       placeholder="搜索歌曲或歌单"
       class="search-input"
