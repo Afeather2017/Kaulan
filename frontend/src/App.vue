@@ -68,18 +68,23 @@
             />
 
             <!-- Search Results -->
-            <SongListView
-              v-if="currentView === 'search'"
-              title="搜索结果"
-              :songs="searchResults"
-              :select-mode="false"
-              :selected-songs="new Set()"
-              :show-remove-button="false"
-              :show-add-button="false"
-              :show-header="false"
-              @back="handleBackToPlaylists"
-              @play="handlePlaySong"
-            />
+            <div v-if="currentView === 'search'">
+              <SongListView
+                v-if="searchResults.length > 0"
+                title="搜索结果"
+                :songs="searchResults"
+                :select-mode="false"
+                :selected-songs="new Set()"
+                :show-remove-button="false"
+                :show-add-button="false"
+                :show-header="false"
+                @back="handleBackToPlaylists"
+                @play="handlePlaySong"
+              />
+              <div v-else class="empty-state">
+                未找到匹配的歌曲
+              </div>
+            </div>
           </div>
         </div>
 
@@ -199,7 +204,7 @@
     <!-- Current Playlist Modal -->
     <CurrentPlaylistModal
       v-if="showCurrentPlaylistModal"
-      :playlist="selectedPlaylist"
+      :playlist="playbackPlaylist"
       :current-song-name="currentSong?.name"
       @close="showCurrentPlaylistModal = false"
       @play="handlePlaySong"
@@ -226,28 +231,8 @@ import { useVolume } from '@/composables/useVolume'
 import { usePermissions } from '@/composables/usePermissions'
 import { useLyrics } from '@/composables/useLyrics'
 
+// Search behavior docs: docs/search.md
 // Use composables
-const {
-  audioElement,
-  currentSong,
-  isPlaying,
-  currentTime,
-  playMode,
-  playSong,
-  playSongAtIndex,
-  togglePlay,
-  togglePlayMode,
-  previousSong,
-  nextSong,
-  seekToTime,
-  setVolume,
-  resetPlaylist,
-  initAudio
-} = useAudioPlayer({
-  songs: () => currentPlaylistSongs.value,
-  onSongEnd: () => {}
-})
-
 const {
   viewMode,
   playlists,
@@ -271,6 +256,47 @@ const {
   getAllMusic,
   isScanning
 } = usePlaylist()
+
+const playbackSource = ref<'playlist' | 'search'>('playlist')
+const searchPlaybackSongs = ref<SongInfo[]>([])
+
+const playbackSongs = computed(() => {
+  if (playbackSource.value === 'search') {
+    return searchPlaybackSongs.value
+  }
+  return selectedPlaylist.value?.songs || []
+})
+
+const playbackPlaylist = computed(() => {
+  if (playbackSource.value === 'search') {
+    return {
+      name: '搜索结果',
+      songs: searchPlaybackSongs.value
+    }
+  }
+  return selectedPlaylist.value
+})
+
+const {
+  audioElement,
+  currentSong,
+  isPlaying,
+  currentTime,
+  playMode,
+  playSong,
+  playSongAtIndex,
+  togglePlay,
+  togglePlayMode,
+  previousSong,
+  nextSong,
+  seekToTime,
+  setVolume,
+  resetPlaylist,
+  initAudio
+} = useAudioPlayer({
+  songs: () => playbackSongs.value,
+  onSongEnd: () => {}
+})
 
 const {
   selectMode,
@@ -301,17 +327,6 @@ const {
   currentTime.value = 0
 })
 
-const {
-  volumeMode,
-  manualVolume,
-  manualVolumeInput,
-  fixedLufs,
-  fixedLufsInput,
-  volumeModeLabels,
-  calculateVolume,
-  toggleVolumeMode
-} = useVolume(currentSong, currentSongs)
-
 // Permissions composable for Android file access
 const { requestPermissions } = usePermissions()
 
@@ -332,9 +347,16 @@ const isWideLayout = ref(false)
 const hasUserToggledLyric = ref(false)
 
 // Computed helper for audio player
-const currentPlaylistSongs = computed(() => {
-  return selectedPlaylist.value?.songs || []
-})
+const {
+  volumeMode,
+  manualVolume,
+  manualVolumeInput,
+  fixedLufs,
+  fixedLufsInput,
+  volumeModeLabels,
+  calculateVolume,
+  toggleVolumeMode
+} = useVolume(currentSong, playbackSongs)
 
 const showBackButton = computed(() => {
   return showLyric.value || currentView.value !== 'playlists'
@@ -408,6 +430,8 @@ const handleSearch = () => {
 
 const handleSelectPlaylist = (name: string) => {
   selectPlaylist(name)
+  playbackSource.value = 'playlist'
+  searchPlaybackSongs.value = []
   resetPlaylist()
 }
 
@@ -439,6 +463,13 @@ const handleChooseAction = () => {
 }
 
 const handlePlaySong = async (song: SongInfo, index?: number) => {
+  if (currentView.value === 'search') {
+    playbackSource.value = 'search'
+    searchPlaybackSongs.value = searchResults.value.slice()
+  } else {
+    playbackSource.value = 'playlist'
+    searchPlaybackSongs.value = []
+  }
   if (index !== undefined) {
     await playSongAtIndex(song, index)
   } else {
@@ -748,6 +779,13 @@ onBeforeUnmount(() => {
   min-height: 0;
   background-color: #fafafa;
   border-left: 1px solid #eee;
+}
+
+.empty-state {
+  padding: 24px 16px;
+  text-align: center;
+  color: #888;
+  font-size: 14px;
 }
 
 .right-panel-content {
