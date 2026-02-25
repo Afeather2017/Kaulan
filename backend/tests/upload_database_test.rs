@@ -10,9 +10,35 @@ use kaulan::{
     get_all_music,
 };
 use sea_orm::{Database, DatabaseConnection, DbErr, EntityTrait, ConnectionTrait, Schema, sea_query::TableCreateStatement};
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex as TokioMutex;
 use std::fs;
+
+fn find_test_mp3_path() -> PathBuf {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("test_music");
+    let mut stack = vec![base];
+
+    while let Some(dir) = stack.pop() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("mp3"))
+                    .unwrap_or(false)
+                {
+                    return path;
+                }
+            }
+        }
+    }
+
+    panic!("No .mp3 files found under test_music");
+}
 
 /// Creates an in-memory SQLite database for testing
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -50,9 +76,9 @@ async fn test_update_database_adds_new_files_to_database() {
     assert_eq!(initial_music.len(), 0, "Database should be empty initially");
 
     // STEP 2: Copy a real MP3 file to the test directory
-    let source_mp3 = "/home/afeather/Codes/kaulan/test-music/0.5sinwave.mp3";
+    let source_mp3 = find_test_mp3_path();
     let dest_mp3 = test_music_dir.join("test_song.mp3");
-    fs::copy(source_mp3, &dest_mp3).expect("Failed to copy test MP3 file");
+    fs::copy(&source_mp3, &dest_mp3).expect("Failed to copy test MP3 file");
 
     // Verify file exists on disk
     assert!(
@@ -88,7 +114,12 @@ async fn test_update_database_adds_new_files_to_database() {
     // Verify the entry has correct metadata
     let entry = &music_after_update[0];
     assert_eq!(entry.filename, "test_song.mp3", "Filename should match");
-    assert_eq!(entry.file_path, "test_song.mp3", "File path should be correct");
+    let expected_path = dest_mp3
+        .canonicalize()
+        .unwrap_or(dest_mp3.clone())
+        .to_string_lossy()
+        .to_string();
+    assert_eq!(entry.file_path, expected_path, "File path should be correct");
     assert!(entry.lufs.is_some(), "LUFS should be calculated");
 
     println!("SUCCESS: Database was updated with new file!");
@@ -110,9 +141,9 @@ async fn test_upload_files_then_check_database_via_api() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
     // STEP 1: Manually copy a file to simulate what upload does (write to disk)
-    let source_mp3 = "/home/afeather/Codes/kaulan/test-music/1-m.mp3";
+    let source_mp3 = find_test_mp3_path();
     let dest_mp3 = test_music_dir.join("uploaded_song.mp3");
-    fs::copy(source_mp3, &dest_mp3).expect("Failed to copy test MP3 file");
+    fs::copy(&source_mp3, &dest_mp3).expect("Failed to copy test MP3 file");
 
     // STEP 2: Call update_database to simulate the upload endpoint behavior
     let music_path_str = test_music_dir.to_string_lossy().to_string();
@@ -122,6 +153,7 @@ async fn test_upload_files_then_check_database_via_api() {
     let app_state = AppState {
         music_path: Arc::new(music_path_str.clone()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -172,17 +204,14 @@ async fn test_update_database_with_multiple_new_files() {
 
     let db = setup_test_db().await.expect("Failed to setup test database");
 
-    // Copy multiple files
-    let source_files = [
-        ("0.5sinwave.mp3", "song1.mp3"),
-        ("s.mp3", "song2.mp3"),
-    ];
+    // Copy multiple files using the same valid MP3 source
+    let source_mp3 = find_test_mp3_path();
+    let dest_files = ["song1.mp3", "song2.mp3"];
 
-    for (src, dest) in &source_files {
-        let src_path = format!("/home/afeather/Codes/kaulan/test-music/{}", src);
+    for dest in &dest_files {
         let dest_path = test_music_dir.join(dest);
-        fs::copy(&src_path, &dest_path)
-            .expect(&format!("Failed to copy {} to {}", src, dest));
+        fs::copy(&source_mp3, &dest_path)
+            .expect(&format!("Failed to copy source MP3 to {}", dest));
     }
 
     // Call update_database

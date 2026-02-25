@@ -15,7 +15,7 @@ use kaulan::{
 };
 use sea_orm::{Database, DatabaseConnection, DbErr, ConnectionTrait, Schema, sea_query::{TableCreateStatement}};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Creates an in-memory SQLite database for testing
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -108,6 +108,7 @@ async fn test_get_all_collections_empty() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -135,6 +136,7 @@ async fn test_get_playlists_collection_mode_empty() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -164,6 +166,7 @@ async fn test_create_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -204,6 +207,7 @@ async fn test_create_duplicate_collection_fails() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -243,6 +247,7 @@ async fn test_get_collection_by_id() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -270,6 +275,7 @@ async fn test_get_nonexistent_collection_by_id() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -296,6 +302,7 @@ async fn test_delete_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -332,6 +339,7 @@ async fn test_delete_nonexistent_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -366,6 +374,7 @@ async fn test_get_collection_items() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -394,6 +403,7 @@ async fn test_get_nonexistent_collection_items() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -424,6 +434,7 @@ async fn test_add_to_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -462,6 +473,7 @@ async fn test_add_to_nonexistent_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -495,6 +507,7 @@ async fn test_add_duplicate_to_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -541,6 +554,7 @@ async fn test_remove_from_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -579,6 +593,7 @@ async fn test_remove_nonexistent_item_from_collection() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(
@@ -606,6 +621,7 @@ async fn test_collection_workflow() {
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
     };
 
     let app = test::init_service(

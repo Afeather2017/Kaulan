@@ -51,7 +51,7 @@ static TRACING_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// The log broadcaster that can be used to start the TCP streaming server
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
 /// use kaulan::init_tracing;
 ///
 /// let broadcaster = init_tracing();

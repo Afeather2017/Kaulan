@@ -113,6 +113,10 @@ cd backend
 cargo run
 ```
 
+On the first run, the backend performs a one-time automatic scan and stores a flag in the database.
+After that, startup scans are skipped. To rescan later, use the Update Database API
+(`POST /api/database/update`). See `docs/startup-scan.md` for details.
+
 **Or use CLI argument directly:**
 
 ```bash
