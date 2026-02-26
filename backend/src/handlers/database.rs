@@ -12,6 +12,12 @@ use crate::types::{AppState, MusicInfo, UpdateResponse};
 use crate::services::scanner;
 use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
 use tracing::info;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateQuery {
+    pub startup: Option<bool>,
+}
 
 /// Update database (scan for new files, update LUFS, remove deleted files)
 ///
@@ -24,22 +30,69 @@ use tracing::info;
 /// # Returns
 /// JSON response with update status
 #[post("/api/database/update")]
-pub async fn update_database_endpoint(data: web::Data<AppState>) -> impl Responder {
+pub async fn update_database_endpoint(
+    data: web::Data<AppState>,
+    query: web::Query<UpdateQuery>,
+) -> impl Responder {
     info!("Database update requested via API");
 
-    match scanner::update_database(&*data.music_path, &data.db_conn).await {
-        Ok(_) => {
-            info!("Database update completed successfully");
-            HttpResponse::Ok().json(UpdateResponse {
-                success: true,
-                message: "Database updated successfully".to_string(),
-            })
+    let _scan_guard = data.scan_lock.lock().await;
+    let is_startup = query.startup.unwrap_or(false);
+
+    if is_startup {
+        match scanner::get_initial_scan_done(&data.db_conn).await {
+            Ok(true) => {
+                info!("Startup scan skipped (already completed)");
+                return HttpResponse::Ok().json(UpdateResponse {
+                    success: true,
+                    message: "Startup scan skipped (already completed)".to_string(),
+                });
+            }
+            Ok(false) => {}
+            Err(e) => {
+                return HttpResponse::InternalServerError().json(UpdateResponse {
+                    success: false,
+                    message: format!("Failed to read startup scan flag: {}", e),
+                });
+            }
         }
-        Err(e) => {
-            HttpResponse::InternalServerError().json(UpdateResponse {
-                success: false,
-                message: format!("Database update failed: {}", e),
-            })
+
+        match scanner::initialize_database(&*data.music_path, &data.db_conn).await {
+            Ok(_) => {
+                if let Err(e) = scanner::set_initial_scan_done(&data.db_conn, true).await {
+                    return HttpResponse::InternalServerError().json(UpdateResponse {
+                        success: false,
+                        message: format!("Failed to update startup scan flag: {}", e),
+                    });
+                }
+                info!("Startup scan completed successfully");
+                HttpResponse::Ok().json(UpdateResponse {
+                    success: true,
+                    message: "Startup scan completed successfully".to_string(),
+                })
+            }
+            Err(e) => {
+                HttpResponse::InternalServerError().json(UpdateResponse {
+                    success: false,
+                    message: format!("Startup scan failed: {}", e),
+                })
+            }
+        }
+    } else {
+        match scanner::update_database(&*data.music_path, &data.db_conn).await {
+            Ok(_) => {
+                info!("Database update completed successfully");
+                HttpResponse::Ok().json(UpdateResponse {
+                    success: true,
+                    message: "Database updated successfully".to_string(),
+                })
+            }
+            Err(e) => {
+                HttpResponse::InternalServerError().json(UpdateResponse {
+                    success: false,
+                    message: format!("Database update failed: {}", e),
+                })
+            }
         }
     }
 }

@@ -1,24 +1,37 @@
-# Startup Scan Behavior
+# Startup Scan (Unified)
 
-This document describes how Kaulan performs the initial music scan when the backend starts.
+This document explains the unified startup scan flow for both desktop and Android.
 
-## Summary
+## Overview
 
-- The backend performs **one automatic scan** on the first run.
-- On subsequent runs, the startup scan is skipped.
-- Users must trigger `POST /api/database/update` to rescan.
+- Startup scanning is triggered by the frontend with `POST /api/database/update?startup=true`.
+- The backend checks the `initial_scan_done` flag before scanning.
+- Manual rescan uses `POST /api/database/update` without the `startup` flag and always runs.
 
-## How It Works
+## Why a unified flow
 
-Kaulan stores a single-row metadata table `db_meta` with the flag `initial_scan_done`.
+- Desktop can scan immediately, but Android requires runtime permissions.
+- The MediaStore plugin handles permission requests internally.
+- By using a single entry point, we avoid platform-specific code paths in the backend.
 
-1. On startup, the server reads `db_meta.initial_scan_done`.
-2. If it is `false`, the server runs `initialize_database()` and then sets the flag to `true`.
-3. If it is `true`, the server skips the startup scan.
+## Startup flow
 
-## Related Source Files
+1. Frontend calls `POST /api/database/update?startup=true` on app launch.
+2. Backend reads `initial_scan_done` from `db_meta`.
+3. If already done, the backend skips the scan.
+4. If not done, the backend runs `initialize_database()` and sets `initial_scan_done = true` on success.
+5. If permissions are denied or the scan fails, the flag is not set, allowing a retry on next launch.
 
-- `backend/src/server/mod.rs`
+Relevant code:
+- `frontend/src/App.vue`
+- `backend/src/handlers/database.rs`
 - `backend/src/services/scanner.rs`
-- `backend/src/database/mod.rs`
-- `backend/src/entities/db_meta.rs`
+
+## Manual rescan
+
+Users can trigger a full rescan at any time via Settings → Update Database:
+- `POST /api/database/update` (no `startup` flag)
+
+Relevant code:
+- `frontend/src/components/modals/SettingsModal.vue`
+- `backend/src/handlers/database.rs`

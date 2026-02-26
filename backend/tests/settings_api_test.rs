@@ -10,6 +10,7 @@ use kaulan::{
 use sea_orm::{Database, DatabaseConnection, DbErr, EntityTrait, ConnectionTrait, Schema, sea_query::{TableCreateStatement}};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
+use chrono::Utc;
 
 /// Creates an in-memory SQLite database for testing
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -25,6 +26,13 @@ async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
         .if_not_exists()
         .to_owned();
     db.execute(backend.build(&music_stmt)).await?;
+
+    // Create db_meta table
+    let meta_stmt: TableCreateStatement = schema
+        .create_table_from_entity(kaulan::entities::db_meta::Entity)
+        .if_not_exists()
+        .to_owned();
+    db.execute(backend.build(&meta_stmt)).await?;
 
     Ok(db)
 }
@@ -137,6 +145,101 @@ async fn test_update_database_with_new_files() {
     let all_music = MusicEntity::find().all(&db).await.expect("Failed to query database");
     // Note: The file might not have valid LUFS calculated if ffmpeg is not available
     // so we just check that the database can be queried
+
+    // Cleanup
+    std::fs::remove_dir_all(test_music_dir).ok();
+}
+
+#[actix_web::test]
+async fn test_startup_update_skips_when_done() {
+    let db = setup_test_db().await.expect("Failed to setup test database");
+
+    // Seed db_meta with initial_scan_done = true
+    use kaulan::entities::db_meta::{ActiveModel as DbMetaActiveModel};
+    use sea_orm::ActiveModelTrait;
+    let meta = DbMetaActiveModel {
+        id: sea_orm::ActiveValue::Set(1),
+        initial_scan_done: sea_orm::ActiveValue::Set(true),
+        updated_at: sea_orm::ActiveValue::Set(Utc::now()),
+    };
+    meta.insert(&db).await.expect("Failed to insert db_meta");
+
+    let temp_dir = std::env::temp_dir();
+    let test_music_dir = temp_dir.join("test_startup_skip");
+    std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
+
+    let app_state = AppState {
+        music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
+    };
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(app_state))
+            .service(update_database_endpoint)
+    ).await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/database/update?startup=true")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let response_body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(response_body["success"], true);
+    assert_eq!(response_body["message"], "Startup scan skipped (already completed)");
+
+    // Cleanup
+    std::fs::remove_dir_all(test_music_dir).ok();
+}
+
+#[actix_web::test]
+async fn test_startup_update_runs_and_sets_flag() {
+    let db = setup_test_db().await.expect("Failed to setup test database");
+
+    let temp_dir = std::env::temp_dir();
+    let test_music_dir = temp_dir.join("test_startup_run");
+    std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
+
+    let test_file = test_music_dir.join("startup.mp3");
+    std::fs::write(&test_file, b"dummy audio data").expect("Failed to create test file");
+
+    let app_state = AppState {
+        music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        db_conn: db.clone(),
+        scan_lock: Arc::new(TokioMutex::new(())),
+    };
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(app_state))
+            .service(update_database_endpoint)
+    ).await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/database/update?startup=true")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let response_body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(response_body["success"], true);
+    assert_eq!(response_body["message"], "Startup scan completed successfully");
+
+    // Verify flag is set and a music entry exists
+    use kaulan::entities::db_meta::Entity as DbMetaEntity;
+    use kaulan::entities::music::Entity as MusicEntity;
+    let meta = DbMetaEntity::find_by_id(1).one(&db).await.expect("Failed to read db_meta");
+    assert!(meta.is_some());
+    assert_eq!(meta.unwrap().initial_scan_done, true);
+
+    let all_music = MusicEntity::find().all(&db).await.expect("Failed to query database");
+    assert_eq!(all_music.len(), 1);
 
     // Cleanup
     std::fs::remove_dir_all(test_music_dir).ok();
