@@ -307,3 +307,22 @@ The frontend supports a configurable backend server URL. Users can set a custom 
 
 ### Usage
 See [`docs/configurable-server-url.md`](docs/configurable-server-url.md) for full documentation including user instructions, validation behavior, and technical details.
+
+### git commit
+
+A commit message should contains:
+
+1. What did you do?
+2. Why you do that?
+
+Example:
+
+```
+Fix lyric panel behavior in desktop mode
+
+- Prevent lyric toggle in wide-layout (desktop) mode
+- Auto-scroll to current lyric when panel opens
+- Add helper function scrollToCurrentLyric for reusability
+
+Co-Authored-By: Claude/Codex/Gemini...
+```
