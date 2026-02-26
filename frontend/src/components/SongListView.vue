@@ -163,12 +163,15 @@ defineEmits<{
 
 .song-info {
   flex: 1;
+  min-width: 0;
 }
 
 .song-info h3 {
   margin: 0 0 5px 0;
   font-size: 16px;
   font-weight: 500;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .song-info p {

@@ -155,6 +155,7 @@ defineEmits<{
 
 .song-info {
   flex: 1;
+  min-width: 0;
 }
 
 .song-info h4 {
@@ -162,6 +163,8 @@ defineEmits<{
   font-size: 15px;
   font-weight: 500;
   color: #333;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .song-info p {
