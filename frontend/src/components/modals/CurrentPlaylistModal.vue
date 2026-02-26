@@ -1,35 +1,37 @@
 <template>
   <div class="modal-overlay" @click="$emit('close')">
     <div class="modal-content" @click.stop>
-      <div class="modal-header">
-        <h3>{{ playlist?.name || '当前播放列表' }}</h3>
-        <button class="close-btn" @click="$emit('close')">
-          <i class="fas fa-times"></i>
+      <div class="modal-top-bar">
+        <button class="top-back-btn" @click="$emit('close')">
+          <i class="fas fa-arrow-left"></i>
+          返回
         </button>
+        <h3 class="modal-title">{{ playlist?.name || '当前播放列表' }}</h3>
       </div>
-
-      <div v-if="playlist && playlist.songs.length > 0" class="song-list">
-        <div
-          v-for="(song, index) in playlist.songs"
-          :key="song.name"
-          class="song-item"
-          :class="{ 'active': currentSongName === song.name }"
-          @click="$emit('play', song, index)"
-        >
-          <div class="song-index">
-            <i v-if="currentSongName === song.name" class="fas fa-volume-up"></i>
-            <span v-else>{{ index + 1 }}</span>
-          </div>
-          <div class="song-info">
-            <h4>{{ song.name }}</h4>
-            <p>LUFS: {{ song.lufs.toFixed(2) }}</p>
+      <div class="modal-body">
+        <div v-if="playlist && playlist.songs.length > 0" class="song-list">
+          <div
+            v-for="(song, index) in playlist.songs"
+            :key="song.name"
+            class="song-item"
+            :class="{ 'active': currentSongName === song.name }"
+            @click="$emit('play', song, index)"
+          >
+            <div class="song-index">
+              <i v-if="currentSongName === song.name" class="fas fa-volume-up"></i>
+              <span v-else>{{ index + 1 }}</span>
+            </div>
+            <div class="song-info">
+              <h4>{{ song.name }}</h4>
+              <p>LUFS: {{ song.lufs.toFixed(2) }}</p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div v-else class="empty-state">
-        <i class="fas fa-music"></i>
-        <p>暂无歌曲</p>
+        <div v-else class="empty-state">
+          <i class="fas fa-music"></i>
+          <p>暂无歌曲</p>
+        </div>
       </div>
     </div>
   </div>
@@ -63,55 +65,72 @@ defineEmits<{
   bottom: 0;
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   z-index: 100;
 }
 
 .modal-content {
   background-color: #fff;
-  border-radius: 10px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 70vh;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  box-shadow: none;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 25px;
+.modal-top-bar {
+  flex: none;
+  padding: 12px 20px;
   border-bottom: 1px solid #eee;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: bold;
-  color: #333;
-}
-
-.close-btn {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: #f0f0f0;
-  border-radius: 50%;
-  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #666;
+  gap: 12px;
+  background-color: #fff;
+}
+
+.top-back-btn {
+  border: 1px solid #ddd;
+  background-color: #f8f8f8;
+  color: #333;
+  font-size: 15px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 6px 12px;
   transition: all 0.2s;
 }
 
-.close-btn:hover {
-  background-color: #e0e0e0;
+.top-back-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
+}
+
+.modal-title {
+  margin: 0;
+  flex: 1;
+  font-size: 18px;
+  font-weight: 600;
   color: #333;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-body {
+  flex: 1;
+  padding: 0 20px 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .song-list {

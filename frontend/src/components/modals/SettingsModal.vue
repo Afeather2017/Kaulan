@@ -1,191 +1,199 @@
 <template>
   <div class="modal-overlay" @click="$emit('close')">
     <div class="modal-content" @click.stop>
-      <h3>播放器设置</h3>
-
-      <!-- Server URL Configuration -->
-      <div class="mode-toggle">
-        <div class="mode-label">服务器地址</div>
-        <div class="mode-value" :class="{ 'url-changed': serverUrlInput !== getApiBase() }">
-          {{ serverUrlInput === 'http://localhost:2080/api' ? '默认' : '自定义' }}
-        </div>
+      <div class="modal-top-bar">
+        <button class="top-back-btn" @click="$emit('close')">
+          <i class="fas fa-arrow-left"></i>
+          返回
+        </button>
       </div>
-      <div class="setting-item">
-        <label class="setting-label">API 服务器地址</label>
-        <div class="url-input-container">
-          <input
-            type="text"
-            class="url-input"
-            :class="{ 'url-invalid': !serverUrlValid }"
-            :value="serverUrlInput"
-            @input="serverUrlInput = ($event.target as HTMLInputElement).value"
-            @blur="validateServerUrlInput"
-            placeholder="http://localhost:2080/api"
-          />
-        </div>
-        <div v-if="serverUrlError" class="url-error">{{ serverUrlError }}</div>
-        <div class="url-actions">
-          <button
-            @click="saveServerUrl"
-            class="save-url-btn"
-            :disabled="isSavingServerUrl || !serverUrlValid"
-          >
-            {{ isSavingServerUrl ? '保存中...' : '保存地址' }}
-          </button>
-          <button
-            @click="resetServerUrl"
-            class="reset-url-btn"
-          >
-            重置为默认
-          </button>
-        </div>
-      </div>
+      <div class="modal-body">
+        <h3>播放器设置</h3>
 
-      <hr class="settings-divider" />
-
-      <!-- Volume Mode Toggle -->
-      <div class="mode-toggle" @click="$emit('toggleVolumeMode')">
-        <div class="mode-label">音量模式</div>
-        <div class="mode-value">{{ volumeModeLabels[volumeMode] }}</div>
-      </div>
-
-      <!-- Manual Volume Panel -->
-      <div v-if="volumeMode === 'manual'" class="setting-panel active">
-        <div class="setting-item">
-          <label class="setting-label">音量设置</label>
-          <div class="slider-container">
-            <input
-              type="range"
-              class="volume-slider"
-              :model-value="manualVolume"
-              @input="handleManualVolumeSlider"
-              min="0"
-              max="1"
-              step="0.01"
-            />
-            <input
-              type="text"
-              class="value-input"
-              :value="manualVolumeDisplay"
-              @input="handleManualVolumeInput"
-              @blur="handleManualVolumeBlur"
-            />
+        <!-- Server URL Configuration -->
+        <div class="mode-toggle">
+          <div class="mode-label">服务器地址</div>
+          <div class="mode-value" :class="{ 'url-changed': serverUrlInput !== getApiBase() }">
+            {{ serverUrlInput === 'http://localhost:2080/api' ? '默认' : '自定义' }}
           </div>
         </div>
-      </div>
-
-      <!-- Fixed LUFS Volume Panel -->
-      <div v-if="volumeMode === 'fixed'" class="setting-panel active">
         <div class="setting-item">
-          <label
-            class="setting-label"
-            title="如果音频音量过小，那么此选项可能无法设置为目标音量大小"
-          >
-            目标音量
-          </label>
+          <label class="setting-label">API 服务器地址</label>
+          <div class="url-input-container">
+            <input
+              type="text"
+              class="url-input"
+              :class="{ 'url-invalid': !serverUrlValid }"
+              :value="serverUrlInput"
+              @input="serverUrlInput = ($event.target as HTMLInputElement).value"
+              @blur="validateServerUrlInput"
+              placeholder="http://localhost:2080/api"
+            />
+          </div>
+          <div v-if="serverUrlError" class="url-error">{{ serverUrlError }}</div>
+          <div class="url-actions">
+            <button
+              @click="saveServerUrl"
+              class="save-url-btn"
+              :disabled="isSavingServerUrl || !serverUrlValid"
+            >
+              {{ isSavingServerUrl ? '保存中...' : '保存地址' }}
+            </button>
+            <button
+              @click="resetServerUrl"
+              class="reset-url-btn"
+            >
+              重置为默认
+            </button>
+          </div>
+        </div>
+
+        <hr class="settings-divider" />
+
+        <!-- Volume Mode Toggle -->
+        <div class="mode-toggle" @click="$emit('toggleVolumeMode')">
+          <div class="mode-label">音量模式</div>
+          <div class="mode-value">{{ volumeModeLabels[volumeMode] }}</div>
+        </div>
+
+        <!-- Manual Volume Panel -->
+        <div v-if="volumeMode === 'manual'" class="setting-panel active">
+          <div class="setting-item">
+            <label class="setting-label">音量设置</label>
+            <div class="slider-container">
+              <input
+                type="range"
+                class="volume-slider"
+                :model-value="manualVolume"
+                @input="handleManualVolumeSlider"
+                min="0"
+                max="1"
+                step="0.01"
+              />
+              <input
+                type="text"
+                class="value-input"
+                :value="manualVolumeDisplay"
+                @input="handleManualVolumeInput"
+                @blur="handleManualVolumeBlur"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Fixed LUFS Volume Panel -->
+        <div v-if="volumeMode === 'fixed'" class="setting-panel active">
+          <div class="setting-item">
+            <label
+              class="setting-label"
+              title="如果音频音量过小，那么此选项可能无法设置为目标音量大小"
+            >
+              目标音量
+            </label>
+            <div class="slider-container">
+              <input
+                type="range"
+                class="volume-slider"
+                :model-value="fixedLufs"
+                @input="handleFixedLufsSlider"
+                min="-100"
+                max="0"
+                step="1"
+              />
+              <input
+                type="text"
+                class="value-input"
+                :value="fixedLufsDisplay"
+                @input="handleFixedLufsInput"
+                @blur="handleFixedLufsBlur"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Sleep Timer -->
+        <hr class="settings-divider" />
+        <div class="setting-item">
+          <label class="setting-label">定时停止播放</label>
+
+          <!-- Timer Status Display -->
+          <div class="timer-status">{{ timerStatusDisplay }}</div>
+
+          <!-- Timer Slider -->
           <div class="slider-container">
             <input
               type="range"
               class="volume-slider"
-              :model-value="fixedLufs"
-              @input="handleFixedLufsSlider"
-              min="-100"
-              max="0"
+              :model-value="Math.min(timerMinutes, 120)"
+              @input="handleTimerMinutesSlider"
+              min="1"
+              max="120"
               step="1"
             />
             <input
               type="text"
               class="value-input"
-              :value="fixedLufsDisplay"
-              @input="handleFixedLufsInput"
-              @blur="handleFixedLufsBlur"
+              :value="timerMinutesDisplay"
+              @input="handleTimerMinutesInput"
+              @blur="handleTimerMinutesBlur"
             />
           </div>
-        </div>
-      </div>
 
-      <!-- Sleep Timer -->
-      <hr class="settings-divider" />
-      <div class="setting-item">
-        <label class="setting-label">定时停止播放</label>
+          <!-- Timer Presets -->
+          <div class="timer-presets">
+            <button
+              v-for="preset in [15, 30, 60, 90]"
+              :key="preset"
+              class="timer-preset-btn"
+              @click="$emit('setTimerPreset', preset)"
+            >
+              {{ preset }}分钟
+            </button>
+          </div>
 
-        <!-- Timer Status Display -->
-        <div class="timer-status">{{ timerStatusDisplay }}</div>
-
-        <!-- Timer Slider -->
-        <div class="slider-container">
-          <input
-            type="range"
-            class="volume-slider"
-            :model-value="Math.min(timerMinutes, 120)"
-            @input="handleTimerMinutesSlider"
-            min="1"
-            max="120"
-            step="1"
-          />
-          <input
-            type="text"
-            class="value-input"
-            :value="timerMinutesDisplay"
-            @input="handleTimerMinutesInput"
-            @blur="handleTimerMinutesBlur"
-          />
+          <!-- Timer Action Buttons -->
+          <div class="timer-actions">
+            <button v-if="timerActive" @click="$emit('cancelTimer')" class="cancel-timer-btn">
+              取消定时
+            </button>
+            <button v-else @click="$emit('startTimer')" class="start-timer-btn">
+              开始定时
+            </button>
+          </div>
         </div>
 
-        <!-- Timer Presets -->
-        <div class="timer-presets">
-          <button
-            v-for="preset in [15, 30, 60, 90]"
-            :key="preset"
-            class="timer-preset-btn"
-            @click="$emit('setTimerPreset', preset)"
-          >
-            {{ preset }}分钟
+        <!-- Music Directory -->
+        <hr class="settings-divider" />
+        <div class="mode-toggle">
+          <div class="mode-label">音乐目录</div>
+        </div>
+        <div class="setting-item">
+          <div class="directory-display">{{ musicDirectory }}</div>
+          <button @click="selectDirectory" class="select-directory-btn">
+            更改目录
+          </button>
+        </div>
+        <div class="setting-item">
+          <button @click="updateDatabase" class="update-database-btn" :disabled="isUpdating">
+            {{ isUpdating ? '更新中...' : '更新数据库' }}
+          </button>
+        </div>
+        <div class="setting-item">
+          <button @click="$emit('openUploadModal')" class="upload-music-btn">
+            上传音乐文件
           </button>
         </div>
 
-        <!-- Timer Action Buttons -->
-        <div class="timer-actions">
-          <button v-if="timerActive" @click="$emit('cancelTimer')" class="cancel-timer-btn">
-            取消定时
-          </button>
-          <button v-else @click="$emit('startTimer')" class="start-timer-btn">
-            开始定时
-          </button>
+        <!-- View Mode Toggle -->
+        <hr class="settings-divider" />
+        <div class="mode-toggle" @click="$emit('toggleViewMode')">
+          <div class="mode-label">分类方式</div>
+          <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
         </div>
-      </div>
 
-      <!-- Music Directory -->
-      <hr class="settings-divider" />
-      <div class="mode-toggle">
-        <div class="mode-label">音乐目录</div>
-      </div>
-      <div class="setting-item">
-        <div class="directory-display">{{ musicDirectory }}</div>
-        <button @click="selectDirectory" class="select-directory-btn">
-          更改目录
-        </button>
-      </div>
-      <div class="setting-item">
-        <button @click="updateDatabase" class="update-database-btn" :disabled="isUpdating">
-          {{ isUpdating ? '更新中...' : '更新数据库' }}
-        </button>
-      </div>
-      <div class="setting-item">
-        <button @click="$emit('openUploadModal')" class="upload-music-btn">
-          上传音乐文件
-        </button>
-      </div>
-
-      <!-- View Mode Toggle -->
-      <hr class="settings-divider" />
-      <div class="mode-toggle" @click="$emit('toggleViewMode')">
-        <div class="mode-label">分类方式</div>
-        <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
-      </div>
-
-      <div class="modal-actions">
-        <button @click="$emit('close')" class="confirm-btn">确认</button>
+        <div class="modal-actions">
+          <button @click="$emit('close')" class="confirm-btn">确认</button>
+        </div>
       </div>
     </div>
   </div>
@@ -486,30 +494,65 @@ const validateServerUrlInput = () => {
   bottom: 0;
   background-color: rgba(0,0,0,0.5);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   z-index: 100;
 }
 
 .modal-content {
   background-color: #fff;
-  padding: 25px;
-  border-radius: 10px;
-  width: 90%;
-  max-width: 400px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-  max-height: 80vh;
-  overflow-y: auto;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  box-shadow: none;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.modal-content h3 {
-  text-align: center;
-  margin-bottom: 25px;
-  font-size: 22px;
-  font-weight: bold;
-  color: #333;
-  padding-bottom: 15px;
+.modal-top-bar {
+  flex: none;
+  padding: 12px 20px;
   border-bottom: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  background-color: #fff;
+}
+
+.top-back-btn {
+  border: 1px solid #ddd;
+  background-color: #f8f8f8;
+  color: #333;
+  font-size: 15px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 6px 12px;
+  transition: all 0.2s;
+}
+
+.top-back-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px 32px;
+}
+
+.modal-body h3 {
+  margin: 0 0 20px 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #333;
 }
 
 .mode-toggle {
