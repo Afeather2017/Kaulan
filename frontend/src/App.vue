@@ -230,7 +230,6 @@ import { useTimer } from '@/composables/useTimer'
 import { useVolume } from '@/composables/useVolume'
 import { useLyrics } from '@/composables/useLyrics'
 import { getApiBase } from '@/utils/api'
-import { checkIsAndroid } from '@/utils/platform'
 
 // Search behavior docs: docs/search.md
 // Use composables
@@ -345,11 +344,9 @@ const isWideLayout = ref(false)
 const hasUserToggledLyric = ref(false)
 
 const triggerDatabaseUpdate = async () => {
-  const isAndroid = await checkIsAndroid()
-  if (!isAndroid) return
   try {
-    console.log('[app] onMounted: triggering database update')
-    const response = await fetch(`${getApiBase()}/database/update`, { method: 'POST' })
+    console.log('[app] onMounted: triggering startup database scan')
+    const response = await fetch(`${getApiBase()}/database/update?startup=true`, { method: 'POST' })
     if (!response.ok) {
       const errorText = await response.text()
       console.warn('[app] onMounted: database update failed:', response.status, errorText)
@@ -678,7 +675,7 @@ const handleDeleteSelectedCollections = async () => {
 
 // Initialize
 onMounted(async () => {
-  // Android permission-gated scan flow: docs/startup-scan-android-vs-desktop.md
+  // Startup scan flow: docs/startup-scan.md
   await triggerDatabaseUpdate()
 
   initAudio()
