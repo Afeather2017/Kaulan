@@ -745,7 +745,7 @@ onBeforeUnmount(() => {
 .action-bar {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 0 12px;
   background-color: #fff;
   border-bottom: 1px solid #eee;
 }
@@ -760,7 +760,7 @@ onBeforeUnmount(() => {
   color: #1db954;
   font-size: 14px;
   cursor: pointer;
-  padding: 6px 8px;
+  padding: 12px;
 }
 
 .scanning-message {
@@ -889,9 +889,10 @@ onBeforeUnmount(() => {
 .content-area {
   height: 100%;
   overflow-y: auto;
-  padding: 15px;
+  padding: 0 15px;
   background-color: #fff;
   position: relative;
+  box-sizing: border-box;
 }
 
 @media (min-width: 900px) and (min-aspect-ratio: 1/1) {
