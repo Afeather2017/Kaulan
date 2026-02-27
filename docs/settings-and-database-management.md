@@ -68,6 +68,8 @@ Response:
 }
 ```
 
+When the user triggers a database update from the settings panel, the frontend shows a `扫描中...` banner while the update request is in progress.
+
 ## Sequence Diagrams
 
 ### Initial Load - Get Music Directory

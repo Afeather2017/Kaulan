@@ -237,6 +237,8 @@ const emit = defineEmits<{
   (e: 'cancelTimer'): void
   (e: 'directoryChanged'): void
   (e: 'databaseUpdated'): void
+  (e: 'databaseUpdateStart'): void
+  (e: 'databaseUpdateEnd'): void
   (e: 'openUploadModal'): void
 }>()
 
@@ -414,6 +416,7 @@ const selectDirectory = async () => {
 
 const updateDatabase = async () => {
   isUpdating.value = true
+  emit('databaseUpdateStart')
   try {
     const response = await fetch(`${getApiBase()}/database/update`, {
       method: 'POST',
@@ -433,6 +436,7 @@ const updateDatabase = async () => {
     alert('数据库更新失败: ' + error)
   } finally {
     isUpdating.value = false
+    emit('databaseUpdateEnd')
   }
 }
 

@@ -22,7 +22,7 @@
       </div>
 
       <!-- Scanning Message -->
-      <div v-if="isScanning && playlistNames.length === 0" class="scanning-message">
+      <div v-if="isScanning" class="scanning-message">
         扫描中...
       </div>
 
@@ -173,6 +173,8 @@
       @cancel-timer="cancelTimer"
       @directory-changed="handleDirectoryChanged"
       @database-updated="handleDatabaseUpdated"
+      @database-update-start="handleDatabaseUpdateStart"
+      @database-update-end="handleDatabaseUpdateEnd"
       @open-upload-modal="showUploadModal = true"
     />
 
@@ -253,8 +255,7 @@ const {
   deleteCollection,
   addToCollection: apiAddToCollection,
   removeFromCollection: apiRemoveFromCollection,
-  getAllMusic,
-  isScanning
+  getAllMusic
 } = usePlaylist()
 
 const playbackSource = ref<'playlist' | 'search'>('playlist')
@@ -342,9 +343,11 @@ const showLyric = ref(false)
 const lyricContainerRef = ref<HTMLElement | null>(null)
 const isWideLayout = ref(false)
 const hasUserToggledLyric = ref(false)
+const isScanning = ref(false)
 
 const triggerDatabaseUpdate = async () => {
   try {
+    isScanning.value = true
     console.log('[app] onMounted: triggering startup database scan')
     const response = await fetch(`${getApiBase()}/database/update?startup=true`, { method: 'POST' })
     if (!response.ok) {
@@ -360,6 +363,8 @@ const triggerDatabaseUpdate = async () => {
     }
   } catch (error) {
     console.error('[app] onMounted: database update error:', error)
+  } finally {
+    isScanning.value = false
   }
 }
 
@@ -535,6 +540,14 @@ const handleDirectoryChanged = () => {
 const handleDatabaseUpdated = async () => {
   // Refresh data when database is updated
   await refreshData()
+}
+
+const handleDatabaseUpdateStart = () => {
+  isScanning.value = true
+}
+
+const handleDatabaseUpdateEnd = () => {
+  isScanning.value = false
 }
 
 const handleUploadComplete = async () => {

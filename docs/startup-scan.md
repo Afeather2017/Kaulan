@@ -21,6 +21,7 @@ This document explains the unified startup scan flow for both desktop and Androi
 3. If already done, the backend skips the scan.
 4. If not done, the backend runs `initialize_database()` and sets `initial_scan_done = true` on success.
 5. If permissions are denied or the scan fails, the flag is not set, allowing a retry on next launch.
+6. The frontend shows `扫描中...` while the update request is in flight.
 
 Relevant code:
 - `frontend/src/App.vue`
