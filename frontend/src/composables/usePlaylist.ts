@@ -33,7 +33,6 @@ export function usePlaylist() {
   const searchQuery = ref('')
   const currentView = ref<'playlists' | 'songs' | 'search'>('playlists')
   const selectedPlaylist = ref<Playlist | null>(null)
-  const isScanning = ref(false)
 
   // Computed
   const playlistNames = computed(() => {
@@ -63,15 +62,12 @@ export function usePlaylist() {
   // Fetch playlists from backend (folder mode)
   const fetchPlaylists = async () => {
     try {
-      isScanning.value = true
       const response = await fetch(`${getApiBase()}/playlists`)
       if (response.ok) {
         playlists.value = await response.json()
       }
     } catch (error) {
       console.error('Failed to fetch playlists:', error)
-    } finally {
-      isScanning.value = false
     }
   }
 
@@ -96,15 +92,12 @@ export function usePlaylist() {
   // Fetch playlists in collection mode
   const fetchPlaylistsCollectionMode = async () => {
     try {
-      isScanning.value = true
       const response = await fetch(`${getApiBase()}/playlists/collection-mode`)
       if (response.ok) {
         playlists.value = await response.json()
       }
     } catch (error) {
       console.error('Failed to fetch collection playlists:', error)
-    } finally {
-      isScanning.value = false
     }
   }
 
@@ -222,7 +215,6 @@ export function usePlaylist() {
     searchQuery,
     currentView,
     selectedPlaylist,
-    isScanning,
     // Computed
     playlistNames,
     currentSongs,
