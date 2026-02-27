@@ -22,6 +22,7 @@ use tauri_plugin_android_mediastore::{
     FileReaderOpenRequest,
     FileReaderReadRequest,
     FileReaderReadToEndRequest,
+    GetAudioFilesRequest,
 };
 #[cfg(target_os = "android")]
 use std::io;
@@ -332,7 +333,11 @@ impl MusicFileLister for MediaStoreMusicFileLister {
         log::info!("Querying MediaStore for audio files...");
 
         // Direct await - no block_on needed!
-        let response = self.app_handle.android_mediastore().get_audio_files().await;
+        // Note: MediaStore already filters by MIME type audio/*
+        // We use empty request (no exclusions) since AudioFile doesn't include file extension
+        let response = self.app_handle.android_mediastore().get_audio_files(GetAudioFilesRequest {
+            exclude_suffixes: None,
+        }).await;
 
         match response {
             Ok(audio_files_response) => {
