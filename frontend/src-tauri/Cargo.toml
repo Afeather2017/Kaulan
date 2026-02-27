@@ -23,7 +23,7 @@ tauri = { version = "2.9.5", features = ["devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
-tauri-plugin-android-mediastore = { path = "../../../tauri-plugin-android-mediastore" }
+tauri-plugin-android-mediastore = "0.1"
 kaulan = { path = "../../backend", default-features = false }
 tokio = { workspace = true }
 base64 = "0.22"
