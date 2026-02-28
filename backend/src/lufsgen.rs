@@ -1,7 +1,6 @@
-use std::process::{Command, Stdio};
 use std::path::Path;
-use std::io::{BufRead, BufReader};
-use tracing::{debug, info, warn, error};
+use tracing::{info, warn, error};
+use lufsgen::LufsCalculator;
 
 /// Audio file extensions supported for LUFS analysis
 const SUPPORTED_EXTENSIONS: [&str; 5] = ["wav", "mp3", "ogg", "aac", "flac"];
@@ -14,58 +13,20 @@ pub struct LufsResult {
     pub lufs: Option<f64>,
 }
 
-/// Runs FFmpeg command to get LUFS value and parses the result
+/// Calculates LUFS value using the lufsgen crate
 pub fn get_lufs(file_path: &str) -> Option<f64> {
-    info!("[LUFS] Starting FFmpeg for file: {}", file_path);
-    debug!("[LUFS] Command: ffmpeg -i {} -filter_complex ebur128=peak=true -f null -", file_path);
-
-    let cmd = Command::new("ffmpeg")
-        .args([
-            "-i", file_path,
-            "-filter_complex", "ebur128=peak=true",
-            "-f", "null",
-            "-",
-        ])
-        .stderr(Stdio::piped())
-        .spawn();
-
-    match cmd {
-        Ok(mut child) => {
-            debug!("[LUFS] FFmpeg process spawned with PID: {:?}", child.id());
-            let stderr = child.stderr.take().expect("Failed to capture stderr");
-            let reader = BufReader::new(stderr);
-
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let line = line.trim();
-
-                    // Skip lines starting with [
-                    if line.starts_with('[') {
-                        continue;
-                    }
-
-                    // Look for lines starting with "I:"
-                    if line.starts_with("I:") {
-                        let parts: Vec<&str> = line.split_whitespace().collect();
-                        if parts.len() >= 3 && parts[0] == "I:" {
-                            if let Ok(lufs_value) = parts[1].parse::<f64>() {
-                                info!("[LUFS] SUCCESS: {} - LUFS: {}", file_path, lufs_value);
-                                // Wait for the process to finish cleanly
-                                let _ = child.wait();
-                                return Some(lufs_value);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Wait for the process to finish
-            let _ = child.wait();
-            warn!("[LUFS] FAILED: Could not extract LUFS value from FFmpeg output for: {}", file_path);
+    let calc = LufsCalculator::default();
+    match calc.calculate_from_file(Path::new(file_path)) {
+        Ok(Some(lufs)) => {
+            info!("[LUFS] SUCCESS: {} - LUFS: {}", file_path, lufs);
+            Some(lufs)
+        }
+        Ok(None) => {
+            warn!("[LUFS] FAILED: Unsupported format for: {}", file_path);
             None
         }
         Err(e) => {
-            error!("[LUFS] ERROR: Failed to execute FFmpeg for {}: {}", file_path, e);
+            error!("[LUFS] ERROR: Failed to calculate LUFS for {}: {}", file_path, e);
             None
         }
     }
