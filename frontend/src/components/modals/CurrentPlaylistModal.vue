@@ -1,14 +1,15 @@
 <template>
-  <div class="modal-overlay" @click="$emit('close')">
-    <div class="modal-content" @click.stop>
-      <div class="modal-top-bar">
+  <div class="playlist-panel">
+    <div class="panel-transparent-top"></div>
+    <div class="playlist-panel-content">
+      <div class="panel-top-bar">
         <button class="top-back-btn" @click="$emit('close')">
           <i class="fas fa-arrow-left"></i>
           返回
         </button>
-        <h3 class="modal-title">{{ playlist?.name || '当前播放列表' }}</h3>
+        <h3 class="panel-title">{{ playlist?.name || '当前播放列表' }}</h3>
       </div>
-      <div class="modal-body">
+      <div class="panel-body">
         <div v-if="playlist && playlist.songs.length > 0" class="song-list">
           <div
             v-for="(song, index) in playlist.songs"
@@ -57,34 +58,45 @@ defineEmits<{
 </script>
 
 <style scoped>
-.modal-overlay {
+.playlist-panel {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: stretch;
-  justify-content: stretch;
-  z-index: 100;
-}
-
-.modal-content {
-  background-color: #fff;
   width: 100%;
-  height: 100%;
-  max-width: 100%;
-  max-height: 100%;
-  margin: 0;
-  box-shadow: none;
-  border-radius: 0;
+  background-color: transparent;
+  z-index: 100;
+  animation: slideIn 0.3s ease-out;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
-.modal-top-bar {
+@keyframes slideIn {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.playlist-panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+  border-top: 1px solid #eee;
+}
+
+.panel-transparent-top {
+  flex: none;
+  height: 30vh;
+  background-color: transparent;
+  pointer-events: none;
+}
+
+.panel-top-bar {
   flex: none;
   padding: 12px 20px;
   border-bottom: 1px solid #eee;
@@ -114,7 +126,7 @@ defineEmits<{
   border-color: #ccc;
 }
 
-.modal-title {
+.panel-title {
   margin: 0;
   flex: 1;
   font-size: 18px;
@@ -126,7 +138,7 @@ defineEmits<{
   text-overflow: ellipsis;
 }
 
-.modal-body {
+.panel-body {
   flex: 1;
   padding: 0 20px 20px;
   display: flex;

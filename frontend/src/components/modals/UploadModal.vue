@@ -1,86 +1,94 @@
 <template>
-  <div class="modal-overlay" @click="$emit('close')">
-    <div class="modal-content" @click.stop>
-      <h3>上传音乐文件</h3>
+  <div class="upload-panel">
+    <div class="panel-transparent-top"></div>
+    <div class="upload-panel-content">
+      <div class="panel-top-bar">
+        <button class="top-back-btn" @click="$emit('close')">
+          <i class="fas fa-arrow-left"></i>
+          返回
+        </button>
+        <h3 class="panel-title">上传音乐文件</h3>
+      </div>
+      <div class="panel-body">
+        <!-- Directory Tree -->
+        <div class="directory-section">
+          <label class="setting-label">选择目标目录</label>
+          <div class="directory-tree">
+            <DirectoryTreeNode
+              v-if="directoryTree"
+              :node="directoryTree"
+              :selected-path="selectedPath"
+              @select="selectDirectory"
+            />
+          </div>
+        </div>
 
-      <!-- Directory Tree -->
-      <div class="directory-section">
-        <label class="setting-label">选择目标目录</label>
-        <div class="directory-tree">
-          <DirectoryTreeNode
-            v-if="directoryTree"
-            :node="directoryTree"
-            :selected-path="selectedPath"
-            @select="selectDirectory"
+        <!-- File Upload -->
+        <div class="upload-section">
+          <label class="setting-label">选择文件</label>
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".mp3,.ogg,.wav,.aac,.flac"
+            @change="handleFileSelect"
+            style="display: none"
           />
-        </div>
-      </div>
-
-      <!-- File Upload -->
-      <div class="upload-section">
-        <label class="setting-label">选择文件</label>
-        <input
-          ref="fileInput"
-          type="file"
-          accept=".mp3,.ogg,.wav,.aac,.flac"
-          @change="handleFileSelect"
-          style="display: none"
-        />
-        <button @click="openFileSelector" class="select-files-btn">
-          点击选择文件
-        </button>
-        <div v-if="selectedFile" class="selected-files">
-          <div class="files-count">已选择文件</div>
-          <div class="files-list">
-            <div class="file-item">
-              {{ selectedFile.name }}
+          <button @click="openFileSelector" class="select-files-btn">
+            点击选择文件
+          </button>
+          <div v-if="selectedFile" class="selected-files">
+            <div class="files-count">已选择文件</div>
+            <div class="files-list">
+              <div class="file-item">
+                {{ selectedFile.name }}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Upload Button -->
-      <div class="upload-actions">
-        <button
-          @click="uploadFiles"
-          class="upload-btn"
-          :disabled="!selectedFile || isUploading"
-        >
-          {{ isUploading ? '上传中...' : '上传到 ' + (selectedPath || '根目录') }}
-        </button>
-      </div>
-
-      <!-- Upload Progress -->
-      <div v-if="isUploading" class="upload-progress">
-        <div class="progress-text">正在上传...</div>
-      </div>
-
-      <!-- Upload Result -->
-      <div v-if="uploadResult" class="upload-result">
-        <div :class="['result-message', uploadResult.success ? 'success' : 'error']">
-          {{ uploadResult.message }}
+        <!-- Upload Button -->
+        <div class="upload-actions">
+          <button
+            @click="uploadFiles"
+            class="upload-btn"
+            :disabled="!selectedFile || isUploading"
+          >
+            {{ isUploading ? '上传中...' : '上传到 ' + (selectedPath || '根目录') }}
+          </button>
         </div>
-        <div v-if="uploadResult.uploaded.length > 0" class="result-files">
-          <div class="result-label">成功上传 ({{ uploadResult.uploaded.length }}):</div>
-          <div class="result-list">
-            <div v-for="file in uploadResult.uploaded" :key="file" class="result-item success">
-              {{ file }}
+
+        <!-- Upload Progress -->
+        <div v-if="isUploading" class="upload-progress">
+          <div class="progress-text">正在上传...</div>
+        </div>
+
+        <!-- Upload Result -->
+        <div v-if="uploadResult" class="upload-result">
+          <div :class="['result-message', uploadResult.success ? 'success' : 'error']">
+            {{ uploadResult.message }}
+          </div>
+          <div v-if="uploadResult.uploaded.length > 0" class="result-files">
+            <div class="result-label">成功上传 ({{ uploadResult.uploaded.length }}):</div>
+            <div class="result-list">
+              <div v-for="file in uploadResult.uploaded" :key="file" class="result-item success">
+                {{ file }}
+              </div>
+            </div>
+          </div>
+          <div v-if="uploadResult.failed.length > 0" class="result-files">
+            <div class="result-label">失败 ({{ uploadResult.failed.length }}):</div>
+            <div class="result-list">
+              <div v-for="file in uploadResult.failed" :key="file" class="result-item error">
+                {{ file }}
+              </div>
             </div>
           </div>
         </div>
-        <div v-if="uploadResult.failed.length > 0" class="result-files">
-          <div class="result-label">失败 ({{ uploadResult.failed.length }}):</div>
-          <div class="result-list">
-            <div v-for="file in uploadResult.failed" :key="file" class="result-item error">
-              {{ file }}
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <!-- Close Button -->
-      <div class="modal-actions">
-        <button @click="$emit('close')" class="close-btn">关闭</button>
+        <!-- Close Button -->
+        <div class="panel-actions">
+          <button @click="$emit('close')" class="close-btn">关闭</button>
+        </div>
       </div>
     </div>
   </div>
@@ -198,7 +206,6 @@ const uploadFiles = async () => {
 <script lang="ts">
 import { defineComponent, PropType } from 'vue'
 
-// Re-define DirectoryNode for this script block
 interface DirectoryNode {
   name: string
   path: string
@@ -244,38 +251,90 @@ export const DirectoryTreeNode = defineComponent({
 </script>
 
 <style scoped>
-.modal-overlay {
+.upload-panel {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  width: 100%;
+  background-color: transparent;
+  z-index: 100;
+  animation: slideIn 0.3s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.upload-panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+  border-top: 1px solid #eee;
+}
+
+.panel-transparent-top {
+  flex: none;
+  height: 30vh;
+  background-color: transparent;
+  pointer-events: none;
+}
+
+.panel-top-bar {
+  flex: none;
+  padding: 12px 20px;
+  border-bottom: 1px solid #eee;
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.modal-content {
+  gap: 12px;
   background-color: #fff;
-  padding: 25px;
-  border-radius: 10px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
-.modal-content h3 {
-  text-align: center;
-  margin-bottom: 20px;
-  font-size: 22px;
-  font-weight: bold;
+.top-back-btn {
+  border: 1px solid #ddd;
+  background-color: #f8f8f8;
   color: #333;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #eee;
+  font-size: 15px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 6px 12px;
+  transition: all 0.2s;
+}
+
+.top-back-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
+}
+
+.panel-title {
+  margin: 0;
+  flex: 1;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
 }
 
 .directory-section,
@@ -379,11 +438,6 @@ export const DirectoryTreeNode = defineComponent({
   padding: 4px 0;
 }
 
-.file-item.more-files {
-  color: #999;
-  font-style: italic;
-}
-
 .upload-actions {
   margin-top: 15px;
 }
@@ -474,7 +528,7 @@ export const DirectoryTreeNode = defineComponent({
   color: #721c24;
 }
 
-.modal-actions {
+.panel-actions {
   display: flex;
   justify-content: center;
   margin-top: 20px;
