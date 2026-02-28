@@ -1,13 +1,13 @@
 <template>
-  <div class="modal-overlay" @click="$emit('close')">
-    <div class="modal-content" @click.stop>
-      <div class="modal-top-bar">
+  <div class="settings-panel">
+    <div class="settings-panel-content">
+      <div class="panel-top-bar">
         <button class="top-back-btn" @click="$emit('close')">
           <i class="fas fa-arrow-left"></i>
           返回
         </button>
       </div>
-      <div class="modal-body">
+      <div class="panel-body">
         <h3>播放器设置</h3>
 
         <!-- Server URL Configuration -->
@@ -191,7 +191,7 @@
           <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
         </div>
 
-        <div class="modal-actions">
+        <div class="panel-actions">
           <button @click="$emit('close')" class="confirm-btn">确认</button>
         </div>
       </div>
@@ -490,34 +490,38 @@ const validateServerUrlInput = () => {
 </script>
 
 <style scoped>
-.modal-overlay {
+.settings-panel {
   position: fixed;
   top: 0;
   left: 0;
-  right: 0;
   bottom: 0;
-  background-color: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: stretch;
-  justify-content: stretch;
-  z-index: 100;
-}
-
-.modal-content {
-  background-color: #fff;
   width: 100%;
-  height: 100%;
-  max-width: 100%;
-  max-height: 100%;
-  margin: 0;
-  box-shadow: none;
-  border-radius: 0;
+  max-width: 500px;
+  background-color: #fafafa;
+  border-right: 1px solid #eee;
+  z-index: 100;
+  animation: slideIn 0.3s ease-out;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
-.modal-top-bar {
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.settings-panel-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+}
+
+.panel-top-bar {
   flex: none;
   padding: 12px 20px;
   border-bottom: 1px solid #eee;
@@ -546,13 +550,13 @@ const validateServerUrlInput = () => {
   border-color: #ccc;
 }
 
-.modal-body {
+.panel-body {
   flex: 1;
   overflow-y: auto;
   padding: 24px 28px 32px;
 }
 
-.modal-body h3 {
+.panel-body h3 {
   margin: 0 0 20px 0;
   font-size: 22px;
   font-weight: 600;
@@ -765,7 +769,7 @@ const validateServerUrlInput = () => {
   background-color: #c0392b;
 }
 
-.modal-actions {
+.panel-actions {
   display: flex;
   gap: 12px;
   justify-content: center;
