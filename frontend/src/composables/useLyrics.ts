@@ -26,7 +26,7 @@ export interface LyricLine {
 export interface SongInfo {
   id: number
   name: string
-  lufs: number
+  lufs: number | null
   path: string
 }
 

@@ -121,11 +121,10 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
         Ok(music_list) => {
             // Add all music to "所有音乐" (All Music)
             for music in &music_list {
-                let lufs_value = music.lufs.unwrap_or(0.5);
                 let info = MusicInfo {
                     id: music.id,
                     name: music.filename.clone(),
-                    lufs: lufs_value,
+                    lufs: music.lufs,
                     path: music.file_path.clone(),
                 };
                 playlists.entry("所有音乐".to_string()).or_insert_with(Vec::new).push(info);
@@ -148,7 +147,7 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
                                     .map(|music| MusicInfo {
                                         id: music.id,
                                         name: music.filename,
-                                        lufs: music.lufs.unwrap_or(0.5),
+                                        lufs: music.lufs,
                                         path: music.file_path,
                                     })
                                     .collect();

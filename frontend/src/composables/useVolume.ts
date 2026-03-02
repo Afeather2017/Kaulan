@@ -4,7 +4,7 @@ export type VolumeMode = 'auto' | 'manual' | 'fixed'
 
 export interface MusicInfo {
   name: string
-  lufs: number
+  lufs: number | null
   path: string
 }
 
@@ -28,11 +28,22 @@ export function useVolume(currentSong: Ref<MusicInfo | null>, currentSongs: Ref<
 
     const song = currentSong.value
 
+    // If LUFS is null (not yet calculated), use manual volume
+    if (song.lufs === null) {
+      return manualVolume.value
+    }
+
     if (volumeMode.value === 'auto') {
-      // Find minimum LUFS in current playlist
+      // Find minimum LUFS in current playlist (skip null values)
       let minLufs = 1000
       for (const s of currentSongs.value) {
-        minLufs = Math.min(s.lufs, minLufs)
+        if (s.lufs !== null) {
+          minLufs = Math.min(s.lufs, minLufs)
+        }
+      }
+      // If all songs have null LUFS, use default
+      if (minLufs === 1000) {
+        return manualVolume.value
       }
       return 10 ** ((minLufs - song.lufs) / 20)
     } else if (volumeMode.value === 'fixed') {

@@ -25,7 +25,7 @@
       </div>
       <div class="song-info">
         <h3>{{ song.name }}</h3>
-        <p>LUFS: {{ song.lufs.toFixed(2) }}</p>
+        <p>LUFS: {{ song.lufs !== null ? song.lufs.toFixed(2) : '未计算' }}</p>
       </div>
       <div class="song-duration">
         --:--
@@ -56,7 +56,7 @@
 export interface SongInfo {
   id: number
   name: string
-  lufs: number
+  lufs: number | null
   path: string
 }
 
