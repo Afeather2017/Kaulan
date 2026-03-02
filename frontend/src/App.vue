@@ -506,9 +506,19 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
   }
 }
 
-// Handle song start event - trigger LUFS pre-caching for next song
+// Handle song start event - trigger LUFS pre-caching for current and next song
 const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { id: number } | null) => {
   console.log('[app] onSongStart called: currentSongId =', currentSongInfo.id, ', nextSongInfo =', nextSongInfo)
+
+  // Fire-and-forget: Pre-cache LUFS for CURRENT song if it has no LUFS
+  const allSongs = playbackSongs.value
+  const currentSong = allSongs.find((s: { id: number }) => s.id === currentSongInfo.id)
+  if (currentSong && currentSong.lufs === null) {
+    console.log('[app] Current song has no LUFS, triggering fire-and-forget calculation for ID:', currentSongInfo.id)
+    // Fire without await - don't block playback
+    fetch(`${getApiBase()}/music/${currentSongInfo.id}/precache-lufs`, { method: 'POST' })
+      .catch(error => console.warn('[app] Fire-and-forget LUFS request failed:', error))
+  }
 
   if (!nextSongInfo) {
     console.log('[app] No next song, skipping pre-cache')
@@ -516,7 +526,6 @@ const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { 
   }
 
   // Skip pre-caching if next song already has LUFS calculated
-  const allSongs = playbackSongs.value
   const nextSong = allSongs.find((s: { id: number }) => s.id === nextSongInfo.id)
   if (nextSong && nextSong.lufs !== null) {
     console.log('[app] Next song already has LUFS:', nextSong.lufs, ', skipping pre-cache')
