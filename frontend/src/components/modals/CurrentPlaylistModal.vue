@@ -24,7 +24,7 @@
             </div>
             <div class="song-info">
               <h4>{{ song.name }}</h4>
-              <p>LUFS: {{ song.lufs.toFixed(2) }}</p>
+              <p>LUFS: {{ song.lufs !== null ? song.lufs.toFixed(2) : '未计算' }}</p>
             </div>
           </div>
         </div>

@@ -66,15 +66,9 @@ echo
 echo "=== Build Complete ==="
 echo "Signed APK: $SIGNED_APK"
 echo
-echo "To install, run:"
-echo "  adb install $SIGNED_APK"
-echo
 
+echo "Installing..."
 # Optionally install immediately
-read -p "Install to device now? [y/N] " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    adb install "$SIGNED_APK"
-    echo "Installation complete!"
-fi
+adb install "$SIGNED_APK"
+echo "Installation complete!"
 

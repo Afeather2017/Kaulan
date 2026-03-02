@@ -278,6 +278,10 @@ const playbackPlaylist = computed(() => {
   return selectedPlaylist.value
 })
 
+// Handler for song start event - trigger LUFS pre-caching for next song
+// Defined as ref to allow useAudioPlayer to reference it, but implemented below
+const handleSongStartRef = ref<((currentSongInfo: { id: number }, nextSongInfo: { id: number } | null) => void) | null>(null)
+
 const {
   audioElement,
   currentSong,
@@ -296,7 +300,10 @@ const {
   initAudio
 } = useAudioPlayer({
   songs: () => playbackSongs.value,
-  onSongEnd: () => {}
+  onSongEnd: () => {},
+  onSongStart: (currentSongInfo, nextSongInfo) => {
+    handleSongStartRef.value?.(currentSongInfo, nextSongInfo)
+  }
 })
 
 const {
@@ -498,6 +505,58 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
     await playSong(song)
   }
 }
+
+// Handle song start event - trigger LUFS pre-caching for next song
+const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { id: number } | null) => {
+  console.log('[app] onSongStart called: currentSongId =', currentSongInfo.id, ', nextSongInfo =', nextSongInfo)
+
+  if (!nextSongInfo) {
+    console.log('[app] No next song, skipping pre-cache')
+    return
+  }
+
+  // Skip pre-caching if next song already has LUFS calculated
+  const allSongs = playbackSongs.value
+  const nextSong = allSongs.find((s: { id: number }) => s.id === nextSongInfo.id)
+  if (nextSong && nextSong.lufs !== null) {
+    console.log('[app] Next song already has LUFS:', nextSong.lufs, ', skipping pre-cache')
+    return
+  }
+
+  // Skip pre-caching in loop mode (same song) if it already has LUFS or will be re-calculated anyway
+  if (playMode.value === 'loop' && currentSongInfo.id === nextSongInfo.id) {
+    console.log('[app] Loop mode with same song, skipping pre-cache')
+    return
+  }
+
+  console.log('[app] Pre-caching LUFS for next song ID:', nextSongInfo.id)
+
+  try {
+    const response = await fetch(`${getApiBase()}/music/${nextSongInfo.id}/precache-lufs`, {
+      method: 'POST'
+    })
+    if (response.ok) {
+      const result = await response.json()
+      if (result.success && result.lufs !== null) {
+        console.log('[app] LUFS pre-cache complete:', result.lufs)
+        // Refresh the current playlist data to get the updated LUFS value
+        await refreshData()
+        // If a playlist is currently selected, update its songs
+        if (selectedPlaylist.value) {
+          const playlistName = selectedPlaylist.value.name
+          selectPlaylist(playlistName)
+        }
+      }
+    } else {
+      console.warn('[app] LUFS pre-cache failed:', response.status)
+    }
+  } catch (error) {
+    console.error('[app] LUFS pre-cache error:', error)
+  }
+}
+
+// Assign the handler to the ref so useAudioPlayer can call it
+handleSongStartRef.value = handleSongStart
 
 const handleShowSettingsModal = () => {
   showSettings.value = true

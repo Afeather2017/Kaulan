@@ -7,8 +7,9 @@ The Settings and Database Management features allow users to configure the music
 ## Features
 
 1. **Music Directory Configuration** - Set and view the music directory path through the settings UI
-2. **Database Update** - Trigger database refresh to scan for new files, update LUFS values, and remove deleted files
-3. **Persistent Configuration** - Music directory is saved to a config file and persists across restarts
+2. **Database Update** - Trigger database refresh to scan for new files and remove deleted files
+3. **On-Demand LUFS Pre-caching** - LUFS values are calculated automatically during playback for the next song
+4. **Persistent Configuration** - Music directory is saved to a config file and persists across restarts
 
 ## API Endpoints
 
@@ -18,7 +19,8 @@ The Settings and Database Management features allow users to configure the music
 |--------|----------|-------------|
 | GET | `/api/settings/music-directory` | Get the current music directory path |
 | POST | `/api/settings/music-directory` | Set the music directory path (saved to config, takes effect on restart) |
-| POST | `/api/database/update` | Trigger database update (scan for new files, update LUFS, remove deleted files) |
+| POST | `/api/database/update` | Trigger database update (scan for new files, remove deleted files) |
+| POST | `/api/music/{id}/precache-lufs` | Pre-cache LUFS for a music track (called automatically during playback) |
 
 ## Request/Response Formats
 
@@ -143,9 +145,8 @@ sequenceDiagram
 sequenceDiagram
     participant User as User
     participant FE as Frontend
-    participant BE as Backend (lib.rs)
+    participant BE as Backend (handlers/database.rs)
     participant DB as Database (SQLite)
-    participant FFmpeg as FFmpeg
 
     Note over User,FE: User opens settings modal
     Note over User,FE: User clicks "更新数据库" (Update Database)
@@ -156,22 +157,15 @@ sequenceDiagram
 
     Note over BE: Start database update process
 
-    BE->>DB: Get all existing music records
-    DB-->>BE: Returns all music entries
-
     Note over BE: Scan music directory for audio files
 
     loop For each audio file
         BE->>BE: Check if file exists in database
 
         alt File is new
-            BE->>FFmpeg: Calculate LUFS value
-            FFmpeg-->>BE: Returns LUFS value
-            BE->>DB: INSERT INTO music (filename, file_path, lufs)
-        else File exists, LUFS is missing or default
-            BE->>FFmpeg: Calculate LUFS value
-            FFmpeg-->>BE: Returns LUFS value
-            BE->>DB: UPDATE music SET lufs = ?
+            BE->>DB: INSERT INTO music (filename, file_path, lufs=NULL)
+        else File exists
+            Note over BE: Skip (no update needed)
         end
     end
 
@@ -267,9 +261,7 @@ The update process will:
 
 | Scenario | Action |
 |----------|--------|
-| New file in directory | Insert into database with calculated LUFS |
-| Existing file without LUFS | Calculate LUFS and update record |
-| Existing file with default LUFS (0.5) | Calculate LUFS and update record |
+| New file in directory | Insert into database with null LUFS (calculated on-demand during playback) |
 | File in database but not on disk | Delete from database |
 
 ### Supported Audio Formats
@@ -280,28 +272,71 @@ The update process will:
 - AAC (`.aac`)
 - FLAC (`.flac`)
 
-### LUFS Calculation
+### LUFS Pre-caching (On-Demand Calculation)
 
-LUFS (Loudness Units Full Scale) values are calculated using FFmpeg. The update process will:
-1. Run FFmpeg's `loudnorm` filter on each audio file
-2. Extract the integrated loudness value
-3. Store the value in the database for volume normalization during playback
+LUFS (Loudness Units Full Scale) values are calculated on-demand during playback rather than during database updates. This provides a faster database update experience and ensures LUFS is only calculated for songs that are actually played.
 
-**Note:** FFmpeg must be installed on the system for LUFS calculation to work. If FFmpeg is not available, the update process will skip LUFS calculation and log a warning.
+**How it works:**
+
+1. When a song starts playing, the frontend triggers LUFS calculation for the **next song** in the playlist
+2. The backend calculates LUFS asynchronously using `tokio::task::spawn_blocking`
+3. Each song's LUFS is calculated **once** - subsequent plays read from the database
+4. First song plays with manual volume (no LUFS initially)
+
+**Pre-cache endpoint:**
+
+```bash
+POST /api/music/{id}/precache-lufs
+
+Response (200 OK - Newly calculated):
+{
+  "success": true,
+  "lufs": -14.5,
+  "cached": false
+}
+
+Response (200 OK - Already cached):
+{
+  "success": true,
+  "lufs": -14.5,
+  "cached": true
+}
+
+Response (200 OK - Content URI, cannot calculate):
+{
+  "success": true,
+  "lufs": null,
+  "cached": false,
+  "error": "Content URIs cannot be processed by FFmpeg"
+}
+```
+
+**Edge cases handled:**
+
+- **First song**: No pre-caching, plays with manual volume
+- **Loop mode**: Same song - skip pre-caching if LUFS exists
+- **Shuffle mode**: Next random song is pre-cached
+- **Last song**: Wraps to first song - pre-caches first song's LUFS
+- **Single song playlist**: No next song - skip pre-caching
+- **Android content URIs**: Cannot be processed by FFmpeg - returns without error
+
+**Note:** FFmpeg must be installed on the system for LUFS calculation to work. If FFmpeg is not available, the pre-cache request will fail gracefully.
 
 ## Technical Notes
 
 ### Backend Implementation
 
-The database update is implemented in `backend/src/lib.rs`:
+The database update is implemented in `backend/src/services/scanner.rs` and `backend/src/handlers/`:
 
-| Function | Location | Description |
-|----------|----------|-------------|
-| `update_database_endpoint()` | lib.rs:985 | Actix-web endpoint handler |
-| `update_database()` | lib.rs:1140 | Core database update logic |
-| `scan_directory_recursive()` | lib.rs:1067 | Recursive directory scanning |
-| `load_config()` | lib.rs:58 | Load config from file |
-| `save_config()` | lib.rs:70 | Save config to file |
+| Function/Handler | Location | Description |
+|------------------|----------|-------------|
+| `update_database_endpoint()` | handlers/database.rs:32 | Actix-web endpoint handler |
+| `update_database()` | services/scanner.rs:191 | Core database update logic (no LUFS calculation) |
+| `initialize_database()` | services/scanner.rs:78 | Initial database scan on first run |
+| `precache_lufs()` | handlers/lufs.rs:56 | LUFS pre-cache endpoint handler |
+| `scan_directory_recursive()` | services/scanner.rs:27 | Recursive directory scanning |
+| `load_config()` | config/mod.rs | Load config from file |
+| `save_config()` | config/mod.rs | Save config to file |
 
 ### Configuration Module
 
@@ -340,7 +375,11 @@ The endpoints return appropriate HTTP status codes:
 
 | File | Description |
 |------|-------------|
-| `backend/src/lib.rs:26-87` | Config module implementation |
-| `backend/src/lib.rs:574-642` | Settings API endpoints |
-| `backend/src/lib.rs:1274-1306` | Config loading in `start_server` |
-| `frontend/src-tauri/src/lib.rs` | Tauri config handling |
+| `backend/src/config/mod.rs` | Config module implementation |
+| `backend/src/handlers/settings.rs` | Settings API endpoints |
+| `backend/src/handlers/database.rs` | Database update endpoint |
+| `backend/src/handlers/lufs.rs` | LUFS pre-cache endpoint |
+| `backend/src/services/scanner.rs` | Directory scanning and database operations |
+| `backend/src/server/mod.rs` | Route registration and server startup |
+| `frontend/src/composables/useAudioPlayer.ts` | Audio player with onSongStart callback |
+| `frontend/src/App.vue` | LUFS pre-cache trigger in handleSongStart |

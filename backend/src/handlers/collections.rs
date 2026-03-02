@@ -233,7 +233,7 @@ pub async fn get_collection_items(
                 .map(|music| MusicInfo {
                     id: music.id,
                     name: music.filename,
-                    lufs: music.lufs.unwrap_or(0.5),
+                    lufs: music.lufs,
                     path: music.file_path,
                 })
                 .collect();

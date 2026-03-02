@@ -32,11 +32,10 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
     match MusicEntity::find().all(&data.db_conn).await {
         Ok(music_list) => {
             for music in &music_list {
-                let lufs_value = music.lufs.unwrap_or(0.5);
                 let info = MusicInfo {
                     id: music.id,
                     name: music.filename.clone(),
-                    lufs: lufs_value,
+                    lufs: music.lufs,
                     path: music.file_path.clone(),
                 };
 
@@ -84,11 +83,10 @@ pub async fn get_playlist(
     match MusicEntity::find().all(&data.db_conn).await {
         Ok(music_list) => {
             for music in music_list {
-                let lufs_value = music.lufs.unwrap_or(0.5);
                 let info = MusicInfo {
                     id: music.id,
                     name: music.filename.clone(),
-                    lufs: lufs_value,
+                    lufs: music.lufs,
                     path: music.file_path.clone(),
                 };
 

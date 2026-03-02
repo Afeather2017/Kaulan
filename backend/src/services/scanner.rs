@@ -4,16 +4,15 @@
 //! - Recursive scanning of music directories
 //! - Database initialization on first run
 //! - Database updates for new/modified/deleted files
-//! - LUFS calculation integration
+//! - LUFS values are calculated on-demand during playback (see handlers/lufs.rs)
 
 use crate::entities::music::{Entity as MusicEntity, ActiveModel as MusicActiveModel, Column as MusicColumn};
 use crate::entities::db_meta::{Entity as DbMetaEntity, ActiveModel as DbMetaActiveModel};
-use crate::lufsgen::get_lufs;
 use crate::file_ops::{get_music_file_lister, MusicFileInfo};
 use sea_orm::{DatabaseConnection, EntityTrait, Set, ActiveModelTrait, ModelTrait, ColumnTrait, QueryFilter, DbErr};
 use std::path::Path;
 use chrono::Utc;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, error};
 use std::io;
 
 /// Recursively scan directory for audio files (desktop version using std::fs)
@@ -66,7 +65,7 @@ fn normalize_path(path: &str) -> String {
 ///
 /// This function scans the music directory and adds any new files to the database.
 /// Files that already exist in the database (matched by file_path) are skipped.
-/// New files are added with a default LUFS value of 0.5.
+/// New files are added with null LUFS (calculated on-demand during playback).
 ///
 /// # Arguments
 /// * `music_path` - Path to the music directory to scan
@@ -105,7 +104,7 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
                 let music = MusicActiveModel {
                     filename: Set(filename.clone()),
                     file_path: Set(normalized_path.clone()),
-                    lufs: Set(Some(0.5)),
+                    lufs: Set(None),
                     created_at: Set(Utc::now()),
                     ..Default::default()
                 };
@@ -173,13 +172,15 @@ pub async fn set_initial_scan_done(db_conn: &DatabaseConnection, done: bool) -> 
     Ok(())
 }
 
-/// Update database: scan for new files, calculate LUFS, and insert
+/// Update database: scan for new files and remove deleted ones
 ///
-/// This function performs a comprehensive database update:
+/// This function performs a database update:
 /// - Scans the music directory for all audio files
-/// - Adds new files with LUFS calculation
-/// - Updates existing files that have no LUFS value or have the default 0.5
+/// - Adds new files with null LUFS (calculated on-demand during playback)
 /// - Removes database entries for files that no longer exist on disk
+///
+/// LUFS values are calculated on-demand when songs start playing via the
+/// `/api/music/{id}/precache-lufs` endpoint.
 ///
 /// # Arguments
 /// * `music_path` - Path to the music directory to scan
@@ -196,7 +197,6 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
     info!("[DB_UPDATE] Found {} audio files in directory", audio_files.len());
 
     let mut new_files = 0;
-    let mut updated_files = 0;
     let mut skipped_files = 0;
 
     for (idx, file_info) in audio_files.iter().enumerate() {
@@ -212,75 +212,27 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
             .await
         {
             Ok(None) => {
-                info!("[DB_UPDATE]   NEW FILE detected - calling FFmpeg for LUFS...");
-                if let Some(lufs_value) = get_lufs(&normalized_path) {
-                    info!("[DB_UPDATE]   LUFS calculated: {} - inserting to database...", lufs_value);
-                    let music = MusicActiveModel {
-                        filename: Set(filename.clone()),
-                        file_path: Set(normalized_path.clone()),
-                        lufs: Set(Some(lufs_value)),
-                        created_at: Set(Utc::now()),
-                        ..Default::default()
-                    };
-                    match music.insert(db_conn).await {
-                        Ok(_) => {
-                            info!("[DB_UPDATE]   INSERTED: {} (LUFS: {})", filename, lufs_value);
-                            new_files += 1;
-                        }
-                        Err(e) => {
-                            error!("[DB_UPDATE]   FAILED to insert {}: {}", filename, e);
-                        }
+                info!("[DB_UPDATE]   NEW FILE detected - inserting with null LUFS...");
+                let music = MusicActiveModel {
+                    filename: Set(filename.clone()),
+                    file_path: Set(normalized_path.clone()),
+                    lufs: Set(None),
+                    created_at: Set(Utc::now()),
+                    ..Default::default()
+                };
+                match music.insert(db_conn).await {
+                    Ok(_) => {
+                        info!("[DB_UPDATE]   INSERTED: {} (LUFS: null, will be calculated on-demand)", filename);
+                        new_files += 1;
                     }
-                } else if is_content_uri(&normalized_path) {
-                    // Android MediaStore entries may not be accessible by FFmpeg.
-                    // Insert with default LUFS so the file is still playable.
-                    warn!("[DB_UPDATE]   LUFS unavailable for content URI - inserting with default LUFS: {}", filename);
-                    let music = MusicActiveModel {
-                        filename: Set(filename.clone()),
-                        file_path: Set(normalized_path.clone()),
-                        lufs: Set(Some(0.5)),
-                        created_at: Set(Utc::now()),
-                        ..Default::default()
-                    };
-                    match music.insert(db_conn).await {
-                        Ok(_) => {
-                            info!("[DB_UPDATE]   INSERTED: {} (LUFS: default 0.5)", filename);
-                            new_files += 1;
-                        }
-                        Err(e) => {
-                            error!("[DB_UPDATE]   FAILED to insert {}: {}", filename, e);
-                        }
+                    Err(e) => {
+                        error!("[DB_UPDATE]   FAILED to insert {}: {}", filename, e);
                     }
-                } else {
-                    warn!("[DB_UPDATE]   SKIPPED: Failed to calculate LUFS for {}", filename);
                 }
             }
-            Ok(Some(existing_music)) => {
-                if existing_music.lufs.is_none() || existing_music.lufs == Some(0.5) {
-                    info!("[DB_UPDATE]   EXISTING FILE without LUFS - updating...");
-                    if let Some(lufs_value) = get_lufs(&normalized_path) {
-                        let mut active_model: MusicActiveModel = existing_music.clone().into();
-                        active_model.lufs = Set(Some(lufs_value));
-                        match active_model.update(db_conn).await {
-                            Ok(_) => {
-                                info!("[DB_UPDATE]   UPDATED: {} (LUFS: {})", filename, lufs_value);
-                                updated_files += 1;
-                            }
-                            Err(e) => {
-                                error!("[DB_UPDATE]   FAILED to update {}: {}", filename, e);
-                            }
-                        }
-                    } else if is_content_uri(&normalized_path) {
-                        // Keep default LUFS for content URIs when FFmpeg is unavailable.
-                        warn!("[DB_UPDATE]   LUFS unavailable for content URI - keeping default for {}", filename);
-                        skipped_files += 1;
-                    } else {
-                        warn!("[DB_UPDATE]   SKIPPED: Failed to calculate LUFS for {}", filename);
-                    }
-                } else {
-                    debug!("[DB_UPDATE]   SKIPPED: File already in database with LUFS: {}", existing_music.lufs.unwrap());
-                    skipped_files += 1;
-                }
+            Ok(Some(_)) => {
+                debug!("[DB_UPDATE]   SKIPPED: File already in database: {}", filename);
+                skipped_files += 1;
             }
             Err(e) => {
                 error!("[DB_UPDATE]   DATABASE ERROR while checking file {}: {}", normalized_path, e);
@@ -323,6 +275,6 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
     }
 
     info!("[DB_UPDATE] ========== DATABASE UPDATE COMPLETE ==========");
-    info!("[DB_UPDATE] Summary: {} new, {} updated, {} skipped, {} deleted", new_files, updated_files, skipped_files, deleted_files);
+    info!("[DB_UPDATE] Summary: {} new, {} skipped, {} deleted", new_files, skipped_files, deleted_files);
     Ok(())
 }

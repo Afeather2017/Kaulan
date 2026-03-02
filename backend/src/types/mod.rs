@@ -22,7 +22,7 @@ pub struct MusicResponse {
 pub struct MusicInfo {
     pub id: i32,
     pub name: String,
-    pub lufs: f64,
+    pub lufs: Option<f64>,
     pub path: String,
 }
 

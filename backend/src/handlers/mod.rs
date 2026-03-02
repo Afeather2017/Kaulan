@@ -9,3 +9,4 @@ pub mod settings;
 pub mod upload;
 pub mod database;
 pub mod lyrics;
+pub mod lufs;
