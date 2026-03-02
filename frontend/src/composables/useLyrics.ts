@@ -24,6 +24,7 @@ export interface LyricLine {
  * Song info interface (must match the one in SongListView)
  */
 export interface SongInfo {
+  id: number
   name: string
   lufs: number
   path: string
@@ -95,13 +96,13 @@ export function parseLrc(content: string): LyricLine[] {
 /**
  * Load lyrics from the backend API
  *
- * @param filename - Music filename (e.g., "song.mp3")
+ * @param id - Music ID
  * @returns Promise resolving to the raw LRC content, or null if not found
  */
-async function loadLyrics(filename: string): Promise<string | null> {
+async function loadLyrics(id: number): Promise<string | null> {
   try {
     const apiBase = getApiBase()
-    const response = await fetch(`${apiBase}/lyrics/${encodeURIComponent(filename)}`)
+    const response = await fetch(`${apiBase}/lyrics/id/${id}`)
 
     if (response.status === 404) {
       // No lyrics available for this song
@@ -173,7 +174,7 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
     }
 
     isLoading.value = true
-    const content = await loadLyrics(currentSong.value.name)
+    const content = await loadLyrics(currentSong.value.id)
 
     if (content) {
       lyrics.value = parseLrc(content)

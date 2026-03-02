@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import { getApiBase } from '@/utils/api'
 
 export interface MusicInfo {
+  id: number
   name: string
   lufs: number
   path: string

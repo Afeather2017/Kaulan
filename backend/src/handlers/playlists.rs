@@ -34,6 +34,7 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
             for music in &music_list {
                 let lufs_value = music.lufs.unwrap_or(0.5);
                 let info = MusicInfo {
+                    id: music.id,
                     name: music.filename.clone(),
                     lufs: lufs_value,
                     path: music.file_path.clone(),
@@ -85,6 +86,7 @@ pub async fn get_playlist(
             for music in music_list {
                 let lufs_value = music.lufs.unwrap_or(0.5);
                 let info = MusicInfo {
+                    id: music.id,
                     name: music.filename.clone(),
                     lufs: lufs_value,
                     path: music.file_path.clone(),
