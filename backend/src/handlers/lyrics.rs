@@ -91,6 +91,82 @@ pub async fn get_lyrics(
     }
 }
 
+/// Stream lyrics file (LRC format) by music ID
+///
+/// This endpoint looks up the music file in the database by ID,
+/// constructs the corresponding `.lrc` file path, and streams the lyrics content.
+///
+/// LRC files should have the same base name as the audio file:
+/// - `song.mp3` → `song.lrc`
+/// - `album/track.flac` → `album/track.lrc`
+///
+/// # Path Parameters
+/// * `id` - The music ID to look up in the database
+///
+/// # Returns
+/// - LRC file content with `text/plain; charset=utf-8` content type if found
+/// - `404 Not Found` if music not in database or LRC file missing
+/// - `500 Internal Server Error` for database errors
+///
+/// # Example
+/// ```bash
+/// curl http://localhost:2080/api/lyrics/id/1
+/// ```
+#[get("/api/lyrics/id/{id}")]
+pub async fn get_lyrics_by_id(
+    path: web::Path<i32>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let id = path.into_inner();
+    debug!("Lyrics request received for ID: {}", id);
+
+    // Simple access log
+    info!("[ACCESS] GET /api/lyrics/id/{} - Started", id);
+
+    match MusicEntity::find_by_id(id).one(&data.db_conn).await {
+        Ok(Some(music)) => {
+            debug!("Found music in database: id={}, filename={}, file_path={}", music.id, music.filename, music.file_path);
+
+            // Construct LRC file path by replacing the file extension with .lrc
+            let lrc_path = Path::new(&music.file_path)
+                .with_extension("lrc")
+                .to_string_lossy()
+                .to_string();
+
+            debug!("Attempting to read lyrics file: {}", lrc_path);
+
+            let file_reader = get_file_reader();
+
+            match file_reader.read_file(&lrc_path).await {
+                Ok(content) => {
+                    debug!("Successfully served lyrics file: {} ({} bytes)", lrc_path, content.len());
+                    info!("[ACCESS] GET /api/lyrics/id/{} - Status: 200", id);
+                    let mut response = HttpResponse::Ok();
+                    response.insert_header(("Content-Type", "text/plain; charset=utf-8"));
+                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
+                    response.insert_header(("Pragma", "no-cache"));
+                    response.insert_header(("Expires", "0"));
+                    response.body(content)
+                }
+                Err(e) => {
+                    debug!("Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}", lrc_path, e);
+                    info!("[ACCESS] GET /api/lyrics/id/{} - Status: 404", id);
+                    HttpResponse::NotFound().body("Lyrics not found")
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("Music not found in database: ID {}", id);
+            info!("[ACCESS] GET /api/lyrics/id/{} - Status: 404", id);
+            HttpResponse::NotFound().body("Music not found")
+        }
+        Err(e) => {
+            error!("Database error while fetching music ID {}: {}", id, e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

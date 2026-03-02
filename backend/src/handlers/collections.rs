@@ -231,6 +231,7 @@ pub async fn get_collection_items(
                 .into_iter()
                 .filter_map(|(_, music_opt)| music_opt)
                 .map(|music| MusicInfo {
+                    id: music.id,
                     name: music.filename,
                     lufs: music.lufs.unwrap_or(0.5),
                     path: music.file_path,

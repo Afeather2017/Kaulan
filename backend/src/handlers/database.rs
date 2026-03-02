@@ -123,6 +123,7 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
             for music in &music_list {
                 let lufs_value = music.lufs.unwrap_or(0.5);
                 let info = MusicInfo {
+                    id: music.id,
                     name: music.filename.clone(),
                     lufs: lufs_value,
                     path: music.file_path.clone(),
@@ -145,6 +146,7 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
                                     .into_iter()
                                     .filter_map(|(_, music_opt)| music_opt)
                                     .map(|music| MusicInfo {
+                                        id: music.id,
                                         name: music.filename,
                                         lufs: music.lufs.unwrap_or(0.5),
                                         path: music.file_path,

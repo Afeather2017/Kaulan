@@ -78,6 +78,67 @@ pub async fn get_music(
     }
 }
 
+/// Stream a music file by ID
+///
+/// This endpoint looks up the music file in the database by ID,
+/// then streams the actual audio file from disk or content URI.
+///
+/// # Path Parameters
+/// * `id` - The music ID to look up in the database
+///
+/// # Returns
+/// - Audio file stream with `audio/mpeg` content type if found
+/// - `404 Not Found` if music not in database or file missing
+/// - `500 Internal Server Error` for database errors
+#[get("/api/music/id/{id}")]
+pub async fn get_music_by_id(
+    path: web::Path<i32>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let id = path.into_inner();
+    debug!("Music request received for ID: {}", id);
+
+    // Simple access log
+    info!("[ACCESS] GET /api/music/id/{} - Started", id);
+
+    match MusicEntity::find_by_id(id).one(&data.db_conn).await {
+        Ok(Some(music)) => {
+            debug!("Found music in database: id={}, filename={}, file_path={}", music.id, music.filename, music.file_path);
+
+            let file_reader = get_file_reader();
+            debug!("File reader obtained for reading: {}", music.file_path);
+
+            const CHUNK_SIZE: usize = 1024 * 1024;
+            match file_reader.read_stream(&music.file_path, CHUNK_SIZE).await {
+                Ok(stream) => {
+                    debug!("Streaming music file: {} (ID: {})", music.filename, id);
+                    info!("[ACCESS] GET /api/music/id/{} - Status: 200", id);
+                    let mut response = HttpResponse::Ok();
+                    response.insert_header(("Content-Type", "audio/mpeg"));
+                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
+                    response.insert_header(("Pragma", "no-cache"));
+                    response.insert_header(("Expires", "0"));
+                    response.streaming(stream.map_err(actix_web::Error::from))
+                }
+                Err(e) => {
+                    warn!("File not found or could not be read: {} (ID: {}) - Error: {}", music.file_path, id, e);
+                    info!("[ACCESS] GET /api/music/id/{} - Status: 404", id);
+                    HttpResponse::NotFound().body("File not found")
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("Music not found in database: ID {}", id);
+            info!("[ACCESS] GET /api/music/id/{} - Status: 404", id);
+            HttpResponse::NotFound().body("Music not found")
+        }
+        Err(e) => {
+            error!("Database error while fetching music ID {}: {}", id, e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
 /// Get all music from the database
 ///
 /// Returns a list of all music entries with their metadata including

@@ -20,6 +20,7 @@ pub struct MusicResponse {
 /// Music information for playlist responses
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MusicInfo {
+    pub id: i32,
     pub name: String,
     pub lufs: f64,
     pub path: String,

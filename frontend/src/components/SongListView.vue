@@ -54,6 +54,7 @@
 
 <script setup lang="ts">
 export interface SongInfo {
+  id: number
   name: string
   lufs: number
   path: string

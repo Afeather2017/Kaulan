@@ -2,6 +2,7 @@ import { ref, watch, onUnmounted } from 'vue'
 import { getApiBase } from '@/utils/api'
 
 export interface MusicInfo {
+  id: number
   name: string
   lufs: number
   path: string
@@ -62,7 +63,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentSong.value = song
 
     if (audioElement.value) {
-      audioElement.value.src = `${apiBase}/music/${encodeURIComponent(song.name)}`
+      audioElement.value.src = `${apiBase}/music/id/${song.id}`
       try {
         await audioElement.value.play()
         isPlaying.value = true
