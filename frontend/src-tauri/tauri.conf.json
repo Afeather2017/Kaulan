@@ -12,6 +12,8 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "url": "http://localhost:3000",
         "title": "kaulan",
         "width": 500,
         "height": 800,

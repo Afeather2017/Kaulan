@@ -75,6 +75,7 @@ cargo test                          # Run tests
 ```
 
 ### Frontend (Vue.js/TypeScript)
+**CSS Compatibility Note: Do not use the `inset` property. The build process must not convert `top: 0; left: 0; right: 0; bottom: 0;` to `inset: 0` due to old Android webview compatibility.**
 ```bash
 cd frontend
 
