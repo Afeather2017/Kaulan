@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { getApiBase } from '@/utils/api'
+import { getViewMode, setViewMode } from '@/utils/cookies'
 
 export interface MusicInfo {
   id: number
@@ -27,8 +28,8 @@ const viewModeLabels: Record<ViewMode, string> = {
 }
 
 export function usePlaylist() {
-  // State
-  const viewMode = ref<ViewMode>('folder')
+  // State - initialize viewMode from cookie (default: collection)
+  const viewMode = ref<ViewMode>((getViewMode() as ViewMode) || 'collection')
   const playlists = ref<Record<string, MusicInfo[]>>({})
   const collections = ref<Collection[]>([])
   const searchQuery = ref('')
@@ -114,7 +115,9 @@ export function usePlaylist() {
 
   // Toggle view mode
   const toggleViewMode = () => {
-    viewMode.value = viewMode.value === 'folder' ? 'collection' : 'folder'
+    const newMode = viewMode.value === 'folder' ? 'collection' : 'folder'
+    viewMode.value = newMode
+    setViewMode(newMode)
   }
 
   const selectPlaylist = (playlistName: string) => {

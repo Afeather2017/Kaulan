@@ -8,20 +8,30 @@
  * Cookie keys used throughout the application
  */
 export const COOKIE_KEYS = {
-  SERVER_URL: 'kaulan_server_url'
+  SERVER_URL: 'kaulan_server_url',
+  VIEW_MODE: 'kaulan_view_mode'
 } as const
 
 /**
  * Set a cookie with expiration
  * @param name - Cookie name
  * @param value - Cookie value
- * @param days - Days until expiration
+ * @param days - Days until expiration (use 3650 for ~10 years / "permanent")
  */
 function setCookie(name: string, value: string, days: number): void {
   const date = new Date()
   date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000)
   const expires = `expires=${date.toUTCString()}`
   document.cookie = `${name}=${value};${expires};path=/`
+}
+
+/**
+ * Set a "permanent" cookie (10 years expiration)
+ * @param name - Cookie name
+ * @param value - Cookie value
+ */
+function setPermanentCookie(name: string, value: string): void {
+  setCookie(name, value, 3650)
 }
 
 /**
@@ -65,7 +75,7 @@ export function getServerUrl(): string {
  * @param url - The server URL to save
  */
 export function setServerUrl(url: string): void {
-  setCookie(COOKIE_KEYS.SERVER_URL, url, 365)
+  setPermanentCookie(COOKIE_KEYS.SERVER_URL, url)
 }
 
 /**
@@ -73,4 +83,27 @@ export function setServerUrl(url: string): void {
  */
 export function removeServerUrl(): void {
   deleteCookie(COOKIE_KEYS.SERVER_URL)
+}
+
+/**
+ * Get the stored view mode from cookies
+ * @returns The view mode ('collection' or 'folder', defaults to 'collection')
+ */
+export function getViewMode(): string {
+  return getCookie(COOKIE_KEYS.VIEW_MODE) || 'collection'
+}
+
+/**
+ * Save the view mode to cookies
+ * @param mode - The view mode to save ('collection' or 'folder')
+ */
+export function setViewMode(mode: string): void {
+  setPermanentCookie(COOKIE_KEYS.VIEW_MODE, mode)
+}
+
+/**
+ * Remove the stored view mode from cookies
+ */
+export function removeViewMode(): void {
+  deleteCookie(COOKIE_KEYS.VIEW_MODE)
 }
