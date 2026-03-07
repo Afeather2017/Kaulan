@@ -1,15 +1,14 @@
 <template>
-  <div class="playlist-panel">
-    <div class="panel-transparent-top"></div>
-    <div class="playlist-panel-content">
-      <div class="panel-top-bar">
+  <div class="modal-overlay" @click="$emit('close')">
+    <div class="modal-content" @click.stop>
+      <div class="modal-top-bar">
         <button class="top-back-btn" @click="$emit('close')">
           <i class="fas fa-arrow-left"></i>
           返回
         </button>
-        <h3 class="panel-title">{{ playlist?.name || '当前播放列表' }}</h3>
+        <h3 class="modal-title">{{ playlist?.name || '当前播放列表' }}</h3>
       </div>
-      <div class="panel-body">
+      <div class="modal-body">
         <div v-if="playlist && playlist.songs.length > 0" class="song-list">
           <div
             v-for="(song, index) in playlist.songs"
@@ -24,7 +23,6 @@
             </div>
             <div class="song-info">
               <h4>{{ song.name }}</h4>
-              <p>LUFS: {{ song.lufs !== null ? song.lufs.toFixed(2) : '未计算' }}</p>
             </div>
           </div>
         </div>
@@ -58,45 +56,33 @@ defineEmits<{
 </script>
 
 <style scoped>
-.playlist-panel {
+.modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  width: 100%;
-  background-color: transparent;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   z-index: 100;
-  animation: slideIn 0.3s ease-out;
-  display: flex;
-  flex-direction: column;
 }
 
-@keyframes slideIn {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-.playlist-panel-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.modal-content {
   background-color: #fff;
-  border-top: 1px solid #eee;
+  width: 100%;
+  height: 70%;
+  max-width: 100%;
+  margin: 0;
+  box-shadow: none;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.panel-transparent-top {
-  flex: none;
-  height: 30vh;
-  background-color: transparent;
-  pointer-events: none;
-}
-
-.panel-top-bar {
+.modal-top-bar {
   flex: none;
   padding: 12px 20px;
   border-bottom: 1px solid #eee;
@@ -126,7 +112,7 @@ defineEmits<{
   border-color: #ccc;
 }
 
-.panel-title {
+.modal-title {
   margin: 0;
   flex: 1;
   font-size: 18px;
@@ -138,11 +124,12 @@ defineEmits<{
   text-overflow: ellipsis;
 }
 
-.panel-body {
+.modal-body {
   flex: 1;
   padding: 0 20px 20px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .song-list {
@@ -190,18 +177,12 @@ defineEmits<{
 }
 
 .song-info h4 {
-  margin: 0 0 4px 0;
+  margin: 0;
   font-size: 15px;
   font-weight: 500;
   color: #333;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.song-info p {
-  margin: 0;
-  color: #888;
-  font-size: 12px;
 }
 
 .empty-state {
