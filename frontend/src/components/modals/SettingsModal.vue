@@ -1,13 +1,13 @@
 <template>
-  <div class="settings-panel">
-    <div class="settings-panel-content">
-      <div class="panel-top-bar">
+  <div class="modal-overlay" @click="$emit('close')">
+    <div class="modal-content" @click.stop>
+      <div class="modal-top-bar">
         <button class="top-back-btn" @click="$emit('close')">
           <i class="fas fa-arrow-left"></i>
           返回
         </button>
       </div>
-      <div class="panel-body">
+      <div class="modal-body">
         <h3>播放器设置</h3>
 
         <!-- Server URL Configuration -->
@@ -191,7 +191,7 @@
           <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
         </div>
 
-        <div class="panel-actions">
+        <div class="modal-actions">
           <button @click="$emit('close')" class="confirm-btn">确认</button>
         </div>
       </div>
@@ -490,7 +490,7 @@ const validateServerUrlInput = () => {
 </script>
 
 <style scoped>
-.settings-panel {
+.modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -500,28 +500,18 @@ const validateServerUrlInput = () => {
   background-color: #fafafa;
   border-right: 1px solid #eee;
   z-index: 100;
-  animation: slideIn 0.3s ease-out;
   display: flex;
   flex-direction: column;
 }
 
-@keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
-.settings-panel-content {
+.modal-content {
   height: 100%;
   display: flex;
   flex-direction: column;
   background-color: #fff;
 }
 
-.panel-top-bar {
+.modal-top-bar {
   flex: none;
   padding: 12px 20px;
   border-bottom: 1px solid #eee;
@@ -550,13 +540,13 @@ const validateServerUrlInput = () => {
   border-color: #ccc;
 }
 
-.panel-body {
+.modal-body {
   flex: 1;
   overflow-y: auto;
   padding: 24px 28px 32px;
 }
 
-.panel-body h3 {
+.modal-body h3 {
   margin: 0 0 20px 0;
   font-size: 22px;
   font-weight: 600;
@@ -769,7 +759,7 @@ const validateServerUrlInput = () => {
   background-color: #c0392b;
 }
 
-.panel-actions {
+.modal-actions {
   display: flex;
   gap: 12px;
   justify-content: center;

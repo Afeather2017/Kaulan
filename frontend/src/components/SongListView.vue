@@ -25,10 +25,6 @@
       </div>
       <div class="song-info">
         <h3>{{ song.name }}</h3>
-        <p>LUFS: {{ song.lufs !== null ? song.lufs.toFixed(2) : '未计算' }}</p>
-      </div>
-      <div class="song-duration">
-        --:--
       </div>
     </div>
 
@@ -168,24 +164,11 @@ defineEmits<{
 }
 
 .song-info h3 {
-  margin: 0 0 5px 0;
+  margin: 0;
   font-size: 16px;
   font-weight: 500;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.song-info p {
-  margin: 0;
-  color: #666;
-  font-size: 12px;
-}
-
-.song-duration {
-  font-size: 12px;
-  color: #888;
-  min-width: 45px;
-  text-align: right;
 }
 
 .selection-actions {
