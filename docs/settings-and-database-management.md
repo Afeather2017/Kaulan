@@ -302,12 +302,11 @@ Response (200 OK - Already cached):
   "cached": true
 }
 
-Response (200 OK - Content URI, cannot calculate):
+Response (500 Internal Server Error - Content URI read failure):
 {
-  "success": true,
+  "success": false,
   "lufs": null,
-  "cached": false,
-  "error": "Content URIs cannot be processed by FFmpeg"
+  "error": "LUFS calculation failed: Failed to read content URI: ..."
 }
 ```
 
@@ -318,7 +317,7 @@ Response (200 OK - Content URI, cannot calculate):
 - **Shuffle mode**: Next random song is pre-cached
 - **Last song**: Wraps to first song - pre-caches first song's LUFS
 - **Single song playlist**: No next song - skip pre-caching
-- **Android content URIs**: Cannot be processed by FFmpeg - returns without error
+- **Android content URIs**: Read through MediaStore seekable `FileReader` and analyzed directly
 
 **Note:** FFmpeg must be installed on the system for LUFS calculation to work. If FFmpeg is not available, the pre-cache request will fail gracefully.
 
