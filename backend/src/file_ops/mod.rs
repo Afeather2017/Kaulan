@@ -50,6 +50,16 @@ pub trait FileReader: Send + Sync {
         path: &str,
         chunk_size: usize,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>;
+
+    /// Get the file size for a given path
+    ///
+    /// # Arguments
+    /// * `path` - File path or content URI
+    ///
+    /// # Returns
+    /// - `Ok(u64)` - File size in bytes
+    /// - `Err(std::io::Error)` - I/O error occurred
+    async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error>;
 }
 
 /// Trait for listing music files in a directory
@@ -126,6 +136,12 @@ impl FileReader for StdFileReader {
         let file = tokio::fs::File::open(path).await?;
         let stream = tokio_util::io::ReaderStream::with_capacity(file, chunk_size);
         Ok(Box::pin(stream))
+    }
+
+    async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error> {
+        debug!("StdFileReader::get_file_size called with path: {}", path);
+        let metadata = tokio::fs::metadata(path).await?;
+        Ok(metadata.len())
     }
 }
 

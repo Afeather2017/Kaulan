@@ -110,7 +110,7 @@
             <PlayerControls
               v-if="isWideLayout && !selectMode"
               :current-time="currentTime"
-              :duration="audioElement?.duration || 0"
+              :duration="duration"
               :is-playing="isPlaying"
               :play-mode="playMode"
               :current-song-name="currentSong?.name"
@@ -130,7 +130,7 @@
       <PlayerControls
         v-if="!isWideLayout && !selectMode"
         :current-time="currentTime"
-        :duration="audioElement?.duration || 0"
+        :duration="duration"
         :is-playing="isPlaying"
         :play-mode="playMode"
         :current-song-name="currentSong?.name"
@@ -287,6 +287,7 @@ const {
   currentSong,
   isPlaying,
   currentTime,
+  duration,
   playMode,
   playSong,
   playSongAtIndex,

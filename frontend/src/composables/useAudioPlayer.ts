@@ -24,6 +24,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const currentSong = ref<MusicInfo | null>(null)
   const isPlaying = ref(false)
   const currentTime = ref(0)
+  const duration = ref(0)
   const playMode = ref<PlayMode>('sequential')
   const playedSongIndexes = ref<Set<number>>(new Set())
   const currentIndex = ref(-1)
@@ -105,6 +106,11 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     newAudio.preload = 'auto'
 
     // Copy over any event listeners from the old element
+    newAudio.addEventListener('loadedmetadata', () => {
+      duration.value = newAudio.duration || 0
+      console.log('[useAudioPlayer] Metadata loaded, duration:', duration.value)
+    })
+
     newAudio.addEventListener('timeupdate', () => {
       currentTime.value = newAudio.currentTime || 0
     })
@@ -123,6 +129,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     // Replace the old audio element
     audioElement.value = newAudio
     currentSong.value = song
+    duration.value = 0  // Reset duration until metadata loads
     isPlayingInternal = true
 
     // Trigger onSongStart callback for LUFS pre-caching
@@ -292,6 +299,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentSong,
     isPlaying,
     currentTime,
+    duration,
     playMode,
     currentIndex,
     // Methods
