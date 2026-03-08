@@ -108,10 +108,17 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     // Copy over any event listeners from the old element
     newAudio.addEventListener('loadedmetadata', () => {
       duration.value = newAudio.duration || 0
-      console.log('[useAudioPlayer] Metadata loaded, duration:', duration.value)
     })
 
     newAudio.addEventListener('timeupdate', () => {
+      currentTime.value = newAudio.currentTime || 0
+    })
+
+    newAudio.addEventListener('seeked', () => {
+      currentTime.value = newAudio.currentTime || 0
+    })
+
+    newAudio.addEventListener('seeking', () => {
       currentTime.value = newAudio.currentTime || 0
     })
 
@@ -224,13 +231,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     playSongAtIndex(allSongs[newIndex], newIndex)
   }
 
-  const seekToTime = (event: Event) => {
-    const target = event.target as HTMLInputElement
-    const time = parseInt(target.value)
+  const seekToTime = (time: number) => {
+    if (!audioElement.value) return
 
-    if (audioElement.value) {
+    // Use fastSeek if available (more efficient for streaming)
+    if (typeof (audioElement.value as any).fastSeek === 'function') {
+      (audioElement.value as any).fastSeek(time)
+    } else {
       audioElement.value.currentTime = time
-      currentTime.value = time
     }
   }
 

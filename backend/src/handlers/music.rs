@@ -1,10 +1,10 @@
 //! Music streaming and metadata API handlers.
 //!
 //! This module provides endpoints for:
-//! - Streaming individual music files
+//! - Streaming individual music files with Range request support (seeking)
 //! - Getting all music from the database
 
-use actix_web::{get, web, HttpResponse, Responder};
+use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
 use serde::Serialize;
 use crate::entities::music::{Entity as MusicEntity, Model as MusicModel, Column as MusicColumn};
@@ -92,24 +92,34 @@ pub async fn get_music(
 ///
 /// This endpoint looks up the music file in the database by ID,
 /// then streams the actual audio file from disk or content URI.
+/// Supports HTTP Range requests for seeking in audio players.
 ///
 /// # Path Parameters
 /// * `id` - The music ID to look up in the database
 ///
 /// # Returns
 /// - Audio file stream with `audio/mpeg` content type if found
+/// - HTTP 206 (Partial Content) if Range header is present
 /// - `404 Not Found` if music not in database or file missing
 /// - `500 Internal Server Error` for database errors
 #[get("/api/music/id/{id}")]
 pub async fn get_music_by_id(
     path: web::Path<i32>,
     data: web::Data<AppState>,
+    req: HttpRequest,
 ) -> impl Responder {
     let id = path.into_inner();
     debug!("Music request received for ID: {}", id);
 
     // Simple access log
     info!("[ACCESS] GET /api/music/id/{} - Started", id);
+
+    // Parse Range header if present (for seeking support)
+    let range_header = req.headers().get("Range")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    debug!("Range header: {:?}", range_header);
 
     match MusicEntity::find_by_id(id).one(&data.db_conn).await {
         Ok(Some(music)) => {
@@ -118,17 +128,61 @@ pub async fn get_music_by_id(
             let file_reader = get_file_reader();
             debug!("File reader obtained for reading: {}", music.file_path);
 
+            // Get file size for Range support
+            let file_size = match file_reader.get_file_size(&music.file_path).await {
+                Ok(size) => {
+                    debug!("File size: {} bytes", size);
+                    Some(size)
+                }
+                Err(e) => {
+                    warn!("Could not get file size: {}", e);
+                    None
+                }
+            };
+
             const CHUNK_SIZE: usize = 1024 * 1024;
+
+            // Handle Range request
+            if let Some(range) = range_header {
+                if let Some(size) = file_size {
+                    // Parse Range header (format: "bytes=start-end")
+                    if let Some((start, end)) = parse_range_header(&range, size) {
+                        debug!("Range request: bytes={}-{}", start, end);
+
+                        match file_reader.read_stream_from(&music.file_path, CHUNK_SIZE, start).await {
+                            Ok(stream) => {
+                                let content_length = end - start + 1;
+                                info!("[ACCESS] GET /api/music/id/{} - Status: 206, Range: bytes={}-{}", id, start, end);
+
+                                return HttpResponse::PartialContent()
+                                    .insert_header(("Content-Type", "audio/mpeg"))
+                                    .insert_header(("Content-Length", content_length.to_string()))
+                                    .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, size)))
+                                    .insert_header(("Accept-Ranges", "bytes"))
+                                    .insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"))
+                                    .insert_header(("Pragma", "no-cache"))
+                                    .insert_header(("Expires", "0"))
+                                    .streaming(stream.map_err(actix_web::Error::from));
+                            }
+                            Err(e) => {
+                                warn!("Could not seek in file: {} - Error: {}", music.file_path, e);
+                                info!("[ACCESS] GET /api/music/id/{} - Status: 404", id);
+                                return HttpResponse::NotFound().body("File not found");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Non-range request or no file size available
             match file_reader.read_stream(&music.file_path, CHUNK_SIZE).await {
                 Ok(stream) => {
                     debug!("Streaming music file: {} (ID: {})", music.filename, id);
 
-                    // Get file size from FileReader trait (works for both desktop and Android)
-                    let file_size = file_reader.get_file_size(&music.file_path).await.ok();
-
                     info!("[ACCESS] GET /api/music/id/{} - Status: 200", id);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
+                    response.insert_header(("Accept-Ranges", "bytes"));
                     response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
                     response.insert_header(("Pragma", "no-cache"));
                     response.insert_header(("Expires", "0"));
@@ -157,6 +211,37 @@ pub async fn get_music_by_id(
             HttpResponse::InternalServerError().body("Database error")
         }
     }
+}
+
+/// Parse HTTP Range header (format: "bytes=start-end")
+/// Returns (start, end) tuple or None if invalid
+fn parse_range_header(range: &str, file_size: u64) -> Option<(u64, u64)> {
+    // Expected format: "bytes=start-end" or "bytes=start-"
+    if !range.starts_with("bytes=") {
+        return None;
+    }
+
+    let range_spec = &range[6..]; // Skip "bytes="
+    let parts: Vec<&str> = range_spec.split('-').collect();
+
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let start: u64 = parts[0].parse().ok()?;
+    let end = if parts[1].is_empty() {
+        // "bytes=start-" means from start to end of file
+        file_size - 1
+    } else {
+        parts[1].parse().ok()?
+    };
+
+    // Validate range
+    if start >= file_size || end >= file_size || start > end {
+        return None;
+    }
+
+    Some((start, end))
 }
 
 /// Get all music from the database
