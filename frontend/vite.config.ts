@@ -22,7 +22,9 @@ export default defineConfig({
     }
   },
   test: {
-    environment: 'jsdom',
-    globals: true
+    environment: 'happy-dom',
+    globals: true,
+    include: ['src/**/*.{test,spec}.{js,ts}'],
+    exclude: ['node_modules', 'dist']
   }
 })

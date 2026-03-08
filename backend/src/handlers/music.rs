@@ -51,12 +51,22 @@ pub async fn get_music(
             match file_reader.read_stream(&music.file_path, CHUNK_SIZE).await {
                 Ok(stream) => {
                     debug!("Streaming music file: {}", filename);
+
+                    // Get file size from FileReader trait (works for both desktop and Android)
+                    let file_size = file_reader.get_file_size(&music.file_path).await.ok();
+
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
                     response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
                     response.insert_header(("Pragma", "no-cache"));
                     response.insert_header(("Expires", "0"));
+
+                    // Add Content-Length if available (helps browser determine duration)
+                    if let Some(size) = file_size {
+                        response.insert_header(("Content-Length", size.to_string()));
+                    }
+
                     response.streaming(stream.map_err(actix_web::Error::from))
                 }
                 Err(e) => {
@@ -112,12 +122,22 @@ pub async fn get_music_by_id(
             match file_reader.read_stream(&music.file_path, CHUNK_SIZE).await {
                 Ok(stream) => {
                     debug!("Streaming music file: {} (ID: {})", music.filename, id);
+
+                    // Get file size from FileReader trait (works for both desktop and Android)
+                    let file_size = file_reader.get_file_size(&music.file_path).await.ok();
+
                     info!("[ACCESS] GET /api/music/id/{} - Status: 200", id);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
                     response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
                     response.insert_header(("Pragma", "no-cache"));
                     response.insert_header(("Expires", "0"));
+
+                    // Add Content-Length if available (helps browser determine duration)
+                    if let Some(size) = file_size {
+                        response.insert_header(("Content-Length", size.to_string()));
+                    }
+
                     response.streaming(stream.map_err(actix_web::Error::from))
                 }
                 Err(e) => {

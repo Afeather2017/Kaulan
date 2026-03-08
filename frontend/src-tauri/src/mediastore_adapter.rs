@@ -286,6 +286,49 @@ impl FileReader for MediaStoreFileReader {
 
         Ok(Box::pin(stream))
     }
+
+    async fn get_file_size(&self, path: &str) -> Result<u64, io::Error> {
+        log::debug!("MediaStoreFileReader::get_file_size called with path: {}", path);
+
+        if !path.starts_with("content://") {
+            log::warn!("MediaStoreFileReader::get_file_size called with non-content URI: {}", path);
+            return Err(io::Error::new(io::ErrorKind::Unsupported, "Expected content URI"));
+        }
+
+        // Open file reader to get file size from response
+        let open_result = self.app_handle.android_mediastore()
+            .file_reader_open(FileReaderOpenRequest {
+                content_uri: path.to_string(),
+            })
+            .await;
+
+        let file_size = match open_result {
+            Ok(response) if response.success => {
+                if let Some(size) = response.file_size {
+                    // Close the session immediately since we only needed the size
+                    let _ = self.app_handle.android_mediastore()
+                        .file_reader_close(FileReaderCloseRequest { session_id: response.session_id })
+                        .await;
+                    Ok(size as u64)
+                } else {
+                    // No size available - return error
+                    let _ = self.app_handle.android_mediastore()
+                        .file_reader_close(FileReaderCloseRequest { session_id: response.session_id })
+                        .await;
+                    Err(io::Error::new(io::ErrorKind::Other, "File size not available"))
+                }
+            }
+            Ok(response) => {
+                let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                Err(io::Error::new(io::ErrorKind::Other, format!("Failed to open file reader: {}", error)))
+            }
+            Err(e) => {
+                Err(io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e)))
+            }
+        };
+
+        file_size
+    }
 }
 
 /// MediaStore-based MusicFileLister for Android
@@ -401,6 +444,14 @@ impl kaulan::FileReader for MediaStoreFileReader {
         _chunk_size: usize,
     ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send>>, std::io::Error> {
         log::warn!("MediaStoreFileReader::read_stream called on desktop (stub): {}", path);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "MediaStore is only available on Android"
+        ))
+    }
+
+    async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error> {
+        log::warn!("MediaStoreFileReader::get_file_size called on desktop (stub): {}", path);
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "MediaStore is only available on Android"
