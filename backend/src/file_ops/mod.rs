@@ -51,6 +51,23 @@ pub trait FileReader: Send + Sync {
         chunk_size: usize,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>;
 
+    /// Read a file as a stream starting from a specific byte position (for Range requests)
+    ///
+    /// # Arguments
+    /// * `path` - File path or content URI to read
+    /// * `chunk_size` - Size of each chunk in bytes
+    /// * `start_pos` - Starting byte position
+    ///
+    /// # Returns
+    /// - `Ok(Stream)` - Stream of file chunks from start_pos to end
+    /// - `Err(std::io::Error)` - I/O error occurred
+    async fn read_stream_from(
+        &self,
+        path: &str,
+        chunk_size: usize,
+        start_pos: u64,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>;
+
     /// Get the file size for a given path
     ///
     /// # Arguments
@@ -134,6 +151,21 @@ impl FileReader for StdFileReader {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error> {
         debug!("StdFileReader::read_stream called with path: {}", path);
         let file = tokio::fs::File::open(path).await?;
+        let stream = tokio_util::io::ReaderStream::with_capacity(file, chunk_size);
+        Ok(Box::pin(stream))
+    }
+
+    async fn read_stream_from(
+        &self,
+        path: &str,
+        chunk_size: usize,
+        start_pos: u64,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error> {
+        debug!("StdFileReader::read_stream_from called with path: {}, start_pos: {}", path, start_pos);
+        let mut file = tokio::fs::File::open(path).await?;
+        // Seek to the starting position
+        use tokio::io::{AsyncSeekExt, SeekFrom};
+        file.seek(SeekFrom::Start(start_pos)).await?;
         let stream = tokio_util::io::ReaderStream::with_capacity(file, chunk_size);
         Ok(Box::pin(stream))
     }

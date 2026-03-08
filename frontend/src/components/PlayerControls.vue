@@ -17,9 +17,11 @@
         type="range"
         min="0"
         :max="duration"
-        :value="currentTime"
-        @input="$emit('seek', $event)"
+        :value="sliderValue"
+        @input="handleSeekInput"
+        @change="handleSeekChange"
         class="progress-slider"
+        :style="progressStyle"
       />
       <div class="progress-time">{{ formatTime(duration) }}</div>
     </div>
@@ -49,7 +51,9 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { ref, watch, computed } from 'vue'
+
+const props = defineProps<{
   currentTime: number
   duration: number
   isPlaying: boolean
@@ -57,8 +61,8 @@ defineProps<{
   currentSongName?: string
 }>()
 
-defineEmits<{
-  (e: 'seek', event: Event): void
+const emit = defineEmits<{
+  (e: 'seek', time: number): void
   (e: 'togglePlayMode'): void
   (e: 'previous'): void
   (e: 'togglePlay'): void
@@ -66,6 +70,39 @@ defineEmits<{
   (e: 'showCurrentPlaylist'): void
   (e: 'toggleLyric'): void
 }>()
+
+// Local ref for slider value to prevent reactivity conflicts during dragging
+const sliderValue = ref(props.currentTime)
+const isDragging = ref(false)
+
+// Sync slider value with currentTime when not dragging
+watch(() => props.currentTime, (newTime) => {
+  if (!isDragging.value) {
+    sliderValue.value = newTime
+  }
+})
+
+const handleSeekInput = (event: Event) => {
+  isDragging.value = true
+  const target = event.target as HTMLInputElement
+  sliderValue.value = parseFloat(target.value)
+}
+
+const handleSeekChange = (event: Event) => {
+  isDragging.value = false
+  const target = event.target as HTMLInputElement
+  const time = parseFloat(target.value)
+  emit('seek', time)
+}
+
+// Computed style for progress bar gradient (green for played, gray for unplayed)
+const progressStyle = computed(() => {
+  if (props.duration === 0) return {}
+  const percentage = (sliderValue.value / props.duration) * 100
+  return {
+    background: `linear-gradient(to right, #1db954 0%, #1db954 ${percentage}%, #e0e0e0 ${percentage}%, #e0e0e0 100%)`
+  }
+})
 
 const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -114,26 +151,25 @@ const formatTime = (seconds: number) => {
 .progress-slider {
   flex: 1;
   height: 4px;
-  background-color: #e0e0e0;
   border-radius: 2px;
   appearance: none;
   outline: none;
+  cursor: pointer;
 }
 
+/* Hide the thumb (round indicator) */
 .progress-slider::-webkit-slider-thumb {
   appearance: none;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #1db954;
+  width: 0;
+  height: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
 .progress-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #1db954;
+  width: 0;
+  height: 0;
+  opacity: 0;
   cursor: pointer;
   border: none;
 }
