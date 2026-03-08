@@ -241,6 +241,14 @@ When a user plays a song:
 3. MediaStoreFileReader reads the content URI
 4. Audio is streamed to the frontend
 
+### LUFS Pre-caching
+
+When LUFS pre-cache is triggered on Android:
+
+1. Frontend requests `POST /api/music/{id}/precache-lufs`
+2. Backend opens a seekable reader via `MediaStoreFileReader` using the content URI
+3. LUFS is calculated directly from the reader and cached in the database
+
 ## Related Source Files
 
 ### Backend

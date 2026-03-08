@@ -18,7 +18,7 @@ pub use types::AppState;
 
 // Re-export file operations for Android MediaStore integration
 pub mod file_ops;
-pub use file_ops::{set_file_reader, set_music_file_lister, FileReader, MusicFileLister, MusicFileInfo, SUPPORTED_EXTENSIONS};
+pub use file_ops::{set_file_reader, set_music_file_lister, FileReader, MusicFileLister, MusicFileInfo, ReadSeekSendSync, SUPPORTED_EXTENSIONS};
 
 // Re-export log broadcast types
 pub use log_broadcast::{LogBroadcaster, create_broadcast_layer, start_log_server};

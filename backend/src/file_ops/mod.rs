@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::Stream;
 use std::fs;
+use std::io::{Read, Seek};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::OnceLock;
@@ -18,6 +19,11 @@ static FILE_READER: OnceLock<Box<dyn FileReader>> = OnceLock::new();
 
 /// Static storage for custom music file lister implementation
 static MUSIC_FILE_LISTER: OnceLock<Box<dyn MusicFileLister>> = OnceLock::new();
+
+/// Trait object bound for seekable readers used by LUFS calculation.
+pub trait ReadSeekSendSync: Read + Seek + Send + Sync {}
+
+impl<T> ReadSeekSendSync for T where T: Read + Seek + Send + Sync {}
 
 /// Trait for reading file content
 ///
@@ -77,6 +83,16 @@ pub trait FileReader: Send + Sync {
     /// - `Ok(u64)` - File size in bytes
     /// - `Err(std::io::Error)` - I/O error occurred
     async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error>;
+
+    /// Open a file as a seekable reader (used by reader-based LUFS calculation).
+    ///
+    /// # Arguments
+    /// * `path` - File path or content URI
+    ///
+    /// # Returns
+    /// - `Ok(Box<dyn ReadSeekSendSync>)` - Seekable reader
+    /// - `Err(std::io::Error)` - I/O error occurred
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
 }
 
 /// Trait for listing music files in a directory
@@ -174,6 +190,15 @@ impl FileReader for StdFileReader {
         debug!("StdFileReader::get_file_size called with path: {}", path);
         let metadata = tokio::fs::metadata(path).await?;
         Ok(metadata.len())
+    }
+
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error> {
+        debug!("StdFileReader::open_seekable_reader called with path: {}", path);
+        let path = path.to_string();
+        let file = tokio::task::spawn_blocking(move || std::fs::File::open(path))
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))??;
+        Ok(Box::new(file))
     }
 }
 
@@ -341,5 +366,23 @@ mod tests {
         assert!(SUPPORTED_EXTENSIONS.contains(&"mp3"));
         assert!(SUPPORTED_EXTENSIONS.contains(&"flac"));
         assert!(!SUPPORTED_EXTENSIONS.contains(&"txt"));
+    }
+
+    #[tokio::test]
+    async fn test_std_file_reader_seekable_reader() {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("seekable.txt");
+        fs::write(&file_path, b"abcdef").unwrap();
+
+        let reader = StdFileReader;
+        let mut file = reader.open_seekable_reader(file_path.to_str().unwrap()).await.unwrap();
+
+        file.seek(SeekFrom::Start(2)).unwrap();
+        let mut buf = [0_u8; 2];
+        let read = file.read(&mut buf).unwrap();
+        assert_eq!(read, 2);
+        assert_eq!(&buf, b"cd");
     }
 }

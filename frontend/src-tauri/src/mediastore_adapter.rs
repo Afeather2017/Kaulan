@@ -14,18 +14,19 @@ use bytes::Bytes;
 #[cfg(target_os = "android")]
 use futures::{stream, Stream};
 #[cfg(target_os = "android")]
-use kaulan::{FileReader, MusicFileLister, MusicFileInfo};
+use kaulan::{FileReader, MusicFileLister, MusicFileInfo, ReadSeekSendSync};
 #[cfg(target_os = "android")]
 use tauri_plugin_android_mediastore::{
     AndroidMediastoreExt,
     FileReaderCloseRequest,
     FileReaderOpenRequest,
     FileReaderReadRequest,
+    FileReaderSeekRequest,
     FileReaderReadToEndRequest,
     GetAudioFilesRequest,
 };
 #[cfg(target_os = "android")]
-use std::io;
+use std::io::{self, Read, Seek, SeekFrom};
 #[cfg(target_os = "android")]
 use std::pin::Pin;
 #[cfg(target_os = "android")]
@@ -68,6 +69,133 @@ impl Drop for SessionGuard {
                 .file_reader_close(FileReaderCloseRequest { session_id })
                 .await;
         });
+    }
+}
+
+#[cfg(target_os = "android")]
+struct MediaStoreSeekableReader {
+    app_handle: tauri::AppHandle,
+    session_id: i64,
+    position: u64,
+    file_size: Option<u64>,
+    eof: bool,
+    closed: Arc<AtomicBool>,
+}
+
+#[cfg(target_os = "android")]
+impl MediaStoreSeekableReader {
+    fn close_session_if_needed(&self) {
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let app_handle = self.app_handle.clone();
+        let session_id = self.session_id;
+        tauri::async_runtime::spawn(async move {
+            let _ = app_handle.android_mediastore()
+                .file_reader_close(FileReaderCloseRequest { session_id })
+                .await;
+        });
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Drop for MediaStoreSeekableReader {
+    fn drop(&mut self) {
+        self.close_session_if_needed();
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Read for MediaStoreSeekableReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        if self.eof {
+            return Ok(0);
+        }
+
+        let req_size = std::cmp::min(buf.len(), i32::MAX as usize) as i32;
+        let response = tauri::async_runtime::block_on(
+            self.app_handle
+                .android_mediastore()
+                .file_reader_read(FileReaderReadRequest {
+                    session_id: self.session_id,
+                    size: req_size,
+                }),
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e)))?;
+
+        if !response.success {
+            let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to read file: {}", error),
+            ));
+        }
+
+        if response.is_eof && response.data.is_none() {
+            self.eof = true;
+            return Ok(0);
+        }
+
+        let bytes = match response.data {
+            Some(data_base64) => {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD
+                    .decode(&data_base64)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Base64 decode error: {}", e)))?
+            }
+            None => Vec::new(),
+        };
+
+        let to_copy = std::cmp::min(bytes.len(), buf.len());
+        buf[..to_copy].copy_from_slice(&bytes[..to_copy]);
+        self.position = self.position.saturating_add(to_copy as u64);
+        self.eof = response.is_eof;
+        Ok(to_copy)
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Seek for MediaStoreSeekableReader {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let target: i128 = match pos {
+            SeekFrom::Start(offset) => offset as i128,
+            SeekFrom::Current(offset) => self.position as i128 + offset as i128,
+            SeekFrom::End(offset) => {
+                let size = self
+                    .file_size
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "File size unavailable for SeekFrom::End"))?;
+                size as i128 + offset as i128
+            }
+        };
+
+        if target < 0 || target > i64::MAX as i128 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid seek target"));
+        }
+
+        let response = tauri::async_runtime::block_on(
+            self.app_handle
+                .android_mediastore()
+                .file_reader_seek(FileReaderSeekRequest {
+                    session_id: self.session_id,
+                    position: target as i64,
+                }),
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e)))?;
+
+        if !response.success {
+            let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to seek file: {}", error),
+            ));
+        }
+
+        self.position = response.new_position as u64;
+        self.eof = false;
+        Ok(self.position)
     }
 }
 
@@ -491,6 +619,43 @@ impl FileReader for MediaStoreFileReader {
 
         file_size
     }
+
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, io::Error> {
+        log::debug!("MediaStoreFileReader::open_seekable_reader called with path: {}", path);
+
+        if path.starts_with("content://") {
+            let open_result = self.app_handle.android_mediastore()
+                .file_reader_open(FileReaderOpenRequest {
+                    content_uri: path.to_string(),
+                })
+                .await;
+
+            match open_result {
+                Ok(response) if response.success => {
+                    let reader = MediaStoreSeekableReader {
+                        app_handle: self.app_handle.clone(),
+                        session_id: response.session_id,
+                        position: 0,
+                        file_size: response.file_size.map(|s| s as u64),
+                        eof: false,
+                        closed: Arc::new(AtomicBool::new(false)),
+                    };
+                    Ok(Box::new(reader))
+                }
+                Ok(response) => {
+                    let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                    Err(io::Error::new(io::ErrorKind::Other, format!("Failed to open file reader: {}", error)))
+                }
+                Err(e) => Err(io::Error::new(io::ErrorKind::Other, format!("Plugin error: {}", e))),
+            }
+        } else {
+            let path = path.to_string();
+            let file = tokio::task::spawn_blocking(move || std::fs::File::open(path))
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))??;
+            Ok(Box::new(file))
+        }
+    }
 }
 
 /// MediaStore-based MusicFileLister for Android
@@ -627,6 +792,14 @@ impl kaulan::FileReader for MediaStoreFileReader {
 
     async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error> {
         log::warn!("MediaStoreFileReader::get_file_size called on desktop (stub): {}", path);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "MediaStore is only available on Android"
+        ))
+    }
+
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn kaulan::ReadSeekSendSync>, std::io::Error> {
+        log::warn!("MediaStoreFileReader::open_seekable_reader called on desktop (stub): {}", path);
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "MediaStore is only available on Android"
