@@ -11,19 +11,18 @@
       无正在播放
     </div>
     <!-- Progress Bar -->
-    <div class="progress-bar">
-      <div class="progress-time">{{ formatTime(currentTime) }}</div>
-      <input
-        type="range"
-        min="0"
-        :max="duration"
-        :value="sliderValue"
-        @input="handleSeekInput"
-        @change="handleSeekChange"
-        class="progress-slider"
-        :style="progressStyle"
-      />
-      <div class="progress-time">{{ formatTime(duration) }}</div>
+    <div class="progress-container">
+      <div
+        class="progress-bar"
+        ref="progressBar"
+        @click="handleSeek"
+      >
+        <div class="progress" :style="{ width: progressPercent + '%' }"></div>
+      </div>
+      <div class="play-info">
+        <span class="progress-time">{{ formatTime(currentTime) }}</span>
+        <span class="progress-time">{{ formatTime(duration) }}</span>
+      </div>
     </div>
 
     <!-- Control Buttons -->
@@ -51,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, computed } from 'vue'
 
 const props = defineProps<{
   currentTime: number
@@ -71,38 +70,25 @@ const emit = defineEmits<{
   (e: 'toggleLyric'): void
 }>()
 
-// Local ref for slider value to prevent reactivity conflicts during dragging
-const sliderValue = ref(props.currentTime)
-const isDragging = ref(false)
+const progressBar = ref<HTMLElement | null>(null)
 
-// Sync slider value with currentTime when not dragging
-watch(() => props.currentTime, (newTime) => {
-  if (!isDragging.value) {
-    sliderValue.value = newTime
-  }
+// Computed progress percentage
+const progressPercent = computed(() => {
+  if (props.duration === 0) return 0
+  return (props.currentTime / props.duration) * 100
 })
 
-const handleSeekInput = (event: Event) => {
-  isDragging.value = true
-  const target = event.target as HTMLInputElement
-  sliderValue.value = parseFloat(target.value)
-}
+// Handle click on progress bar to seek
+const handleSeek = (event: MouseEvent) => {
+  if (!progressBar.value || props.duration === 0) return
 
-const handleSeekChange = (event: Event) => {
-  isDragging.value = false
-  const target = event.target as HTMLInputElement
-  const time = parseFloat(target.value)
-  emit('seek', time)
-}
+  const rect = progressBar.value.getBoundingClientRect()
+  const clickX = event.clientX - rect.left
+  const percent = Math.max(0, Math.min(1, clickX / rect.width))
+  const seekTime = percent * props.duration
 
-// Computed style for progress bar gradient (green for played, gray for unplayed)
-const progressStyle = computed(() => {
-  if (props.duration === 0) return {}
-  const percentage = (sliderValue.value / props.duration) * 100
-  return {
-    background: `linear-gradient(to right, #1db954 0%, #1db954 ${percentage}%, #e0e0e0 ${percentage}%, #e0e0e0 100%)`
-  }
-})
+  emit('seek', seekTime)
+}
 
 const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -142,45 +128,36 @@ const formatTime = (seconds: number) => {
   color: #888;
 }
 
-.progress-bar {
-  display: flex;
-  align-items: center;
+.progress-container {
   margin-bottom: 15px;
 }
 
-.progress-slider {
-  flex: 1;
+.progress-bar {
+  width: 100%;
   height: 4px;
+  background-color: #e0e0e0;
   border-radius: 2px;
-  appearance: none;
-  outline: none;
+  overflow: hidden;
   cursor: pointer;
 }
 
-/* Hide the thumb (round indicator) */
-.progress-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 0;
-  height: 0;
-  opacity: 0;
-  cursor: pointer;
+.progress {
+  height: 100%;
+  background-color: #1db954;
+  width: 0%;
 }
 
-.progress-slider::-moz-range-thumb {
-  width: 0;
-  height: 0;
-  opacity: 0;
-  cursor: pointer;
-  border: none;
+.play-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #888;
+  margin-top: 5px;
 }
 
 .progress-time {
-  font-size: 12px;
-  color: #888;
-  min-width: 45px;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-variant-numeric: tabular-nums;
-  text-align: center;
 }
 
 .control-buttons {
@@ -205,11 +182,5 @@ const formatTime = (seconds: number) => {
 
 .control-btn:hover {
   background-color: #f0f0f0;
-}
-
-.play-btn {
-  font-size: 24px;
-  background: none;
-  color: #333;
 }
 </style>
