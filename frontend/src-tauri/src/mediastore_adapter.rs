@@ -428,11 +428,6 @@ impl FileReader for MediaStoreFileReader {
             return Err(io::Error::new(io::ErrorKind::Unsupported, "Expected content URI"));
         }
 
-        // MediaStore doesn't support seeking by byte position directly
-        // We need to skip bytes by reading and discarding
-        // This is inefficient but works for content URIs
-        log::warn!("MediaStore read_stream_from: seeking by reading and discarding {} bytes", start_pos);
-
         let open_result = self.app_handle.android_mediastore()
             .file_reader_open(FileReaderOpenRequest {
                 content_uri: path.to_string(),
@@ -450,6 +445,38 @@ impl FileReader for MediaStoreFileReader {
             }
         };
 
+        // Use the seek API to position the file pointer - much more efficient than reading and discarding
+        if start_pos > 0 {
+            log::debug!("Seeking to position {} using MediaStore seek API", start_pos);
+            let seek_result = self.app_handle.android_mediastore()
+                .file_reader_seek(FileReaderSeekRequest {
+                    session_id,
+                    position: start_pos as i64,
+                })
+                .await;
+
+            match seek_result {
+                Ok(response) if response.success => {
+                    log::debug!("Seek successful, new position: {}", response.new_position);
+                }
+                Ok(response) => {
+                    let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                    log::error!("Failed to seek: {}", error);
+                    let _ = self.app_handle.android_mediastore()
+                        .file_reader_close(FileReaderCloseRequest { session_id })
+                        .await;
+                    return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to seek: {}", error)));
+                }
+                Err(e) => {
+                    log::error!("Plugin error while seeking: {:?}", e);
+                    let _ = self.app_handle.android_mediastore()
+                        .file_reader_close(FileReaderCloseRequest { session_id })
+                        .await;
+                    return Err(io::Error::new(io::ErrorKind::Other, format!("Plugin error while seeking: {}", e)));
+                }
+            }
+        }
+
         let closed = Arc::new(AtomicBool::new(false));
         let guard = SessionGuard {
             app_handle: self.app_handle.clone(),
@@ -458,7 +485,6 @@ impl FileReader for MediaStoreFileReader {
         };
 
         let app_handle = self.app_handle.clone();
-        let mut bytes_to_skip = start_pos;
 
         let stream = stream::unfold((app_handle, session_id, closed, guard, false), move |state| async move {
             let (app_handle, session_id, closed, guard, done) = state;
@@ -466,49 +492,6 @@ impl FileReader for MediaStoreFileReader {
                 return None;
             }
 
-            // Skip bytes if needed
-            while bytes_to_skip > 0 {
-                let skip_size = std::cmp::min(bytes_to_skip, 65536) as i32; // Read in 64KB chunks for skipping
-                let skip_result = app_handle.android_mediastore()
-                    .file_reader_read(FileReaderReadRequest {
-                        session_id,
-                        size: skip_size,
-                    })
-                    .await;
-
-                match skip_result {
-                    Ok(response) if response.success => {
-                        if let Some(data_base64) = response.data {
-                            use base64::Engine;
-                            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&data_base64) {
-                                let skipped = bytes.len() as u64;
-                                bytes_to_skip = bytes_to_skip.saturating_sub(skipped);
-                                if bytes_to_skip == 0 {
-                                    break; // Done skipping, continue to normal streaming
-                                }
-                            }
-                        }
-
-                        // Check if EOF
-                        if response.is_eof {
-                            closed.store(true, Ordering::SeqCst);
-                            let _ = app_handle.android_mediastore()
-                                .file_reader_close(FileReaderCloseRequest { session_id })
-                                .await;
-                            return None;
-                        }
-                    }
-                    Ok(_) | Err(_) => {
-                        let _ = app_handle.android_mediastore()
-                            .file_reader_close(FileReaderCloseRequest { session_id })
-                            .await;
-                        closed.store(true, Ordering::SeqCst);
-                        return None;
-                    }
-                }
-            }
-
-            // Normal read after skipping
             let read_result = app_handle.android_mediastore()
                 .file_reader_read(FileReaderReadRequest {
                     session_id,
