@@ -329,3 +329,12 @@ Fix lyric panel behavior in desktop mode
 
 Co-Authored-By: Claude/Codex/Gemini...
 ```
+
+### Icon
+
+There is icon, you should use this to generate icons for the app
+```
+# cd to the root of the project
+tauri icon ./favicon.ico
+```
+
