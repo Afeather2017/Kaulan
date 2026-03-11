@@ -58,9 +58,8 @@ pub async fn get_music(
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
-                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
-                    response.insert_header(("Pragma", "no-cache"));
-                    response.insert_header(("Expires", "0"));
+                    response.insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
+                    response.insert_header(("Accept-Ranges", "bytes"));
 
                     // Add Content-Length if available (helps browser determine duration)
                     if let Some(size) = file_size {
@@ -159,9 +158,7 @@ pub async fn get_music_by_id(
                                     .insert_header(("Content-Length", content_length.to_string()))
                                     .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, size)))
                                     .insert_header(("Accept-Ranges", "bytes"))
-                                    .insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"))
-                                    .insert_header(("Pragma", "no-cache"))
-                                    .insert_header(("Expires", "0"))
+                                    .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"))
                                     .streaming(stream.map_err(actix_web::Error::from));
                             }
                             Err(e) => {
@@ -183,9 +180,7 @@ pub async fn get_music_by_id(
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
                     response.insert_header(("Accept-Ranges", "bytes"));
-                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
-                    response.insert_header(("Pragma", "no-cache"));
-                    response.insert_header(("Expires", "0"));
+                    response.insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
 
                     // Add Content-Length if available (helps browser determine duration)
                     if let Some(size) = file_size {
