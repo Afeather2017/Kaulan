@@ -8,7 +8,7 @@ set -e
 ANDROID_HOME="${ANDROID_HOME:-$HOME/.local/android}"
 BUILD_TOOLS_VERSION="${BUILD_TOOLS_VERSION:-33.0.1}"
 BUILD_TOOLS="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
-KEYSTORE="/tmp/release.keystore"
+KEYSTORE="${ANDROID_HOME}/release.keystore"
 KEY_ALIAS="release"
 KEY_STOREPASS="123456"
 KEY_KEYPASS="123456"
@@ -29,7 +29,7 @@ echo
 # Step 1: Build unsigned APK
 echo "[1/4] Building APK with Tauri..."
 cd "$FRONTEND_DIR"
-npx tauri android build
+npx tauri android build --target aarch64
 
 # Step 2: Generate keystore if needed
 echo
