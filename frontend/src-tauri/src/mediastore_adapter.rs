@@ -656,23 +656,28 @@ impl MediaStoreMusicFileLister {
         Self { app_handle }
     }
 
-    /// Generate a safe filename from metadata
+    /// Generate a safe filename from metadata or use the display name
     ///
-    /// Since MediaStore doesn't always provide the original filename,
-    /// we generate one from artist and title.
-    fn generate_filename(artist: &str, title: &str, id: i64) -> String {
-        // Sanitize artist and title for filesystem use
+    /// Prefer the MediaStore display_name (real filename with extension),
+    /// falling back to generating one from artist and title.
+    fn generate_filename(audio_file: &tauri_plugin_android_mediastore::AudioFile) -> String {
+        // Use display_name if available - it contains the real filename with extension
+        if let Some(ref display_name) = audio_file.display_name {
+            return display_name.clone();
+        }
+
+        // Fallback: sanitize artist and title for filesystem use
         let sanitize = |s: &str| -> String {
             s.chars()
                 .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
                 .collect()
         };
 
-        let safe_artist = sanitize(artist);
-        let safe_title = sanitize(title);
+        let safe_artist = sanitize(&audio_file.artist);
+        let safe_title = sanitize(&audio_file.title);
 
         if safe_artist.is_empty() {
-            format!("{}_{}.mp3", id, safe_title)
+            format!("{}_{}.mp3", audio_file.id, safe_title)
         } else {
             format!("{}_{}.mp3", safe_artist, safe_title)
         }
@@ -695,7 +700,7 @@ impl MusicFileLister for MediaStoreMusicFileLister {
         match response {
             Ok(audio_files_response) => {
                 let files: Vec<MusicFileInfo> = audio_files_response.files.into_iter().map(|af| {
-                    let filename = Self::generate_filename(&af.artist, &af.title, af.id);
+                    let filename = Self::generate_filename(&af);
 
                     log::debug!("Found audio file: {} - {} ({})", af.artist, af.title, af.content_uri);
 
