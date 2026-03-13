@@ -26,35 +26,6 @@ pub struct PrecacheLufsResponse {
     pub error: Option<String>,
 }
 
-/// Calculate LUFS for a file path or content URI using seekable reader API.
-async fn calculate_lufs(file_path: &str) -> Result<Option<f64>, String> {
-    let reader = get_file_reader()
-        .open_seekable_reader(file_path)
-        .await
-        .map_err(|e| format!("Failed to open seekable reader: {}", e))?;
-
-    let file_label = file_path.to_string();
-    tokio::task::spawn_blocking(move || {
-        let calc = LufsCalculator::default();
-        match calc.calculate_from_reader(reader) {
-            Ok(Some(lufs)) => {
-                info!("[LUFS] SUCCESS: {} - LUFS: {}", file_label, lufs);
-                Some(lufs)
-            }
-            Ok(None) => {
-                warn!("[LUFS] FAILED: Unsupported format for: {}", file_label);
-                None
-            }
-            Err(e) => {
-                error!("[LUFS] ERROR: Failed to calculate LUFS for {}: {}", file_label, e);
-                None
-            }
-        }
-    })
-    .await
-    .map_err(|e| format!("LUFS task execution failed: {}", e))
-}
-
 /// Pre-cache LUFS for a music track
 ///
 /// This endpoint calculates LUFS on-demand for playback. It's called when
@@ -65,14 +36,15 @@ async fn calculate_lufs(file_path: &str) -> Result<Option<f64>, String> {
 ///
 /// # Behavior
 /// - If LUFS already exists in database, returns immediately with existing value
-/// - If LUFS is null, calculates it asynchronously using tokio::task::spawn_blocking
-/// - Updates database with calculated LUFS value
+/// - If LUFS is null, spawns a background task to calculate it and returns 202 Accepted
+/// - The background task updates the database when calculation completes
 /// - Uses seekable file readers for both regular paths and content URIs
 ///
 /// # Returns
-/// - `200 OK` with LUFS value (either newly calculated or already cached)
+/// - `200 OK` with LUFS value if already cached
+/// - `202 Accepted` if calculation started in background (non-blocking)
 /// - `404 Not Found` if music ID doesn't exist
-/// - `500 Internal Server Error` for database or calculation errors
+/// - `500 Internal Server Error` for database errors
 #[post("/api/music/{id}/precache-lufs")]
 pub async fn precache_lufs(
     path: web::Path<i32>,
@@ -89,7 +61,7 @@ pub async fn precache_lufs(
             if music.lufs.is_some() {
                 let existing_lufs = music.lufs.unwrap();
                 debug!("LUFS already cached for music ID {}: {}", id, existing_lufs);
-                info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 208 (Already Cached)", id);
+                info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 200 (Already Cached)", id);
                 return HttpResponse::Ok().json(PrecacheLufsResponse {
                     success: true,
                     lufs: Some(existing_lufs),
@@ -98,62 +70,87 @@ pub async fn precache_lufs(
                 });
             }
 
-            // LUFS is null, need to calculate
+            // LUFS is null, spawn background task and return immediately
             let file_path = music.file_path.clone();
-            debug!("Calculating LUFS for music ID {} (file: {})", id, file_path);
+            let file_label = file_path.clone();
+            let db_conn = data.db_conn.clone();
 
-            match calculate_lufs(&file_path).await {
-                Ok(Some(lufs_value)) => {
-                    // Update database with calculated LUFS
-                    let mut active_model: MusicActiveModel = music.into();
-                    active_model.lufs = Set(Some(lufs_value));
+            debug!("Spawning background LUFS calculation for music ID {} (file: {})", id, file_path);
 
-                    match active_model.update(&data.db_conn).await {
-                        Ok(_) => {
-                            info!("LUFS pre-cache complete for music ID {}: {}", id, lufs_value);
-                            info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 200 (Calculated)", id);
-                            HttpResponse::Ok().json(PrecacheLufsResponse {
-                                success: true,
-                                lufs: Some(lufs_value),
-                                cached: Some(false),
-                                error: None,
-                            })
+            // Spawn background task - non-blocking
+            tokio::spawn(async move {
+                info!("Background LUFS calculation started for music ID {}: {}", id, file_label);
+
+                // Open seekable reader
+                let reader = match get_file_reader().open_seekable_reader(&file_path).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        error!("Background LUFS: Failed to open seekable reader for music ID {}: {}", id, e);
+                        return;
+                    }
+                };
+
+                // Calculate LUFS in blocking thread
+                let lufs_result = tokio::task::spawn_blocking(move || {
+                    let calc = LufsCalculator::default();
+                    match calc.calculate_from_reader(reader) {
+                        Ok(Some(lufs)) => {
+                            info!("[LUFS] BACKGROUND SUCCESS: {} - LUFS: {}", file_label, lufs);
+                            Some(lufs)
+                        }
+                        Ok(None) => {
+                            warn!("[LUFS] BACKGROUND FAILED: Unsupported format for: {}", file_label);
+                            None
                         }
                         Err(e) => {
-                            error!("Failed to update LUFS in database for music ID {}: {}", id, e);
-                            info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 500 (DB Update Failed)", id);
-                            HttpResponse::InternalServerError().json(PrecacheLufsResponse {
-                                success: false,
-                                lufs: None,
-                                cached: None,
-                                error: Some(format!("Database update failed: {}", e)),
-                            })
+                            error!("[LUFS] BACKGROUND ERROR: Failed to calculate LUFS for {}: {}", file_label, e);
+                            None
                         }
                     }
+                })
+                .await;
+
+                match lufs_result {
+                    Ok(Some(lufs_value)) => {
+                        // Update database with calculated LUFS
+                        match MusicEntity::find_by_id(id).one(&db_conn).await {
+                            Ok(Some(music_to_update)) => {
+                                let mut active_model: MusicActiveModel = music_to_update.into();
+                                active_model.lufs = Set(Some(lufs_value));
+
+                                match active_model.update(&db_conn).await {
+                                    Ok(_) => {
+                                        info!("Background LUFS pre-cache complete for music ID {}: {}", id, lufs_value);
+                                    }
+                                    Err(e) => {
+                                        error!("Background LUFS: Failed to update database for music ID {}: {}", id, e);
+                                    }
+                                }
+                            }
+                            Ok(None) => {
+                                warn!("Background LUFS: Music ID {} no longer exists", id);
+                            }
+                            Err(e) => {
+                                error!("Background LUFS: Database error fetching music ID {}: {}", id, e);
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        debug!("Background LUFS: Unsupported format for music ID {}", id);
+                    }
+                    Err(e) => {
+                        error!("Background LUFS: Task execution failed for music ID {}: {}", id, e);
+                    }
                 }
-                Ok(None) => {
-                    // LUFS calculation returned None (unsupported format)
-                    info!("LUFS pre-cache skipped for music ID {}: Unsupported audio format", id);
-                    info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 200 (Unsupported Format)", id);
-                    HttpResponse::Ok().json(PrecacheLufsResponse {
-                        success: true,
-                        lufs: None,
-                        cached: Some(false),
-                        error: Some("Unsupported audio format".to_string()),
-                    })
-                }
-                Err(e) => {
-                    error!("LUFS pre-cache failed for music ID {}: {}", id, e);
-                    warn!("LUFS pre-cache could not process path {}: {}", file_path, e);
-                    info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 500 (Calculation Failed)", id);
-                    HttpResponse::InternalServerError().json(PrecacheLufsResponse {
-                        success: false,
-                        lufs: None,
-                        cached: None,
-                        error: Some(format!("LUFS calculation failed: {}", e)),
-                    })
-                }
-            }
+            });
+
+            info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 202 (Processing in Background)", id);
+            HttpResponse::Accepted().json(PrecacheLufsResponse {
+                success: true,
+                lufs: None,
+                cached: Some(false),
+                error: None,
+            })
         }
         Ok(None) => {
             warn!("Music not found for LUFS pre-cache: ID {}", id);

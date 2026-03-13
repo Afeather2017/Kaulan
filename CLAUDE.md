@@ -256,6 +256,14 @@ frontend/src-tauri/src/
 
 ### Other Endpoints
 - `POST /api/generate-lufs` - Generate LUFS values via FFmpeg (debug mode only)
+- `POST /api/music/{id}/precache-lufs` - Pre-cache LUFS for next song (non-blocking)
+
+**Important: LUFS Pre-cache Non-blocking Behavior**
+- When LUFS value is already cached: returns `200 OK` immediately with the LUFS value
+- When LUFS needs calculation: returns `202 Accepted` immediately and calculates in background via `tokio::spawn`
+- The background task updates the database when calculation completes
+- Frontend only refreshes data when receiving a cached LUFS value (not for 202 responses)
+- This prevents browser connection limits from blocking audio playback when switching songs quickly
 
 ### Log Streaming
 - **TCP Port 2081** - Real-time log streaming (nc compatible)

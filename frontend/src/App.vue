@@ -548,7 +548,7 @@ const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { 
     if (response.ok) {
       const result = await response.json()
       if (result.success && result.lufs !== null) {
-        console.log('[app] LUFS pre-cache complete:', result.lufs)
+        console.log('[app] LUFS pre-cache complete (already cached):', result.lufs)
         // Refresh the current playlist data to get the updated LUFS value
         await refreshData()
         // If a playlist is currently selected, update its songs
@@ -556,6 +556,8 @@ const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { 
           const playlistName = selectedPlaylist.value.name
           selectPlaylist(playlistName)
         }
+      } else if (result.success && result.cached === false) {
+        console.log('[app] LUFS pre-cache started in background (non-blocking)')
       }
     } else {
       console.warn('[app] LUFS pre-cache failed:', response.status)
