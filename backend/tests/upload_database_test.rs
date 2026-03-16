@@ -150,10 +150,16 @@ async fn test_upload_files_then_check_database_via_api() {
     let _result = update_database(&music_path_str, &db).await;
 
     // STEP 3: Use GET /api/music endpoint to verify the file appears
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new(music_path_str.clone()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(

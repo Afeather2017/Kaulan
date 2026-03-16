@@ -7,6 +7,7 @@ use actix_cors::Cors;
 use std::env;
 use std::sync::Arc;
 use std::path::PathBuf;
+use tokio::net::UdpSocket;
 use tracing::{info, error};
 use tokio::sync::Mutex as TokioMutex;
 
@@ -21,6 +22,7 @@ use crate::handlers::upload;
 use crate::handlers::database;
 use crate::handlers::lyrics;
 use crate::handlers::lufs;
+use crate::handlers::discovery;
 
 // Re-export handler modules for convenience and for integration tests
 pub use music::{get_music, get_music_by_id, get_all_music};
@@ -39,6 +41,10 @@ pub use upload::{get_directory_tree, upload_files};
 pub use database::{update_database_endpoint, get_playlists_collection_mode};
 pub use lyrics::{get_lyrics, get_lyrics_by_id};
 pub use lufs::precache_lufs;
+pub use discovery::{
+    finish_discovery_scan, get_discovered_devices, get_self_device, request_discovery_once,
+    set_device_name, start_discovery_scan,
+};
 
 /// Represents the server address information
 #[derive(Debug, Clone)]
@@ -114,11 +120,55 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
 
     info!("Startup scan is handled by frontend via /api/database/update?startup=true (docs/startup-scan.md).");
 
+    // Initialize device discovery
+    let device_id = config::load_or_create_device_id();
+    let device_name = config::get_device_name().unwrap_or_else(|| {
+        gethostname::gethostname()
+            .into_string()
+            .ok()
+            .unwrap_or_else(|| "Kaulan Player".to_string())
+    });
+    info!("Device ID: {}", device_id);
+    info!("Device name: {}", device_name);
+    info!("Discovery mode: manual scan request/reply");
+
+    // Create shared UDP socket for discovery (single socket for both send and receive)
+    let discovery_socket: Option<Arc<UdpSocket>> = match crate::discovery::socket::create_discovery_socket().await {
+        Some(socket) => Some(socket),
+        None => {
+            error!("Failed to create discovery socket, device discovery disabled");
+            None
+        }
+    };
+
+    let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+        device_id.clone(),
+        device_name.clone(),
+        2080, // API port
+    ));
+
+    // Start discovery listener if socket was created
+    if let Some(socket) = discovery_socket {
+        let discovery_state_clone = discovery_state.clone();
+        tokio::spawn(async move {
+            crate::discovery::discovery::start_discovery_listener(
+                socket,
+                discovery_state_clone,
+            ).await;
+        });
+
+        info!("Device discovery services started");
+    }
+
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn,
         scan_lock,
+        discovery: discovery_state.clone(),
     });
+
+    // Also add discovery state as separate app_data for discovery handlers
+    let discovery_data = web::Data::new((*discovery_state).clone());
 
     let ip = "0.0.0.0".to_string();
     let port = 2080;
@@ -138,6 +188,7 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
             App::new()
                 .wrap(cors)
                 .app_data(app_state.clone())
+                .app_data(discovery_data.clone())
                 // Music endpoints (ID-based first, then filename-based)
                 .service(get_music_by_id)
                 .service(get_music)
@@ -161,6 +212,13 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
                 // Settings endpoints
                 .service(get_music_directory)
                 .service(set_music_directory)
+                // Discovery endpoints (order matters - specific routes first)
+                .service(get_discovered_devices)
+                .service(get_self_device)
+                .service(start_discovery_scan)
+                .service(request_discovery_once)
+                .service(finish_discovery_scan)
+                .service(set_device_name)
                 // Database endpoints
                 .service(update_database_endpoint)
                 // File upload endpoints

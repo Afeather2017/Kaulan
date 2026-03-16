@@ -13,6 +13,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Real-time Search** - Search across all songs instantly
 - **Remote Log Streaming** - View real-time logs via TCP on port 2081
+- **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
 
 ## Quick Start
 
@@ -293,6 +294,98 @@ Trigger a database update to scan for new files, update LUFS values, and remove 
 }
 ```
 
+#### GET /api/discovery/devices
+
+Get all Kaulan instances discovered on the local network.
+
+**Response:** `DiscoveredDevice[]`
+
+```json
+[
+  {
+    "device_id": "550e8400-e29b-41d4-a716-446655440001",
+    "device_name": "Bedroom Player",
+    "api_url": "http://192.168.1.100:2080/api",
+    "last_seen_secs_ago": 5
+  }
+]
+```
+
+#### GET /api/discovery/self
+
+Get this device's information.
+
+**Response:** `SelfDevice`
+
+```json
+{
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "device_name": "Living Room Player"
+}
+```
+
+#### POST /api/discovery/name
+
+Set this device's name.
+
+**Request:**
+```json
+{
+  "name": "My New Device Name"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Device name updated"
+}
+```
+
+#### POST /api/discovery/scan/start
+
+Start a manual discovery scan transaction.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Discovery scan started"
+}
+```
+
+#### POST /api/discovery/request
+
+Send one UDP discovery request packet. The frontend calls this every 1 second for 10 seconds after pressing "刷新设备".
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Discovery request sent"
+}
+```
+
+#### POST /api/discovery/scan/finish
+
+Finish a manual discovery scan transaction and commit or rollback scan results.
+
+**Request:**
+```json
+{
+  "success": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Discovery scan committed"
+}
+```
+
 ### Data Types
 
 ```typescript
@@ -373,7 +466,9 @@ The application uses a JSON configuration file to persist the music directory pa
 **Config Format:**
 ```json
 {
-  "music_directory": "/path/to/music"
+  "music_directory": "/path/to/music",
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "device_name": "Living Room Player"
 }
 ```
 
@@ -391,6 +486,7 @@ The application uses a JSON configuration file to persist the music directory pa
 |---------|---------|-------------|
 | HTTP Port | 2080 | HTTP API server port |
 | Log Streaming Port | 2081 | TCP log streaming server (nc compatible) |
+| Discovery Port | 2082 | UDP device discovery request/reply |
 | Bind Address | 0.0.0.0 | Server bind address |
 | Music Directory | `~/Music` or `./music` | Path to music files |
 | Database | `music.db` | SQLite database in music directory |

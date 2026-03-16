@@ -10,40 +10,66 @@
       <div class="modal-body">
         <h3>播放器设置</h3>
 
-        <!-- Server URL Configuration -->
+        <!-- Device Discovery -->
         <div class="mode-toggle">
-          <div class="mode-label">服务器地址</div>
-          <div class="mode-value" :class="{ 'url-changed': serverUrlInput !== getApiBase() }">
-            {{ serverUrlInput === 'http://localhost:2080/api' ? '默认' : '自定义' }}
-          </div>
+          <div class="mode-label">设备发现</div>
         </div>
+
+        <!-- Device Name Setting -->
         <div class="setting-item">
-          <label class="setting-label">API 服务器地址</label>
+          <label class="setting-label">设备名称</label>
           <div class="url-input-container">
             <input
               type="text"
               class="url-input"
-              :class="{ 'url-invalid': !serverUrlValid }"
-              :value="serverUrlInput"
-              @input="serverUrlInput = ($event.target as HTMLInputElement).value"
-              @blur="validateServerUrlInput"
-              placeholder="http://localhost:2080/api"
+              :value="deviceNameInput"
+              @input="deviceNameInput = ($event.target as HTMLInputElement).value"
+              placeholder="My Kaulan Player"
+              maxlength="64"
             />
           </div>
-          <div v-if="serverUrlError" class="url-error">{{ serverUrlError }}</div>
           <div class="url-actions">
             <button
-              @click="saveServerUrl"
+              @click="saveDeviceName"
               class="save-url-btn"
-              :disabled="isSavingServerUrl || !serverUrlValid"
+              :disabled="isSavingDeviceName"
             >
-              {{ isSavingServerUrl ? '保存中...' : '保存地址' }}
+              {{ isSavingDeviceName ? '保存中...' : '保存名称' }}
             </button>
-            <button
-              @click="resetServerUrl"
-              class="reset-url-btn"
+          </div>
+        </div>
+
+        <!-- Discovered Devices -->
+        <div class="setting-item">
+          <label class="setting-label">局域网中的设备</label>
+          <div v-if="isLoadingDevices" class="loading-state">
+            扫描中...
+          </div>
+          <div v-else-if="displayDevices.length === 0" class="empty-state">
+            未发现其他设备
+          </div>
+          <div v-else class="device-list">
+            <div
+              v-for="device in displayDevices"
+              :key="device.device_id"
+              class="device-item"
+              @click="connectToDevice(device)"
             >
-              重置为默认
+              <div class="device-info">
+                <div class="device-name">{{ device.device_name }}</div>
+                <div class="device-url">{{ device.api_url }}</div>
+              </div>
+              <div class="device-last-seen">
+                {{ isLocalhostDevice(device) ? '本机' : formatLastSeen(device.last_seen_secs_ago) }}
+              </div>
+            </div>
+          </div>
+          <div class="url-actions">
+            <button @click="refreshDevices" class="refresh-devices-btn">
+              刷新设备
+            </button>
+            <button @click="openManualAddressDialog" class="manual-url-btn">
+              手动指定地址
             </button>
           </div>
         </div>
@@ -201,8 +227,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { getApiBase, setApiBase, resetApiBase } from '@/utils/api'
+import { getApiBase, setApiBase } from '@/utils/api'
 import { validateServerUrl } from '@/utils/validation'
+import { useDeviceDiscovery, type DiscoveredDevice } from '@/composables/useDeviceDiscovery'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
 type ViewMode = 'folder' | 'collection'
@@ -250,6 +277,43 @@ const serverUrlInput = ref<string>('')
 const serverUrlError = ref<string>('')
 const isSavingServerUrl = ref<boolean>(false)
 const serverUrlValid = ref<boolean>(true)
+
+// Device discovery state
+const {
+  devices: discoveredDevices,
+  selfDevice,
+  isLoading: isLoadingDevices,
+  fetchDevices,
+  refreshDevices: runDiscoveryRefresh,
+  fetchSelfDevice,
+  setDeviceName,
+  connectToDevice,
+  formatLastSeen,
+} = useDeviceDiscovery()
+
+const deviceNameInput = ref<string>('')
+const isSavingDeviceName = ref<boolean>(false)
+const LOCALHOST_API_URL = 'http://localhost:2080/api'
+
+const localhostDevice = computed<DiscoveredDevice>(() => ({
+  device_id: 'localhost-self',
+  device_name: 'localhost(self)',
+  api_url: LOCALHOST_API_URL,
+  last_seen_secs_ago: 0,
+}))
+
+const displayDevices = computed<DiscoveredDevice[]>(() => {
+  const merged = [localhostDevice.value, ...discoveredDevices.value]
+  const unique = new Map<string, DiscoveredDevice>()
+  for (const device of merged) {
+    if (!unique.has(device.api_url)) {
+      unique.set(device.api_url, device)
+    }
+  }
+  return Array.from(unique.values())
+})
+
+const isLocalhostDevice = (device: DiscoveredDevice): boolean => device.api_url === LOCALHOST_API_URL
 
 // Temporary state for user input (before blur/commit)
 const manualVolumeInputTemp = ref('')
@@ -357,6 +421,26 @@ const handleTimerMinutesBlur = () => {
 onMounted(async () => {
   // Initialize server URL input
   serverUrlInput.value = getApiBase()
+
+  // Initialize device name from localStorage first (local device's name)
+  const localDeviceName = localStorage.getItem('kaulan_local_device_name')
+  if (localDeviceName) {
+    deviceNameInput.value = localDeviceName
+  } else {
+    // Fallback: fetch from current API and save as local device name
+    await fetchSelfDevice()
+    if (selfDevice.value) {
+      deviceNameInput.value = selfDevice.value.device_name
+      localStorage.setItem('kaulan_local_device_name', selfDevice.value.device_name)
+    }
+  }
+
+  // Load current committed discovery list.
+  try {
+    await fetchDevices()
+  } catch (err) {
+    console.error('Failed to load discovered devices:', err)
+  }
 
   try {
     const response = await fetch(`${getApiBase()}/settings/music-directory`)
@@ -467,25 +551,33 @@ const saveServerUrl = async () => {
   }
 }
 
-const resetServerUrl = () => {
-  if (confirm('确定要重置服务器地址为默认值吗？')) {
-    resetApiBase()
-    alert('服务器地址已重置，正在重新加载...')
-    setTimeout(() => {
-      window.location.reload()
-    }, 500)
+// Device discovery functions
+const saveDeviceName = async () => {
+  if (!deviceNameInput.value.trim()) return
+
+  isSavingDeviceName.value = true
+  const success = await setDeviceName(deviceNameInput.value.trim())
+  isSavingDeviceName.value = false
+
+  if (success) {
+    // Save to localStorage so it persists when connecting to other devices
+    localStorage.setItem('kaulan_local_device_name', deviceNameInput.value.trim())
+    alert('设备名称已更新')
+  } else {
+    alert('保存设备名称失败')
   }
 }
 
-const validateServerUrlInput = () => {
-  const validation = validateServerUrl(serverUrlInput.value)
-  if (!validation.valid) {
-    serverUrlError.value = validation.error || 'Invalid URL'
-    serverUrlValid.value = false
-  } else {
-    serverUrlError.value = ''
-    serverUrlValid.value = true
-  }
+const refreshDevices = async () => {
+  await runDiscoveryRefresh()
+}
+
+const openManualAddressDialog = async () => {
+  const input = prompt('请输入服务器地址:', serverUrlInput.value)
+  if (input === null) return
+
+  serverUrlInput.value = input.trim()
+  await saveServerUrl()
 }
 </script>
 
@@ -940,6 +1032,28 @@ const validateServerUrlInput = () => {
   color: white;
 }
 
+.manual-url-btn {
+  flex: 1;
+  padding: 10px 20px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  background-color: #fff;
+  color: #555;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.manual-url-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
+}
+
+.manual-address-panel {
+  margin-top: 10px;
+}
+
 .url-changed {
   color: #e67e22 !important;
 }
@@ -950,5 +1064,81 @@ const validateServerUrlInput = () => {
   font-weight: 500;
   min-width: 100px;
   text-align: right;
+}
+
+/* Device discovery styles */
+.loading-state,
+.empty-state {
+  color: #777;
+  font-size: 14px;
+  padding: 10px 0;
+  text-align: center;
+}
+
+.device-list {
+  margin-bottom: 10px;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 15px;
+  background-color: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.device-item:hover {
+  background-color: #f0f0f0;
+  border-color: #1db954;
+}
+
+.device-item:last-child {
+  margin-bottom: 0;
+}
+
+.device-info {
+  flex: 1;
+}
+
+.device-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.device-url {
+  font-size: 12px;
+  color: #777;
+  font-family: monospace;
+}
+
+.device-last-seen {
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
+}
+
+.refresh-devices-btn {
+  flex: 1;
+  padding: 8px 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  background-color: #fff;
+  color: #555;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refresh-devices-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
 }
 </style>

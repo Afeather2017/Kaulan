@@ -1,11 +1,14 @@
 /**
- * Cookie utilities for server URL persistence
+ * Persistent storage utilities for frontend settings.
+ *
+ * Note: file name remains `cookies.ts` for compatibility with existing imports,
+ * but storage now uses WebView localStorage instead of document.cookie.
  *
  * @module utils/cookies
  */
 
 /**
- * Cookie keys used throughout the application
+ * Storage keys used throughout the application
  */
 export const COOKIE_KEYS = {
   SERVER_URL: 'kaulan_server_url',
@@ -13,31 +16,7 @@ export const COOKIE_KEYS = {
 } as const
 
 /**
- * Set a cookie with expiration
- * @param name - Cookie name
- * @param value - Cookie value
- * @param days - Days until expiration (use 3650 for ~10 years / "permanent")
- */
-function setCookie(name: string, value: string, days: number): void {
-  const date = new Date()
-  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000)
-  const expires = `expires=${date.toUTCString()}`
-  document.cookie = `${name}=${value};${expires};path=/`
-}
-
-/**
- * Set a "permanent" cookie (10 years expiration)
- * @param name - Cookie name
- * @param value - Cookie value
- */
-function setPermanentCookie(name: string, value: string): void {
-  setCookie(name, value, 3650)
-}
-
-/**
- * Get a cookie value by name
- * @param name - Cookie name
- * @returns The cookie value or empty string if not found
+ * Legacy cookie reader for one-time migration to localStorage.
  */
 function getCookie(name: string): string {
   const nameEQ = `${name}=`
@@ -55,55 +34,94 @@ function getCookie(name: string): string {
 }
 
 /**
- * Delete a cookie by name
- * @param name - Cookie name
+ * Delete a legacy cookie by name after migration.
  */
 function deleteCookie(name: string): void {
   document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/`
 }
 
+function getStorageValue(key: string): string {
+  try {
+    const stored = localStorage.getItem(key)
+    if (stored && stored.length > 0) {
+      return stored
+    }
+
+    // Backward compatibility: migrate existing cookie value to localStorage.
+    const legacyCookie = getCookie(key)
+    if (legacyCookie) {
+      localStorage.setItem(key, legacyCookie)
+      deleteCookie(key)
+      return legacyCookie
+    }
+  } catch (error) {
+    console.error(`Failed to read localStorage key ${key}:`, error)
+  }
+
+  return ''
+}
+
+function setStorageValue(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch (error) {
+    console.error(`Failed to write localStorage key ${key}:`, error)
+  }
+}
+
+function removeStorageValue(key: string): void {
+  try {
+    localStorage.removeItem(key)
+  } catch (error) {
+    console.error(`Failed to remove localStorage key ${key}:`, error)
+  }
+
+  // Cleanup legacy cookie if present.
+  deleteCookie(key)
+}
+
 /**
- * Get the stored server URL from cookies
+ * Get the stored server URL from localStorage
  * @returns The server URL or empty string if not set
  */
 export function getServerUrl(): string {
-  return getCookie(COOKIE_KEYS.SERVER_URL) || ''
+  return getStorageValue(COOKIE_KEYS.SERVER_URL)
 }
 
 /**
- * Save the server URL to cookies
+ * Save the server URL to localStorage
  * @param url - The server URL to save
  */
 export function setServerUrl(url: string): void {
-  setPermanentCookie(COOKIE_KEYS.SERVER_URL, url)
+  setStorageValue(COOKIE_KEYS.SERVER_URL, url)
 }
 
 /**
- * Remove the stored server URL from cookies
+ * Remove the stored server URL from localStorage
  */
 export function removeServerUrl(): void {
-  deleteCookie(COOKIE_KEYS.SERVER_URL)
+  removeStorageValue(COOKIE_KEYS.SERVER_URL)
 }
 
 /**
- * Get the stored view mode from cookies
+ * Get the stored view mode from localStorage
  * @returns The view mode ('collection' or 'folder', defaults to 'collection')
  */
 export function getViewMode(): string {
-  return getCookie(COOKIE_KEYS.VIEW_MODE) || 'collection'
+  return getStorageValue(COOKIE_KEYS.VIEW_MODE) || 'collection'
 }
 
 /**
- * Save the view mode to cookies
+ * Save the view mode to localStorage
  * @param mode - The view mode to save ('collection' or 'folder')
  */
 export function setViewMode(mode: string): void {
-  setPermanentCookie(COOKIE_KEYS.VIEW_MODE, mode)
+  setStorageValue(COOKIE_KEYS.VIEW_MODE, mode)
 }
 
 /**
- * Remove the stored view mode from cookies
+ * Remove the stored view mode from localStorage
  */
 export function removeViewMode(): void {
-  deleteCookie(COOKIE_KEYS.VIEW_MODE)
+  removeStorageValue(COOKIE_KEYS.VIEW_MODE)
 }

@@ -100,10 +100,16 @@ async fn test_upload_single_file_to_root() {
 
     let db = setup_test_db().await.expect("Failed to setup DB");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     });
 
     let app = test::init_service(
@@ -146,10 +152,16 @@ async fn test_upload_to_subdirectory() {
 
     let db = setup_test_db().await.expect("Failed to setup DB");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     });
 
     let app = test::init_service(
@@ -190,10 +202,16 @@ async fn test_upload_unsupported_file_type_rejected() {
 
     let db = setup_test_db().await.expect("Failed to setup DB");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     });
 
     let app = test::init_service(
@@ -236,10 +254,16 @@ async fn test_upload_path_traversal_protection() {
 
     let db = setup_test_db().await.expect("Failed to setup DB");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     });
 
     let app = test::init_service(
@@ -284,10 +308,16 @@ async fn test_upload_updates_database() {
 
     let db = setup_test_db().await.expect("Failed to setup DB");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     });
 
     let app = test::init_service(
@@ -346,10 +376,16 @@ async fn test_upload_empty_request() {
 
     let db = setup_test_db().await.expect("Failed to setup DB");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     });
 
     let app = test::init_service(
@@ -386,10 +422,16 @@ async fn test_upload_to_nested_subdirectories() {
 
     let db = setup_test_db().await.expect("Failed to setup DB");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     });
 
     let app = test::init_service(

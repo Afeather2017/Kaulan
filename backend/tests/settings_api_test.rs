@@ -43,10 +43,16 @@ async fn test_get_music_directory() {
 
     let test_music_path = "/tmp/test_music".to_string();
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new(test_music_path.clone()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -76,10 +82,16 @@ async fn test_update_database_empty() {
     let test_music_dir = temp_dir.join("test_music_update_empty");
     std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -117,10 +129,16 @@ async fn test_update_database_with_new_files() {
     let test_file = test_music_dir.join("test.mp3");
     std::fs::write(&test_file, b"dummy audio data").expect("Failed to create test file");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -168,10 +186,16 @@ async fn test_startup_update_skips_when_done() {
     let test_music_dir = temp_dir.join("test_startup_skip");
     std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -207,10 +231,16 @@ async fn test_startup_update_runs_and_sets_flag() {
     let test_file = test_music_dir.join("startup.mp3");
     std::fs::write(&test_file, b"dummy audio data").expect("Failed to create test file");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(

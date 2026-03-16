@@ -105,10 +105,16 @@ async fn test_get_all_collections_empty() {
     // Setup test database
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -133,10 +139,16 @@ async fn test_get_all_collections_empty() {
 async fn test_get_playlists_collection_mode_empty() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -163,10 +175,16 @@ async fn test_get_playlists_collection_mode_empty() {
 async fn test_create_collection() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -204,10 +222,16 @@ async fn test_create_collection() {
 async fn test_create_duplicate_collection_fails() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -244,10 +268,16 @@ async fn test_get_collection_by_id() {
     // Create a test collection
     let collection_id = create_test_collection(&db, "Test Collection").await.expect("Failed to create test collection");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -272,10 +302,16 @@ async fn test_get_collection_by_id() {
 async fn test_get_nonexistent_collection_by_id() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -299,10 +335,16 @@ async fn test_delete_collection() {
     // Create a test collection
     let collection_id = create_test_collection(&db, "To Delete").await.expect("Failed to create test collection");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -336,10 +378,16 @@ async fn test_delete_collection() {
 async fn test_delete_nonexistent_collection() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -371,10 +419,16 @@ async fn test_get_collection_items() {
     add_music_to_collection(&db, collection_id, music_id1).await.expect("Failed to add music 1");
     add_music_to_collection(&db, collection_id, music_id2).await.expect("Failed to add music 2");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -400,10 +454,16 @@ async fn test_get_collection_items() {
 async fn test_get_nonexistent_collection_items() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -431,10 +491,16 @@ async fn test_add_to_collection() {
     // Create a test collection
     let collection_id = create_test_collection(&db, "My Collection").await.expect("Failed to create collection");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -470,10 +536,16 @@ async fn test_add_to_nonexistent_collection() {
     // Create a test music entry
     let music_id = create_test_music(&db, "song1.mp3", "song1.mp3").await.expect("Failed to create music");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -504,10 +576,16 @@ async fn test_add_duplicate_to_collection() {
     // Add music to collection directly
     add_music_to_collection(&db, collection_id, music_id).await.expect("Failed to add music");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -551,10 +629,16 @@ async fn test_remove_from_collection() {
     add_music_to_collection(&db, collection_id, music_id1).await.expect("Failed to add music 1");
     add_music_to_collection(&db, collection_id, music_id2).await.expect("Failed to add music 2");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -590,10 +674,16 @@ async fn test_remove_nonexistent_item_from_collection() {
     // Create a test collection
     let collection_id = create_test_collection(&db, "My Collection").await.expect("Failed to create collection");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -618,10 +708,16 @@ async fn test_remove_nonexistent_item_from_collection() {
 async fn test_collection_workflow() {
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music".to_string()),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(

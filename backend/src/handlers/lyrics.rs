@@ -199,10 +199,16 @@ mod tests {
             .await
             .unwrap();
 
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         (temp_dir, app_state)
@@ -257,10 +263,16 @@ mod tests {
             .await
             .unwrap();
 
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         let app = test::init_service(
@@ -287,10 +299,16 @@ mod tests {
             .await
             .unwrap();
 
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         let app = test::init_service(
@@ -334,10 +352,16 @@ mod tests {
             .await
             .unwrap();
 
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         let app = test::init_service(
