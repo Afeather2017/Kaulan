@@ -80,10 +80,16 @@ async fn test_timestamp_seek_valid() {
     create_test_music(&db, 1, "audio.mp3", test_file_path)
         .await.expect("Failed to create test music entry");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_seek".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -132,10 +138,16 @@ async fn test_timestamp_seek_start() {
     create_test_music(&db, 1, "audio.mp3", test_file_path)
         .await.expect("Failed to create test music entry");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_seek_start".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -174,10 +186,16 @@ async fn test_timestamp_seek_end() {
     create_test_music(&db, 1, "audio.mp3", test_file_path)
         .await.expect("Failed to create test music entry");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_seek_end".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -221,10 +239,16 @@ async fn test_timestamp_seek_negative() {
     create_test_music(&db, 1, "audio.mp3", test_file_path)
         .await.expect("Failed to create test music entry");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_seek_negative".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -260,10 +284,16 @@ async fn test_timestamp_seek_exceeds_duration() {
     create_test_music(&db, 1, "audio.mp3", test_file_path)
         .await.expect("Failed to create test music entry");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_seek_exceeds".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -298,10 +328,16 @@ async fn test_timestamp_seek_missing_duration() {
     create_test_music(&db, 1, "audio.mp3", test_file_path)
         .await.expect("Failed to create test music entry");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_seek_missing".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -329,10 +365,16 @@ async fn test_timestamp_seek_invalid_id() {
     // Test that 404 is returned for invalid ID even with valid params
     let db = setup_test_db().await.expect("Failed to setup test database");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_seek_invalid".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(
@@ -363,10 +405,16 @@ async fn test_normal_request_without_timestamp() {
     create_test_music(&db, 1, "audio.mp3", test_file_path)
         .await.expect("Failed to create test music entry");
 
+    let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
+        "test-id".to_string(),
+        "Test Player".to_string(),
+        2080,
+    ));
     let app_state = AppState {
         music_path: Arc::new("/tmp/test_music_normal".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        discovery: discovery_state,
     };
 
     let app = test::init_service(

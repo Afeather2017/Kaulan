@@ -108,6 +108,7 @@ pub mod lufsgen;
 pub mod entities;
 pub mod database;
 pub mod log_broadcast;
+pub mod discovery;
 
 #[cfg(test)]
 mod tests {
@@ -135,10 +136,16 @@ mod tests {
     #[actix_web::test]
     async fn test_directory_tree_empty_directory() {
         let temp_dir = create_test_directory();
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(temp_dir.path().to_str().unwrap().to_string()),
             db_conn: establish_connection(temp_dir.path().to_str().unwrap()).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         let app = test::init_service(
@@ -168,10 +175,16 @@ mod tests {
         let music_path = temp_dir.path().to_str().unwrap().to_string();
 
         // Verify the nested structure is returned correctly
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         let app = test::init_service(
@@ -203,10 +216,16 @@ mod tests {
         let temp_dir = create_test_directory();
         let music_path = temp_dir.path().to_str().unwrap().to_string();
 
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         let app = test::init_service(
@@ -231,10 +250,16 @@ mod tests {
         let temp_dir = create_test_directory();
         let music_path = temp_dir.path().to_str().unwrap().to_string();
 
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
         });
 
         let app = test::init_service(

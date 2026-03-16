@@ -10,3 +10,4 @@ pub mod upload;
 pub mod database;
 pub mod lyrics;
 pub mod lufs;
+pub mod discovery;

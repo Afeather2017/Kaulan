@@ -1,0 +1,307 @@
+//! Device discovery types
+//!
+//! This module defines the data structures for the Kaulan Discovery Protocol (KDP).
+//! See [docs/device-discovery.md](../../../docs/device-discovery.md) for protocol specification.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::net::UdpSocket;
+use tokio::sync::RwLock;
+
+/// Discovery message sent via UDP.
+///
+/// Protocol v1.1 uses on-demand scanning:
+/// - `kaulan-discovery-request`: sent by scanner every 1 second during scan window
+/// - `kaulan-discovery-response`: immediate unicast response with service metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveryMessage {
+    /// Message type identifier
+    #[serde(rename = "type")]
+    pub message_type: String,
+
+    /// Protocol version
+    pub version: String,
+
+    /// Unique device identifier (required for response)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+
+    /// Human-readable device name (required for response)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+
+    /// HTTP API port (required for response)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_port: Option<u16>,
+
+    /// Unix timestamp in milliseconds
+    pub timestamp: i64,
+}
+
+impl DiscoveryMessage {
+    /// Maximum message size in bytes
+    pub const MAX_SIZE: usize = 1024;
+
+    /// Request message type identifier
+    pub const REQUEST_TYPE: &'static str = "kaulan-discovery-request";
+
+    /// Response message type identifier
+    pub const RESPONSE_TYPE: &'static str = "kaulan-discovery-response";
+
+    /// Expected protocol version
+    pub const EXPECTED_VERSION: &'static str = "1.1";
+
+    /// Create a new discovery request message.
+    pub fn new_request() -> Self {
+        Self {
+            message_type: Self::REQUEST_TYPE.to_string(),
+            version: Self::EXPECTED_VERSION.to_string(),
+            device_id: None,
+            device_name: None,
+            api_port: None,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Create a new discovery response message.
+    pub fn new_response(device_id: String, device_name: String, api_port: u16) -> Self {
+        Self {
+            message_type: Self::RESPONSE_TYPE.to_string(),
+            version: Self::EXPECTED_VERSION.to_string(),
+            device_id: Some(device_id),
+            device_name: Some(device_name),
+            api_port: Some(api_port),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Validate this discovery message.
+    pub fn validate(&self) -> Result<(), DiscoveryError> {
+        if self.version != Self::EXPECTED_VERSION {
+            return Err(DiscoveryError::UnsupportedVersion(self.version.clone()));
+        }
+
+        match self.message_type.as_str() {
+            Self::REQUEST_TYPE => Ok(()),
+            Self::RESPONSE_TYPE => {
+                if self.device_id.as_deref().unwrap_or_default().is_empty() {
+                    return Err(DiscoveryError::MissingField("device_id".to_string()));
+                }
+
+                let device_name = self.device_name.as_deref().unwrap_or_default();
+                if device_name.is_empty() || device_name.len() > 64 {
+                    return Err(DiscoveryError::InvalidDeviceName);
+                }
+
+                if self.api_port.unwrap_or(0) == 0 {
+                    return Err(DiscoveryError::InvalidPort);
+                }
+
+                Ok(())
+            }
+            other => Err(DiscoveryError::InvalidType(other.to_string())),
+        }
+    }
+}
+
+/// Discovered device information.
+#[derive(Debug, Clone)]
+pub struct DiscoveredDevice {
+    /// Device ID from discovery message
+    pub device_id: String,
+
+    /// Human-readable name
+    pub device_name: String,
+
+    /// Full HTTP URL (e.g., http://192.168.1.100:2080/api)
+    pub api_url: String,
+
+    /// When this device was last seen
+    pub last_seen: Instant,
+
+    /// Network address
+    pub addr: SocketAddr,
+}
+
+impl DiscoveredDevice {
+    /// Create a new discovered device entry.
+    pub fn new(device_id: String, device_name: String, addr: SocketAddr, api_port: u16) -> Self {
+        let ip = addr.ip();
+        let api_url = format!("http://{}:{}/api", ip, api_port);
+
+        Self {
+            device_id,
+            device_name,
+            api_url,
+            last_seen: Instant::now(),
+            addr,
+        }
+    }
+}
+
+/// Shared state for the discovery service.
+#[derive(Clone)]
+pub struct DiscoveryState {
+    /// This device's unique ID
+    pub device_id: String,
+
+    /// This device's name (user-configurable)
+    pub device_name: Arc<RwLock<String>>,
+
+    /// HTTP API port
+    pub api_port: u16,
+
+    /// Shared discovery socket (send+recv on UDP 2082)
+    pub socket: Arc<RwLock<Option<Arc<UdpSocket>>>>,
+
+    /// Committed discovered devices map (used by API response)
+    pub discovered_devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
+
+    /// In-progress scan buffer. Active only between scan start/finish.
+    pub scan_buffer: Arc<RwLock<Option<HashMap<String, DiscoveredDevice>>>>,
+
+    /// Backup of committed map for rollback when scan fails.
+    pub scan_backup: Arc<RwLock<Option<HashMap<String, DiscoveredDevice>>>>,
+}
+
+impl DiscoveryState {
+    /// Create a new discovery state.
+    pub fn new(device_id: String, device_name: String, api_port: u16) -> Self {
+        Self {
+            device_id,
+            device_name: Arc::new(RwLock::new(device_name)),
+            api_port,
+            socket: Arc::new(RwLock::new(None)),
+            discovered_devices: Arc::new(RwLock::new(HashMap::new())),
+            scan_buffer: Arc::new(RwLock::new(None)),
+            scan_backup: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Get the current device name.
+    pub async fn get_device_name(&self) -> String {
+        self.device_name.read().await.clone()
+    }
+
+    /// Set the device name.
+    pub async fn set_device_name(&self, name: String) {
+        *self.device_name.write().await = name;
+    }
+
+    /// Set the current shared socket.
+    pub async fn set_socket(&self, socket: Arc<UdpSocket>) {
+        *self.socket.write().await = Some(socket);
+    }
+
+    /// Get the current shared socket.
+    pub async fn get_socket(&self) -> Option<Arc<UdpSocket>> {
+        self.socket.read().await.clone()
+    }
+
+    /// Start a manual scan transaction.
+    ///
+    /// Creates a new empty scan buffer and stores current committed devices as backup.
+    pub async fn start_scan(&self) {
+        let current = self.discovered_devices.read().await.clone();
+        *self.scan_backup.write().await = Some(current);
+        *self.scan_buffer.write().await = Some(HashMap::new());
+    }
+
+    /// Finish scan transaction and either commit or rollback.
+    pub async fn finish_scan(&self, success: bool) {
+        let buffer = self.scan_buffer.write().await.take();
+        let backup = self.scan_backup.write().await.take();
+
+        if success {
+            if let Some(next) = buffer {
+                *self.discovered_devices.write().await = next;
+            }
+            return;
+        }
+
+        if let Some(prev) = backup {
+            *self.discovered_devices.write().await = prev;
+        }
+    }
+
+    /// Add or update a discovered device.
+    ///
+    /// If scan is active, updates scan buffer only; otherwise updates committed map.
+    pub async fn upsert_discovered_device(&self, device: DiscoveredDevice) {
+        let mut scan_guard = self.scan_buffer.write().await;
+        if let Some(scan_map) = scan_guard.as_mut() {
+            scan_map.insert(device.device_id.clone(), device);
+            return;
+        }
+        drop(scan_guard);
+
+        self.discovered_devices
+            .write()
+            .await
+            .insert(device.device_id.clone(), device);
+    }
+
+    /// Get committed discovered devices.
+    pub async fn get_devices(&self) -> Vec<DiscoveredDevice> {
+        self.discovered_devices
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect()
+    }
+}
+
+/// Discovery protocol errors
+#[derive(Debug, thiserror::Error)]
+pub enum DiscoveryError {
+    #[error("Invalid message type: {0}")]
+    InvalidType(String),
+
+    #[error("Unsupported protocol version: {0}")]
+    UnsupportedVersion(String),
+
+    #[error("Missing required field: {0}")]
+    MissingField(String),
+
+    #[error("Invalid device name (must be 1-64 characters)")]
+    InvalidDeviceName,
+
+    #[error("Invalid port number")]
+    InvalidPort,
+
+    #[error("Socket unavailable")]
+    SocketUnavailable,
+
+    #[error("Message too large")]
+    MessageTooLarge,
+
+    #[error("JSON parse error: {0}")]
+    JsonError(#[from] serde_json::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_request_message_validation() {
+        let msg = DiscoveryMessage::new_request();
+        assert!(msg.validate().is_ok());
+        assert_eq!(msg.message_type, DiscoveryMessage::REQUEST_TYPE);
+    }
+
+    #[test]
+    fn test_response_message_validation() {
+        let msg = DiscoveryMessage::new_response(
+            "test-device-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        );
+        assert!(msg.validate().is_ok());
+        assert_eq!(msg.message_type, DiscoveryMessage::RESPONSE_TYPE);
+    }
+}

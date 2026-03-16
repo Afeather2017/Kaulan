@@ -72,6 +72,7 @@ pub struct AppState {
     pub music_path: Arc<String>,
     pub db_conn: DatabaseConnection,
     pub scan_lock: Arc<TokioMutex<()>>,
+    pub discovery: Arc<crate::discovery::types::DiscoveryState>,
 }
 
 /// Directory tree node for representing file system structure
