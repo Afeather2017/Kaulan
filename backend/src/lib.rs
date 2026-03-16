@@ -25,7 +25,7 @@ pub use log_broadcast::{LogBroadcaster, create_broadcast_layer, start_log_server
 
 // Re-export all handlers for integration tests
 pub use server::{
-    get_music, get_all_music,
+    get_music, get_music_by_id, get_all_music,
     get_all_playlists, get_playlist,
     get_all_collections, create_collection, delete_collection, get_collection,
     get_collection_items, add_to_collection, remove_from_collection,
