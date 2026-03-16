@@ -6,12 +6,20 @@
 
 use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use crate::entities::music::{Entity as MusicEntity, Model as MusicModel, Column as MusicColumn};
 use crate::types::AppState;
 use crate::file_ops::get_file_reader;
 use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
 use tracing::{debug, info, warn, error};
+
+/// Query parameters for position-based seeking
+#[derive(Deserialize)]
+struct MusicQueryParams {
+    /// Position in file (0.0 to 1.0) to start streaming from
+    /// Example: 0.5 = 50% into the file
+    position: Option<f64>,
+}
 
 /// Stream a music file by filename
 ///
@@ -104,6 +112,7 @@ pub async fn get_music(
 #[get("/api/music/id/{id}")]
 pub async fn get_music_by_id(
     path: web::Path<i32>,
+    query: web::Query<MusicQueryParams>,
     data: web::Data<AppState>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -140,6 +149,52 @@ pub async fn get_music_by_id(
             };
 
             const CHUNK_SIZE: usize = 1024 * 1024;
+
+            // Handle position-based seek (highest priority)
+            // Priority: Position query parameter > Range header > Full file stream
+            let (use_position_seek, start_byte_from_position) = if let (Some(pos), Some(size)) =
+                (query.position, file_size) {
+                // Validate parameters (position must be 0.0 to 1.0)
+                if pos >= 0.0 && pos <= 1.0 {
+                    let mut start_byte = (pos * size as f64).floor() as u64;
+                    // Clamp start_byte to valid range [0, size-1]
+                    if start_byte >= size {
+                        start_byte = size - 1;
+                    }
+                    debug!("Position seek: position={}%, calculated start_byte={}", pos * 100.0, start_byte);
+                    (true, Some(start_byte))
+                } else {
+                    debug!("Invalid position parameter: position={}, falling back to normal", pos);
+                    (false, None)
+                }
+            } else {
+                (false, None)
+            };
+
+            if use_position_seek {
+                if let Some(start) = start_byte_from_position {
+                    match file_reader.read_stream_from(&music.file_path, CHUNK_SIZE, start).await {
+                        Ok(stream) => {
+                            let content_length = file_size.unwrap() - start;
+                            let end = file_size.unwrap() - 1;
+                            info!("[ACCESS] GET /api/music/id/{} - Status: 206, Position: {}%, bytes={}-{}", id, query.position.unwrap() * 100.0, start, end);
+
+                            return HttpResponse::PartialContent()
+                                .insert_header(("Content-Type", "audio/mpeg"))
+                                .insert_header(("Content-Length", content_length.to_string()))
+                                .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, file_size.unwrap())))
+                                .insert_header(("Accept-Ranges", "bytes"))
+                                .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"))
+                                .insert_header(("X-Seek-Position", query.position.unwrap().to_string()))
+                                .streaming(stream.map_err(actix_web::Error::from));
+                        }
+                        Err(e) => {
+                            warn!("Could not seek in file: {} - Error: {}", music.file_path, e);
+                            // Fall through to Range header handling
+                        }
+                    }
+                }
+            }
 
             // Handle Range request
             if let Some(range) = range_header {

@@ -30,6 +30,29 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const currentIndex = ref(-1)
   const apiBase = getApiBase()
 
+  // Threshold for using position-based seek (seconds)
+  const USE_TIMESTAMP_THRESHOLD = 30
+
+  // Helper function to build audio URL with optional position parameter
+  const buildAudioUrl = (songId: number, seekTime?: number): string => {
+    // Use URL constructor for proper query parameter handling
+    // If apiBase is a full URL, use it directly; otherwise construct from it
+    let url: URL
+    try {
+      // Try using apiBase directly if it's a full URL
+      url = new URL(`${apiBase}/music/id/${songId}`)
+    } catch {
+      // Fallback: use window.location.origin as base
+      url = new URL(`${apiBase}/music/id/${songId}`, window.location.origin)
+    }
+    if (seekTime !== undefined && duration.value > 0) {
+      // Calculate position as percentage (0.0 to 1.0)
+      const position = seekTime / duration.value
+      url.searchParams.set('position', position.toString())
+    }
+    return url.toString()
+  }
+
   // Random song index with no repeat (ported from swplayer)
   const randomSongIndexNoRepeat = (): number => {
     const allSongs = songs()
@@ -94,7 +117,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   // Flag to prevent double-play from watch triggering during playSong
   let isPlayingInternal = false
 
-  const playSong = async (song: MusicInfo) => {
+  const playSong = async (song: MusicInfo, seekTime?: number) => {
     // Pause and cleanup any existing audio
     if (audioElement.value && !audioElement.value.paused) {
       audioElement.value.pause()
@@ -102,7 +125,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
 
     // Create a fresh audio element for each song (prevents AbortError from src changes)
     const newAudio = new Audio()
-    newAudio.src = `${apiBase}/music/id/${song.id}`
+    // Use position URL if seeking while paused with known duration
+    const sourceUrl = buildAudioUrl(song.id, seekTime)
+    newAudio.src = sourceUrl
     newAudio.preload = 'auto'
 
     // Copy over any event listeners from the old element
@@ -232,9 +257,19 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   }
 
   const seekToTime = (time: number) => {
-    if (!audioElement.value) return
+    if (!audioElement.value || duration.value === 0) return
 
-    // Use fastSeek if available (more efficient for streaming)
+    // For large jumps while paused, use timestamp parameter to save bandwidth
+    const jumpDistance = Math.abs(time - currentTime.value)
+
+    if (!isPlaying.value && jumpDistance > USE_TIMESTAMP_THRESHOLD && time > 0 && currentSong.value) {
+      // Reload with timestamp parameter for efficient seeking
+      console.log('[useAudioPlayer] Large seek while paused, using timestamp parameter:', time)
+      playSong(currentSong.value, time)
+      return
+    }
+
+    // Otherwise use standard HTML5 seeking (smoother for small jumps and while playing)
     if (typeof (audioElement.value as any).fastSeek === 'function') {
       (audioElement.value as any).fastSeek(time)
     } else {
