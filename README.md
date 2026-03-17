@@ -7,7 +7,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Music Library Management** - Automatically scans and organizes music files
 - **Mobile-First Design** - Responsive UI optimized for mobile devices
 - **Android Support** - Native Android app using MediaStore API for music access
-- **Audio Streaming** - Direct streaming from server to browser
+- **Audio Streaming** - Direct streaming from server to browser with position-based seeking
 - **File System Playlists** - Automatic playlist creation from folder structure
 - **Collection Management** - User-defined playlists/collections
 - **Volume Normalization** - LUFS support for consistent audio levels
@@ -191,7 +191,48 @@ Stream an audio file by filename.
 
 **Headers:**
 - `Content-Type: audio/mpeg`
-- `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`
+- `Cache-Control: public, max-age=86400, must-revalidate`
+
+#### GET /api/music/id/{id}
+
+Stream an audio file by ID with optional position-based seeking.
+
+**Parameters:**
+- `id` (path parameter) - The music ID to stream
+- `position` (query parameter, optional) - Position in file (0.0 to 1.0)
+
+  - `0.0` = Start of file
+  - `0.5` = Middle of file
+  - `1.0` = End of file
+
+**Response:** Audio file binary data (audio/mpeg)
+
+**Without position parameter (HTTP 200 OK):**
+```http
+HTTP/1.1 200 OK
+Content-Type: audio/mpeg
+Content-Length: 583703350
+Accept-Ranges: bytes
+Cache-Control: public, max-age=86400, must-revalidate
+```
+
+**With position parameter (HTTP 206 Partial Content):**
+```http
+HTTP/1.1 206 Partial Content
+Content-Type: audio/mpeg
+Content-Length: 525333015
+Content-Range: bytes 58370335-583703349/583703350
+Accept-Ranges: bytes
+Cache-Control: public, max-age=86400, must-revalidate
+X-Seek-Position: 0.1
+```
+
+**Example:** Stream from 10% position (saves bandwidth for large seeks)
+```bash
+curl "http://localhost:2080/api/music/id/25?position=0.1"
+```
+
+See [`docs/position-based-streaming.md`](docs/position-based-streaming.md) for detailed documentation.
 
 #### GET /api/playlists
 
