@@ -1,8 +1,23 @@
 //! Music streaming and metadata API handlers.
 //!
 //! This module provides endpoints for:
-//! - Streaming individual music files with Range request support (seeking)
+//! - Streaming individual music files with position-based seeking
 //! - Getting all music from the database
+//!
+//! # Position-Based Streaming
+//!
+//! The `GET /api/music/id/{id}` endpoint supports an optional `position` query parameter
+//! (0.0 to 1.0) for efficient seeking without downloading from the beginning.
+//!
+//! ## Example
+//!
+//! ```http
+//! GET /api/music/id/25?position=0.5
+//! ```
+//!
+//! This streams from 50% of the file, saving bandwidth for large seeks.
+//!
+//! See [`docs/position-based-streaming.md`](../../../docs/position-based-streaming.md) for details.
 
 use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
@@ -99,16 +114,33 @@ pub async fn get_music(
 ///
 /// This endpoint looks up the music file in the database by ID,
 /// then streams the actual audio file from disk or content URI.
-/// Supports HTTP Range requests for seeking in audio players.
+/// Supports position-based seeking via query parameter and HTTP Range requests.
 ///
 /// # Path Parameters
 /// * `id` - The music ID to look up in the database
 ///
+/// # Query Parameters
+/// * `position` - Optional position in file (0.0 to 1.0) to start streaming from
+///   - `0.0` = beginning of file
+///   - `0.5` = middle of file
+///   - `1.0` = end of file
+///
 /// # Returns
 /// - Audio file stream with `audio/mpeg` content type if found
+/// - HTTP 206 (Partial Content) if `position` parameter is provided
 /// - HTTP 206 (Partial Content) if Range header is present
+/// - HTTP 200 OK for normal full file streaming
 /// - `404 Not Found` if music not in database or file missing
 /// - `500 Internal Server Error` for database errors
+///
+/// # Example
+/// ```bash
+/// # Stream from 10% position (saves bandwidth for large seeks)
+/// curl "http://localhost:2080/api/music/id/25?position=0.1"
+///
+/// # Stream from beginning (default)
+/// curl "http://localhost:2080/api/music/id/25"
+/// ```
 #[get("/api/music/id/{id}")]
 pub async fn get_music_by_id(
     path: web::Path<i32>,
