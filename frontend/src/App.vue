@@ -265,12 +265,13 @@ const {
 
 const playbackSource = ref<'playlist' | 'search'>('playlist')
 const searchPlaybackSongs = ref<SongInfo[]>([])
+const lastPlayedPlaylist = ref<{ name: string; songs: SongInfo[] } | null>(null)
 
 const playbackSongs = computed(() => {
   if (playbackSource.value === 'search') {
     return searchPlaybackSongs.value
   }
-  return selectedPlaylist.value?.songs || []
+  return lastPlayedPlaylist.value?.songs || []
 })
 
 const playbackPlaylist = computed(() => {
@@ -280,7 +281,7 @@ const playbackPlaylist = computed(() => {
       songs: searchPlaybackSongs.value
     }
   }
-  return selectedPlaylist.value
+  return lastPlayedPlaylist.value
 })
 
 // Handler for song start event - trigger LUFS pre-caching for next song
@@ -466,6 +467,10 @@ const handleSearch = () => {
 
 const handleSelectPlaylist = (name: string) => {
   selectPlaylist(name)
+  lastPlayedPlaylist.value = {
+    name: name,
+    songs: playlists.value[name] || []
+  }
   playbackSource.value = 'playlist'
   searchPlaybackSongs.value = []
   resetPlaylist()
@@ -502,9 +507,16 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
   if (currentView.value === 'search') {
     playbackSource.value = 'search'
     searchPlaybackSongs.value = searchResults.value.slice()
+    lastPlayedPlaylist.value = null
   } else {
     playbackSource.value = 'playlist'
     searchPlaybackSongs.value = []
+    if (selectedPlaylist.value) {
+      lastPlayedPlaylist.value = {
+        name: selectedPlaylist.value.name,
+        songs: selectedPlaylist.value.songs
+      }
+    }
   }
   if (index !== undefined) {
     await playSongAtIndex(song, index)
