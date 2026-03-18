@@ -305,14 +305,14 @@ The frontend supports a configurable backend server URL. Users can set a custom 
 
 ### How It Works
 
-1. **Cookie Storage**: Server URL is stored in cookie `kaulan_server_url` (365-day expiration)
-2. **Default URL**: `http://localhost:2080/api` is used if no cookie is set
+1. **LocalStorage**: Server URL is stored in localStorage with key `kaulan_server_url`
+2. **Default URL**: `http://localhost:2080/api` is used if no localStorage value is set
 3. **Dynamic API Base**: All API calls use `getApiBase()` to get the current server URL
 4. **URL Normalization**: URLs are automatically normalized to end with `/api`
 
 ### Key Files
-- `frontend/src/utils/api.ts` - Dynamic API base with cookie support
-- `frontend/src/utils/cookies.ts` - Cookie CRUD operations
+- `frontend/src/utils/api.ts` - Dynamic API base with localStorage support
+- `frontend/src/utils/storage.ts` - LocalStorage operations
 - `frontend/src/utils/validation.ts` - URL validation
 - `frontend/src/components/modals/SettingsModal.vue` - Server URL UI
 

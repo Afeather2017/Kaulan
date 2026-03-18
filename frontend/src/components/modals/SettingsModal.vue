@@ -258,7 +258,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { getApiBase, setApiBase } from '@/utils/api'
 import { validateServerUrl } from '@/utils/validation'
-import { setShowLufs } from '@/utils/cookies'
+import { setShowLufs } from '@/utils/storage'
 import { useDeviceDiscovery, type DiscoveredDevice } from '@/composables/useDeviceDiscovery'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'

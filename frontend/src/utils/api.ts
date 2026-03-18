@@ -9,7 +9,7 @@
  * @module utils/api
  */
 
-import { getServerUrl, setServerUrl, removeServerUrl } from './cookies'
+import { getServerUrl, setServerUrl, removeServerUrl } from './storage'
 
 const DEFAULT_API_BASE = 'http://localhost:2080/api'
 

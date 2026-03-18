@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { getApiBase } from '@/utils/api'
-import { getViewMode, setViewMode } from '@/utils/cookies'
+import { getViewMode, setViewMode } from '@/utils/storage'
 
 export interface MusicInfo {
   id: number

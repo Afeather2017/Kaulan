@@ -8,7 +8,7 @@ The configurable server URL feature allows users to specify a custom backend ser
 - Development environments with different backend addresses
 - Testing against staging/production servers
 
-The server URL is saved to browser cookies and persists across page reloads.
+The server URL is saved to browser localStorage and persists across page reloads.
 
 ## User Instructions
 
@@ -44,49 +44,49 @@ The URL input validates the format as you type:
 sequenceDiagram
     participant User
     participant SettingsModal
-    participant CookieUtils
+    participant StorageUtils
     participant ApiUtils
     participant Browser
 
     User->>SettingsModal: Opens settings
     SettingsModal->>ApiUtils: getApiBase()
-    ApiUtils->>CookieUtils: getServerUrl()
-    CookieUtils->>Browser: Read cookie 'kaulan_server_url'
-    Browser-->>CookieUtils: Return value or empty
-    CookieUtils-->>ApiUtils: Return URL or default
+    ApiUtils->>StorageUtils: getServerUrl()
+    StorageUtils->>Browser: Read localStorage 'kaulan_server_url'
+    Browser-->>StorageUtils: Return value or empty
+    StorageUtils-->>ApiUtils: Return URL or default
     ApiUtils-->>SettingsModal: Display URL
 
     User->>SettingsModal: Enters custom URL
     User->>SettingsModal: Clicks Save
     SettingsModal->>SettingsModal: validateServerUrl()
     SettingsModal->>ApiUtils: setApiBase(url)
-    ApiUtils->>CookieUtils: setServerUrl(url)
-    CookieUtils->>Browser: Set cookie 'kaulan_server_url'
+    ApiUtils->>StorageUtils: setServerUrl(url)
+    StorageUtils->>Browser: Set localStorage 'kaulan_server_url'
     SettingsModal->>Browser: window.location.reload()
 
     Browser->>ApiUtils: getApiBase()
-    ApiUtils->>CookieUtils: getServerUrl()
-    CookieUtils->>Browser: Read cookie 'kaulan_server_url'
-    Browser-->>CookieUtils: Return saved URL
-    CookieUtils-->>ApiUtils: Return saved URL
+    ApiUtils->>StorageUtils: getServerUrl()
+    StorageUtils->>Browser: Read localStorage 'kaulan_server_url'
+    Browser-->>StorageUtils: Return saved URL
+    StorageUtils-->>ApiUtils: Return saved URL
     ApiUtils-->>Browser: Use saved URL for all API calls
 ```
 
-### Cookie Storage
+### LocalStorage
 
 | Property | Value |
 |----------|-------|
-| Cookie Name | `kaulan_server_url` |
-| Expiration | 365 days |
-| Storage | Browser cookies (httpOnly: false, secure: false) |
+| Storage Key | `kaulan_server_url` |
+| Expiration | Persistent (until cleared by user) |
+| Storage | Browser localStorage |
 
 ### File Structure
 
 ```
 frontend/src/
 ├── utils/
-│   ├── api.ts           # Dynamic API base with cookie support
-│   ├── cookies.ts       # Cookie CRUD operations
+│   ├── api.ts           # Dynamic API base with localStorage support
+│   ├── storage.ts       # LocalStorage operations
 │   └── validation.ts    # URL validation logic
 ├── components/modals/
 │   └── SettingsModal.vue   # UI for server URL configuration
@@ -114,7 +114,7 @@ const response = await fetch(`${getApiBase()}/music`)
 ### Related Source Files
 
 - `frontend/src/utils/api.ts` - API base URL configuration
-- `frontend/src/utils/cookies.ts` - Cookie operations
+- `frontend/src/utils/storage.ts` - LocalStorage operations
 - `frontend/src/utils/validation.ts` - URL validation
 - `frontend/src/components/modals/SettingsModal.vue` - Settings UI
 - `frontend/src/composables/useAudioPlayer.ts` - Audio player API calls
@@ -137,7 +137,7 @@ The `base-config` now has `cleartextTrafficPermitted="true"` to allow HTTP traff
 ## Default URL
 
 - **Default**: `http://localhost:2080/api`
-- **Fallback**: If no cookie is set, uses default automatically
+- **Fallback**: If no localStorage value is set, uses default automatically
 
 ## API Endpoints
 
