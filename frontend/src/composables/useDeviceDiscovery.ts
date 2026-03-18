@@ -24,7 +24,7 @@ interface OperationResponse {
   message: string
 }
 
-const SCAN_SECONDS = 10
+const SCAN_SECONDS = 3
 const SCAN_INTERVAL_MS = 1000
 
 function sleep(ms: number): Promise<void> {
