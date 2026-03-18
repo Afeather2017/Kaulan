@@ -25,6 +25,9 @@
       </div>
       <div class="song-info">
         <h3>{{ song.name }}</h3>
+        <span v-if="showLufs" class="song-lufs">
+          {{ song.lufs !== null ? `${song.lufs} LUFS` : '-' }}
+        </span>
       </div>
     </div>
 
@@ -65,8 +68,10 @@ withDefaults(defineProps<{
   showRemoveButton: boolean
   showAddButton: boolean
   showHeader?: boolean
+  showLufs?: boolean
 }>(), {
-  showHeader: true
+  showHeader: true,
+  showLufs: false
 })
 
 defineEmits<{
@@ -169,6 +174,14 @@ defineEmits<{
   font-weight: 500;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.song-lufs {
+  margin-left: 10px;
+  font-size: 13px;
+  color: #999;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .selection-actions {
