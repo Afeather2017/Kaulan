@@ -217,6 +217,23 @@
           <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
         </div>
 
+        <!-- Display Settings -->
+        <hr class="settings-divider" />
+        <div class="mode-toggle">
+          <div class="mode-label">显示设置</div>
+        </div>
+        <div class="setting-item">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              :checked="showLufsLocal"
+              @change="handleShowLufsChange"
+              class="setting-checkbox"
+            />
+            <span>显示 LUFS 值</span>
+          </label>
+        </div>
+
         <div class="modal-actions">
           <button @click="$emit('close')" class="confirm-btn">确认</button>
         </div>
@@ -226,9 +243,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { getApiBase, setApiBase } from '@/utils/api'
 import { validateServerUrl } from '@/utils/validation'
+import { setShowLufs } from '@/utils/cookies'
 import { useDeviceDiscovery, type DiscoveredDevice } from '@/composables/useDeviceDiscovery'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
@@ -247,6 +265,7 @@ const props = defineProps<{
   timerStatusDisplay: string
   viewModeLabels: Record<ViewMode, string>
   volumeModeLabels: Record<VolumeMode, string>
+  showLufs: boolean
 }>()
 
 const emit = defineEmits<{
@@ -267,6 +286,7 @@ const emit = defineEmits<{
   (e: 'databaseUpdateStart'): void
   (e: 'databaseUpdateEnd'): void
   (e: 'openUploadModal'): void
+  (e: 'update:showLufs', value: boolean): void
 }>()
 
 const musicDirectory = ref<string>('Loading...')
@@ -294,6 +314,22 @@ const {
 const deviceNameInput = ref<string>('')
 const isSavingDeviceName = ref<boolean>(false)
 const LOCALHOST_API_URL = 'http://localhost:2080/api'
+
+// Local show LUFS setting (synced with prop)
+const showLufsLocal = ref<boolean>(props.showLufs)
+
+// Watch for prop changes (from parent/App.vue)
+watch(() => props.showLufs, (newValue) => {
+  showLufsLocal.value = newValue
+})
+
+// Handle show LUFS checkbox change
+const handleShowLufsChange = (e: Event) => {
+  const checked = (e.target as HTMLInputElement).checked
+  showLufsLocal.value = checked
+  setShowLufs(checked)
+  emit('update:showLufs', checked)
+}
 
 const localhostDevice = computed<DiscoveredDevice>(() => ({
   device_id: 'localhost-self',
@@ -1140,5 +1176,27 @@ const openManualAddressDialog = async () => {
 .refresh-devices-btn:hover {
   background-color: #f0f0f0;
   border-color: #ccc;
+}
+
+/* Checkbox styles */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 15px;
+  color: #555;
+  user-select: none;
+}
+
+.setting-checkbox {
+  width: 20px;
+  height: 20px;
+  margin-right: 10px;
+  cursor: pointer;
+  accent-color: #1db954;
+}
+
+.checkbox-label:hover .setting-checkbox {
+  transform: scale(1.1);
 }
 </style>

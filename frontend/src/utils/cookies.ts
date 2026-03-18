@@ -12,7 +12,8 @@
  */
 export const COOKIE_KEYS = {
   SERVER_URL: 'kaulan_server_url',
-  VIEW_MODE: 'kaulan_view_mode'
+  VIEW_MODE: 'kaulan_view_mode',
+  SHOW_LUFS: 'kaulan_show_lufs'
 } as const
 
 /**
@@ -124,4 +125,20 @@ export function setViewMode(mode: string): void {
  */
 export function removeViewMode(): void {
   removeStorageValue(COOKIE_KEYS.VIEW_MODE)
+}
+
+/**
+ * Get the stored show LUFS setting from localStorage
+ * @returns Whether to show LUFS values (defaults to false)
+ */
+export function getShowLufs(): boolean {
+  return getStorageValue(COOKIE_KEYS.SHOW_LUFS) === 'true'
+}
+
+/**
+ * Save the show LUFS setting to localStorage
+ * @param show - Whether to show LUFS values
+ */
+export function setShowLufs(show: boolean): void {
+  setStorageValue(COOKIE_KEYS.SHOW_LUFS, show ? 'true' : 'false')
 }

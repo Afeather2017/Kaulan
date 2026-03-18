@@ -59,6 +59,7 @@
               :show-remove-button="viewMode === 'collection' && selectedPlaylist?.name !== '所有音乐'"
               :show-add-button="viewMode === 'folder' || selectedPlaylist?.name === '所有音乐'"
               :show-header="false"
+              :show-lufs="showLufs"
               @back="handleBackToPlaylists"
               @toggle-select-mode="toggleSelectMode"
               @toggle-selection="toggleSongSelection"
@@ -78,6 +79,7 @@
                 :show-remove-button="false"
                 :show-add-button="false"
                 :show-header="false"
+                :show-lufs="showLufs"
                 @back="handleBackToPlaylists"
                 @play="handlePlaySong"
               />
@@ -159,6 +161,7 @@
       :timer-status-display="timerStatusDisplay"
       :view-mode-labels="viewModeLabels"
       :volume-mode-labels="volumeModeLabels"
+      :show-lufs="showLufs"
       @close="hideSettingsModal"
       @toggle-view-mode="handleToggleViewMode"
       @toggle-volume-mode="handleToggleVolumeMode"
@@ -176,6 +179,7 @@
       @database-update-start="handleDatabaseUpdateStart"
       @database-update-end="handleDatabaseUpdateEnd"
       @open-upload-modal="showUploadModal = true"
+      @update:show-lufs="showLufs = $event"
     />
 
     <!-- Add to Collection Modal -->
@@ -232,6 +236,7 @@ import { useTimer } from '@/composables/useTimer'
 import { useVolume } from '@/composables/useVolume'
 import { useLyrics } from '@/composables/useLyrics'
 import { getApiBase } from '@/utils/api'
+import { getShowLufs } from '@/utils/cookies'
 
 // Search behavior docs: docs/search.md
 // Use composables
@@ -341,6 +346,7 @@ const { lyrics, currentLyricIndex, hasLyrics, updateCurrentLyric } = useLyrics(c
 
 // Additional state
 const showSettings = ref(false)
+const showLufs = ref(getShowLufs())
 const showAddToCollection = ref(false)
 const selectedCollections = ref<number[]>([])
 const newCollectionName = ref('')
