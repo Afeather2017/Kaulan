@@ -2662,9 +2662,9 @@ dependencies = [
 
 [[package]]
 name = "lufsgen"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85bae0a04e123b897f31df2c2b96bef8953c2d311cbe39b3d9aca0d92e1ca307"
+checksum = "8e1618cf6ffc0a1343bd353c446fc207cd7d5ec345e24795010483e25deed5fe"
 dependencies = [
  "ebur128",
  "indicatif",
