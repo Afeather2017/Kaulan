@@ -236,7 +236,7 @@ import { useTimer } from '@/composables/useTimer'
 import { useVolume } from '@/composables/useVolume'
 import { useLyrics } from '@/composables/useLyrics'
 import { getApiBase } from '@/utils/api'
-import { getShowLufs } from '@/utils/cookies'
+import { getShowLufs } from '@/utils/storage'
 
 // Search behavior docs: docs/search.md
 // Use composables
