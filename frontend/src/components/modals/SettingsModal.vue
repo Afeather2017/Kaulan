@@ -56,11 +56,23 @@
               @click="connectToDevice(device)"
             >
               <div class="device-info">
-                <div class="device-name">{{ device.device_name }}</div>
+                <div class="device-name">
+                  {{ device.device_name }}
+                  <span v-if="device.isManual" class="manual-badge">手动添加</span>
+                </div>
                 <div class="device-url">{{ device.api_url }}</div>
               </div>
-              <div class="device-last-seen">
-                {{ isLocalhostDevice(device) ? '本机' : formatLastSeen(device.last_seen_secs_ago) }}
+              <div class="device-actions">
+                <div class="device-last-seen">
+                  {{ isLocalhostDevice(device) ? '本机' : formatLastSeen(device.last_seen_secs_ago) }}
+                </div>
+                <button
+                  v-if="device.isManual"
+                  class="remove-device-btn"
+                  @click.stop="removeManualDevice(device.api_url)"
+                >
+                  <i class="fas fa-times"></i>
+                </button>
               </div>
             </div>
           </div>
@@ -315,6 +327,93 @@ const deviceNameInput = ref<string>('')
 const isSavingDeviceName = ref<boolean>(false)
 const LOCALHOST_API_URL = 'http://localhost:2080/api'
 
+// Manual devices storage (localStorage)
+const MANUAL_DEVICES_KEY = 'kaulan_manual_devices'
+
+interface ManualDevice {
+  api_url: string
+  device_name?: string
+  added_at: number
+  last_fetched?: number
+}
+
+const manualDevices = ref<ManualDevice[]>([])
+
+// Fetch device name from a manual device by calling its API
+const fetchDeviceName = async (url: string): Promise<string | null> => {
+  try {
+    const normalizedUrl = url.endsWith('/api') ? url : (url.endsWith('/') ? url + 'api' : url + '/api')
+    const response = await fetch(`${normalizedUrl}/discovery/self`)
+    if (response.ok) {
+      const data = await response.json()
+      return data.device_name || null
+    }
+  } catch (e) {
+    console.warn(`Failed to fetch device name from ${url}:`, e)
+  }
+  return null
+}
+
+// Refresh names for all manual devices
+const refreshManualDeviceNames = async () => {
+  const promises = manualDevices.value.map(async (device) => {
+    const name = await fetchDeviceName(device.api_url)
+    if (name) {
+      device.device_name = name
+      device.last_fetched = Date.now()
+    }
+  })
+  await Promise.all(promises)
+  saveManualDevices()
+}
+
+const loadManualDevices = () => {
+  try {
+    const stored = localStorage.getItem(MANUAL_DEVICES_KEY)
+    if (stored) {
+      manualDevices.value = JSON.parse(stored)
+      // Refresh device names in background
+      refreshManualDeviceNames()
+    }
+  } catch (e) {
+    console.error('Failed to load manual devices:', e)
+  }
+}
+
+const saveManualDevices = () => {
+  try {
+    localStorage.setItem(MANUAL_DEVICES_KEY, JSON.stringify(manualDevices.value))
+  } catch (e) {
+    console.error('Failed to save manual devices:', e)
+  }
+}
+
+const addManualDevice = async (url: string) => {
+  const normalizedUrl = url.endsWith('/api') ? url : (url.endsWith('/') ? url + 'api' : url + '/api')
+
+  // Check if already exists
+  const existing = manualDevices.value.find(m => m.api_url === normalizedUrl)
+  if (existing) {
+    return // Already exists, don't add duplicate
+  }
+
+  // Fetch device name
+  const deviceName = await fetchDeviceName(normalizedUrl)
+
+  manualDevices.value.push({
+    api_url: normalizedUrl,
+    device_name: deviceName || undefined,
+    added_at: Date.now(),
+    last_fetched: deviceName ? Date.now() : undefined
+  })
+  saveManualDevices()
+}
+
+const removeManualDevice = (url: string) => {
+  manualDevices.value = manualDevices.value.filter(m => m.api_url !== url)
+  saveManualDevices()
+}
+
 // Local show LUFS setting (synced with prop)
 const showLufsLocal = ref<boolean>(props.showLufs)
 
@@ -339,7 +438,15 @@ const localhostDevice = computed<DiscoveredDevice>(() => ({
 }))
 
 const displayDevices = computed<DiscoveredDevice[]>(() => {
-  const merged = [localhostDevice.value, ...discoveredDevices.value]
+  const manualDeviceEntries: DiscoveredDevice[] = manualDevices.value.map((m, idx) => ({
+    device_id: `manual-${idx}-${m.added_at}`,
+    device_name: m.device_name || '手动添加',
+    api_url: m.api_url,
+    last_seen_secs_ago: 0,
+    isManual: true
+  }))
+
+  const merged = [localhostDevice.value, ...discoveredDevices.value, ...manualDeviceEntries]
   const unique = new Map<string, DiscoveredDevice>()
   for (const device of merged) {
     if (!unique.has(device.api_url)) {
@@ -457,6 +564,9 @@ const handleTimerMinutesBlur = () => {
 onMounted(async () => {
   // Initialize server URL input
   serverUrlInput.value = getApiBase()
+
+  // Load manual devices from localStorage
+  loadManualDevices()
 
   // Initialize device name from localStorage first (local device's name)
   const localDeviceName = localStorage.getItem('kaulan_local_device_name')
@@ -612,7 +722,12 @@ const openManualAddressDialog = async () => {
   const input = prompt('请输入服务器地址:', serverUrlInput.value)
   if (input === null) return
 
-  serverUrlInput.value = input.trim()
+  const trimmed = input.trim()
+  serverUrlInput.value = trimmed
+
+  // Add to manual devices list before connecting (fetches device name)
+  await addManualDevice(trimmed)
+
   await saveServerUrl()
 }
 </script>
@@ -1158,6 +1273,41 @@ const openManualAddressDialog = async () => {
   font-size: 12px;
   color: #999;
   white-space: nowrap;
+}
+
+.manual-badge {
+  font-size: 11px;
+  background-color: #ff9800;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
+.device-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.remove-device-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background-color: #e74c3c;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.remove-device-btn:hover {
+  background-color: #c0392b;
+  transform: scale(1.1);
 }
 
 .refresh-devices-btn {
