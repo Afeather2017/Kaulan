@@ -10,7 +10,28 @@ On Android, the WebView component may respond to pinch gestures with two fingers
 
 ## Solution
 
-The solution uses CSS `touch-action` property to control touch behavior. When the app detects it's running on Android, it applies styles that:
+The solution uses two complementary approaches:
+
+1. **Viewport meta tag** - Browser-level prevention of scaling
+2. **CSS `touch-action` property** - Runtime touch behavior control
+
+### Viewport Meta Tag
+
+The `index.html` file contains a viewport meta tag that prevents scaling at the browser level:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+```
+
+This tells the browser to:
+- Set the viewport width to match the device width
+- Lock the initial scale to 1.0
+- Prevent scaling beyond 1.0 (`maximum-scale=1`)
+- Disable user-initiated zoom gestures (`user-scalable=no`)
+
+### CSS touch-action
+
+When the app detects it's running on Android, it applies additional styles that:
 
 1. Disable pinch-to-zoom gestures
 2. Allow only pan-x and pan-y (horizontal/vertical scrolling)
@@ -18,7 +39,15 @@ The solution uses CSS `touch-action` property to control touch behavior. When th
 
 ## Implementation
 
-### Source File
+### Viewport Meta Tag
+
+**`frontend/index.html`** - HTML entry point with viewport configuration
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+```
+
+### CSS touch-action
 
 **`frontend/src/main.ts`** - Entry point where Android-specific styles are applied
 
@@ -58,6 +87,19 @@ export function isAndroid(): boolean {
 
 ## How It Works
 
+### Viewport Meta Tag
+
+The viewport meta tag provides browser-level scaling prevention:
+
+| Attribute | Purpose |
+|-----------|---------|
+| `width=device-width` | Match viewport to device screen width |
+| `initial-scale=1` | Set initial zoom level to 1.0 |
+| `maximum-scale=1` | Prevent zooming in beyond 1.0 |
+| `user-scalable=no` | Disable user-initiated zoom gestures |
+
+This is the first line of defense and works across all platforms.
+
 ### touch-action Property
 
 The `touch-action` CSS property controls how touch interactions are handled:
@@ -76,6 +118,7 @@ The styles are applied in `main.ts` before mounting the Vue app, ensuring they t
 
 ## Related Source Files
 
+- **`frontend/index.html`** - Viewport meta tag configuration
 - **`frontend/src/main.ts`** - Entry point, applies Android touch styles
 - **`frontend/src/utils/platform.ts`** - Platform detection (`isAndroid()` function)
 
