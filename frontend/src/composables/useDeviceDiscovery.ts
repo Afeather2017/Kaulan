@@ -6,6 +6,7 @@ export interface DiscoveredDevice {
   device_name: string
   api_url: string
   last_seen_secs_ago: number
+  isManual?: boolean
 }
 
 export interface SelfDevice {
