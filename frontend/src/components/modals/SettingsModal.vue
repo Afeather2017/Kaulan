@@ -737,21 +737,24 @@ const openManualAddressDialog = async () => {
   position: fixed;
   top: 0;
   left: 0;
+  right: 0;
   bottom: 0;
-  width: 100%;
-  max-width: 500px;
-  background-color: #fafafa;
-  border-right: 1px solid #eee;
-  z-index: 100;
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  z-index: 100;
 }
 
 .modal-content {
+  background-color: #fff;
+  width: 500px;
+  max-width: 85vw;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: #fff;
+  overflow: hidden;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
 }
 
 .modal-top-bar {
