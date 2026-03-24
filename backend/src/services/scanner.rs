@@ -6,14 +6,19 @@
 //! - Database updates for new/modified/deleted files
 //! - LUFS values are calculated on-demand during playback (see handlers/lufs.rs)
 
-use crate::entities::music::{Entity as MusicEntity, ActiveModel as MusicActiveModel, Column as MusicColumn};
-use crate::entities::db_meta::{Entity as DbMetaEntity, ActiveModel as DbMetaActiveModel};
+use crate::entities::db_meta::{ActiveModel as DbMetaActiveModel, Entity as DbMetaEntity};
+use crate::entities::music::{
+    ActiveModel as MusicActiveModel, Column as MusicColumn, Entity as MusicEntity,
+};
 use crate::file_ops::{get_music_file_lister, MusicFileInfo};
-use sea_orm::{DatabaseConnection, EntityTrait, Set, ActiveModelTrait, ModelTrait, ColumnTrait, QueryFilter, DbErr};
-use std::path::Path;
 use chrono::Utc;
-use tracing::{debug, info, error};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
+    Set,
+};
 use std::io;
+use std::path::Path;
+use tracing::{debug, error, info};
 
 /// Recursively scan directory for audio files (desktop version using std::fs)
 ///
@@ -23,7 +28,10 @@ use std::io;
 ///
 /// Returns a list of MusicFileInfo structs containing file path, filename,
 /// and optional metadata (title, artist, album, duration).
-pub async fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Result<Vec<MusicFileInfo>, io::Error> {
+pub async fn scan_directory_recursive(
+    dir_path: &Path,
+    _music_path: &str,
+) -> Result<Vec<MusicFileInfo>, io::Error> {
     let lister = get_music_file_lister();
     let dir_str = dir_path.to_string_lossy();
 
@@ -31,7 +39,11 @@ pub async fn scan_directory_recursive(dir_path: &Path, _music_path: &str) -> Res
 
     match lister.list_music_files(&dir_str).await {
         Ok(files) => {
-            debug!("Directory scan complete. Found {} audio files in {}", files.len(), dir_str);
+            debug!(
+                "Directory scan complete. Found {} audio files in {}",
+                files.len(),
+                dir_str
+            );
             Ok(files)
         }
         Err(e) => {
@@ -74,7 +86,10 @@ fn normalize_path(path: &str) -> String {
 /// # Returns
 /// - `Ok(())` - Database initialized successfully
 /// - `Err(DbErr)` - Database error occurred
-pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
+pub async fn initialize_database(
+    music_path: &str,
+    db_conn: &DatabaseConnection,
+) -> Result<(), sea_orm::DbErr> {
     info!("Initializing database with music from: {}", music_path);
     let audio_files = match scan_directory_recursive(Path::new(music_path), music_path).await {
         Ok(files) => files,
@@ -92,7 +107,12 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
         let filename = &file_info.filename;
         let normalized_path = normalize_path(&file_info.path);
 
-        debug!("Processing file {}/{}: {}", idx + 1, audio_files.len(), filename);
+        debug!(
+            "Processing file {}/{}: {}",
+            idx + 1,
+            audio_files.len(),
+            filename
+        );
 
         match MusicEntity::find()
             .filter(MusicColumn::FilePath.eq(&normalized_path))
@@ -122,12 +142,18 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
                 existing_files += 1;
             }
             Err(e) => {
-                error!("Database error while checking file {}: {}", normalized_path, e);
+                error!(
+                    "Database error while checking file {}: {}",
+                    normalized_path, e
+                );
             }
         }
     }
 
-    info!("Database initialization complete: {} new files, {} existing files", new_files, existing_files);
+    info!(
+        "Database initialization complete: {} new files, {} existing files",
+        new_files, existing_files
+    );
     Ok(())
 }
 
@@ -190,12 +216,18 @@ pub async fn set_initial_scan_done(db_conn: &DatabaseConnection, done: bool) -> 
 /// # Returns
 /// - `Ok(())` - Database updated successfully
 /// - `Err(io::Error)` - File system error occurred
-pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> Result<(), std::io::Error> {
+pub async fn update_database(
+    music_path: &str,
+    db_conn: &DatabaseConnection,
+) -> Result<(), std::io::Error> {
     info!("[DB_UPDATE] ========== STARTING DATABASE UPDATE ==========");
     info!("[DB_UPDATE] Music directory: {}", music_path);
 
     let audio_files = scan_directory_recursive(Path::new(music_path), music_path).await?;
-    info!("[DB_UPDATE] Found {} audio files in directory", audio_files.len());
+    info!(
+        "[DB_UPDATE] Found {} audio files in directory",
+        audio_files.len()
+    );
 
     let mut new_files = 0;
     let mut skipped_files = 0;
@@ -204,7 +236,12 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
         let filename = &file_info.filename;
         let normalized_path = normalize_path(&file_info.path);
 
-        info!("[DB_UPDATE] [{}/{}] Checking file: {}", idx + 1, audio_files.len(), filename);
+        info!(
+            "[DB_UPDATE] [{}/{}] Checking file: {}",
+            idx + 1,
+            audio_files.len(),
+            filename
+        );
         debug!("[DB_UPDATE]   Path: {}", normalized_path);
 
         match MusicEntity::find()
@@ -224,7 +261,10 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                 };
                 match music.insert(db_conn).await {
                     Ok(_) => {
-                        info!("[DB_UPDATE]   INSERTED: {} (LUFS: null, will be calculated on-demand)", filename);
+                        info!(
+                            "[DB_UPDATE]   INSERTED: {} (LUFS: null, will be calculated on-demand)",
+                            filename
+                        );
                         new_files += 1;
                     }
                     Err(e) => {
@@ -233,11 +273,17 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                 }
             }
             Ok(Some(_)) => {
-                debug!("[DB_UPDATE]   SKIPPED: File already in database: {}", filename);
+                debug!(
+                    "[DB_UPDATE]   SKIPPED: File already in database: {}",
+                    filename
+                );
                 skipped_files += 1;
             }
             Err(e) => {
-                error!("[DB_UPDATE]   DATABASE ERROR while checking file {}: {}", normalized_path, e);
+                error!(
+                    "[DB_UPDATE]   DATABASE ERROR while checking file {}: {}",
+                    normalized_path, e
+                );
             }
         }
     }
@@ -256,7 +302,10 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                     // Check if file exists - use the stored absolute path directly
                     if !Path::new(&music.file_path).exists() {
                         let filename = music.filename.clone();
-                        info!("[DB_UPDATE] Deleting non-existent file from database: {}", filename);
+                        info!(
+                            "[DB_UPDATE] Deleting non-existent file from database: {}",
+                            filename
+                        );
                         match music.delete(db_conn).await {
                             Ok(_) => {
                                 deleted_files += 1;
@@ -269,7 +318,10 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                 }
             }
             Err(e) => {
-                error!("[DB_UPDATE] Database error while checking for deleted files: {}", e);
+                error!(
+                    "[DB_UPDATE] Database error while checking for deleted files: {}",
+                    e
+                );
             }
         }
     } else {
@@ -277,6 +329,9 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
     }
 
     info!("[DB_UPDATE] ========== DATABASE UPDATE COMPLETE ==========");
-    info!("[DB_UPDATE] Summary: {} new, {} skipped, {} deleted", new_files, skipped_files, deleted_files);
+    info!(
+        "[DB_UPDATE] Summary: {} new, {} skipped, {} deleted",
+        new_files, skipped_files, deleted_files
+    );
     Ok(())
 }

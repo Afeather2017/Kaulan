@@ -6,11 +6,13 @@
 //!
 //! Documentation: [docs/settings-and-database-management.md](../../../docs/settings-and-database-management.md)
 
-use actix_web::{get, post, web, HttpResponse, Responder};
-use crate::types::{AppState, MusicDirectoryResponse, SetDirectoryResponse, SetMusicDirectoryRequest};
 use crate::config;
+use crate::types::{
+    AppState, MusicDirectoryResponse, SetDirectoryResponse, SetMusicDirectoryRequest,
+};
+use actix_web::{get, post, web, HttpResponse, Responder};
 use std::path::Path;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Get current music directory
 ///
@@ -67,9 +69,7 @@ pub async fn get_music_directory(data: web::Data<AppState>) -> impl Responder {
 /// - `400 Bad Request` if path doesn't exist or is not a directory (desktop only)
 /// - `500 Internal Server Error` if config save fails
 #[post("/api/settings/music-directory")]
-pub async fn set_music_directory(
-    req: web::Json<SetMusicDirectoryRequest>,
-) -> impl Responder {
+pub async fn set_music_directory(req: web::Json<SetMusicDirectoryRequest>) -> impl Responder {
     let new_path = &req.path;
 
     // Check if this is a SAF content URI (Android)

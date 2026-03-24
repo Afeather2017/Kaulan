@@ -12,14 +12,23 @@
 //! Collections are user-defined playlists that can contain any music files,
 //! regardless of their folder location.
 
-use actix_web::{get, post, delete, web, HttpResponse, Responder};
-use crate::entities::music::{Entity as MusicEntity};
-use crate::entities::collection::{Entity as CollectionEntity, Model as CollectionModel, ActiveModel as CollectionActiveModel, Column as CollectionColumn};
-use crate::entities::collection_item::{Entity as CollectionItemEntity, ActiveModel as CollectionItemActiveModel, Column as CollectionItemColumn};
-use crate::types::{AppState, Collection, CollectionWithSongs, CreateCollectionRequest, AddToCollectionRequest, RemoveFromCollectionRequest, MusicInfo};
-use sea_orm::{EntityTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter};
+use crate::entities::collection::{
+    ActiveModel as CollectionActiveModel, Column as CollectionColumn, Entity as CollectionEntity,
+    Model as CollectionModel,
+};
+use crate::entities::collection_item::{
+    ActiveModel as CollectionItemActiveModel, Column as CollectionItemColumn,
+    Entity as CollectionItemEntity,
+};
+use crate::entities::music::Entity as MusicEntity;
+use crate::types::{
+    AddToCollectionRequest, AppState, Collection, CollectionWithSongs, CreateCollectionRequest,
+    MusicInfo, RemoveFromCollectionRequest,
+};
+use actix_web::{delete, get, post, web, HttpResponse, Responder};
 use chrono::Utc;
-use tracing::{info, warn, error, debug};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use tracing::{debug, error, info, warn};
 
 /// Get all collections
 ///
@@ -30,10 +39,7 @@ use tracing::{info, warn, error, debug};
 /// JSON array of `Collection` objects
 #[get("/api/collections")]
 pub async fn get_all_collections(data: web::Data<AppState>) -> impl Responder {
-    match CollectionEntity::find()
-        .all(&data.db_conn)
-        .await
-    {
+    match CollectionEntity::find().all(&data.db_conn).await {
         Ok(collections) => {
             let response: Vec<Collection> = collections
                 .into_iter()
@@ -121,10 +127,7 @@ pub async fn create_collection(
 /// - `404 Not Found` if collection doesn't exist
 /// - `500 Internal Server Error` for database errors
 #[delete("/api/collections/{id}")]
-pub async fn delete_collection(
-    path: web::Path<i32>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn delete_collection(path: web::Path<i32>, data: web::Data<AppState>) -> impl Responder {
     let collection_id = path.into_inner();
     info!("Deleting collection with ID: {}", collection_id);
 
@@ -149,7 +152,10 @@ pub async fn delete_collection(
             }
         }
         Err(e) => {
-            error!("Database error while deleting collection {}: {}", collection_id, e);
+            error!(
+                "Database error while deleting collection {}: {}",
+                collection_id, e
+            );
             HttpResponse::InternalServerError().body("Database error")
         }
     }
@@ -168,10 +174,7 @@ pub async fn delete_collection(
 /// - `404 Not Found` if collection doesn't exist
 /// - `500 Internal Server Error` for database errors
 #[get("/api/collections/{id}")]
-pub async fn get_collection(
-    path: web::Path<i32>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn get_collection(path: web::Path<i32>, data: web::Data<AppState>) -> impl Responder {
     let collection_id = path.into_inner();
 
     match CollectionEntity::find_by_id(collection_id)
@@ -273,7 +276,11 @@ pub async fn add_to_collection(
     data: web::Data<AppState>,
 ) -> impl Responder {
     let collection_id = path.into_inner();
-    info!("Adding {} songs to collection {}", req.music_ids.len(), collection_id);
+    info!(
+        "Adding {} songs to collection {}",
+        req.music_ids.len(),
+        collection_id
+    );
 
     match CollectionEntity::find_by_id(collection_id)
         .one(&data.db_conn)
@@ -285,17 +292,17 @@ pub async fn add_to_collection(
             return HttpResponse::NotFound().body("Collection not found");
         }
         Err(e) => {
-            error!("Database error while fetching collection {}: {}", collection_id, e);
+            error!(
+                "Database error while fetching collection {}: {}",
+                collection_id, e
+            );
             return HttpResponse::InternalServerError().body("Database error");
         }
     }
 
     let mut added_count = 0;
     for music_id in &req.music_ids {
-        match MusicEntity::find_by_id(*music_id)
-            .one(&data.db_conn)
-            .await
-        {
+        match MusicEntity::find_by_id(*music_id).one(&data.db_conn).await {
             Ok(Some(_)) => {
                 match CollectionItemEntity::find()
                     .filter(CollectionItemColumn::CollectionId.eq(collection_id))
@@ -316,7 +323,10 @@ pub async fn add_to_collection(
                         };
                         match item.insert(&data.db_conn).await {
                             Ok(_) => added_count += 1,
-                            Err(e) => warn!("Failed to add music {} to collection {}: {}", music_id, collection_id, e),
+                            Err(e) => warn!(
+                                "Failed to add music {} to collection {}: {}",
+                                music_id, collection_id, e
+                            ),
                         }
                     }
                     Err(e) => {
@@ -336,7 +346,10 @@ pub async fn add_to_collection(
         }
     }
 
-    info!("Added {} songs to collection {}", added_count, collection_id);
+    info!(
+        "Added {} songs to collection {}",
+        added_count, collection_id
+    );
     HttpResponse::Ok().body("Songs added to collection")
 }
 
@@ -364,7 +377,11 @@ pub async fn remove_from_collection(
     data: web::Data<AppState>,
 ) -> impl Responder {
     let collection_id = path.into_inner();
-    info!("Removing {} songs from collection {}", req.music_ids.len(), collection_id);
+    info!(
+        "Removing {} songs from collection {}",
+        req.music_ids.len(),
+        collection_id
+    );
 
     let mut removed_count = 0;
     for music_id in &req.music_ids {
@@ -380,12 +397,18 @@ pub async fn remove_from_collection(
                 }
             }
             Err(e) => {
-                warn!("Failed to remove music {} from collection {}: {}", music_id, collection_id, e);
+                warn!(
+                    "Failed to remove music {} from collection {}: {}",
+                    music_id, collection_id, e
+                );
                 continue;
             }
         }
     }
 
-    info!("Removed {} songs from collection {}", removed_count, collection_id);
+    info!(
+        "Removed {} songs from collection {}",
+        removed_count, collection_id
+    );
     HttpResponse::Ok().body("Songs removed from collection")
 }

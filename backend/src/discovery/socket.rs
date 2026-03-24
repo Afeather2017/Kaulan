@@ -50,8 +50,10 @@ pub async fn create_discovery_socket() -> Option<Arc<UdpSocket>> {
                 return Some(Arc::new(socket));
             }
             Err(e) => {
-                error!("Failed to bind discovery socket to {}: {}, retrying in {:?}",
-                    BIND_ADDR, e, SOCKET_RETRY_DELAY);
+                error!(
+                    "Failed to bind discovery socket to {}: {}, retrying in {:?}",
+                    BIND_ADDR, e, SOCKET_RETRY_DELAY
+                );
                 sleep(SOCKET_RETRY_DELAY).await;
                 // Continue retrying
             }

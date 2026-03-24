@@ -92,7 +92,10 @@ pub trait FileReader: Send + Sync {
     /// # Returns
     /// - `Ok(Box<dyn ReadSeekSendSync>)` - Seekable reader
     /// - `Err(std::io::Error)` - I/O error occurred
-    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
+    async fn open_seekable_reader(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
 }
 
 /// Trait for listing music files in a directory
@@ -110,7 +113,8 @@ pub trait MusicFileLister: Send + Sync {
     /// # Returns
     /// - `Ok(Vec<MusicFileInfo>)` - List of music files with metadata
     /// - `Err(std::io::Error)` - I/O error occurred
-    async fn list_music_files(&self, base_path: &str) -> Result<Vec<MusicFileInfo>, std::io::Error>;
+    async fn list_music_files(&self, base_path: &str)
+        -> Result<Vec<MusicFileInfo>, std::io::Error>;
 }
 
 /// Information about a music file
@@ -150,23 +154,28 @@ impl FileReader for StdFileReader {
             debug!("StdFileReader: Attempting to read file: {}", path_clone);
             let result = std::fs::read(&path_clone);
             match &result {
-                Ok(bytes) => debug!("StdFileReader: Successfully read {} bytes from {}", bytes.len(), path_clone),
+                Ok(bytes) => debug!(
+                    "StdFileReader: Successfully read {} bytes from {}",
+                    bytes.len(),
+                    path_clone
+                ),
                 Err(e) => debug!("StdFileReader: Failed to read file {}: {}", path_clone, e),
             }
             result
         })
-            .await
-            .map_err(|e| {
-                debug!("StdFileReader: Task join error for path {}: {}", path, e);
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-            })?
+        .await
+        .map_err(|e| {
+            debug!("StdFileReader: Task join error for path {}: {}", path, e);
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?
     }
 
     async fn read_stream(
         &self,
         path: &str,
         chunk_size: usize,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>
+    {
         debug!("StdFileReader::read_stream called with path: {}", path);
         let file = tokio::fs::File::open(path).await?;
         let stream = tokio_util::io::ReaderStream::with_capacity(file, chunk_size);
@@ -178,8 +187,12 @@ impl FileReader for StdFileReader {
         path: &str,
         chunk_size: usize,
         start_pos: u64,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error> {
-        debug!("StdFileReader::read_stream_from called with path: {}, start_pos: {}", path, start_pos);
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>
+    {
+        debug!(
+            "StdFileReader::read_stream_from called with path: {}, start_pos: {}",
+            path, start_pos
+        );
         let mut file = tokio::fs::File::open(path).await?;
         // Seek to the starting position
         use tokio::io::{AsyncSeekExt, SeekFrom};
@@ -194,8 +207,14 @@ impl FileReader for StdFileReader {
         Ok(metadata.len())
     }
 
-    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error> {
-        debug!("StdFileReader::open_seekable_reader called with path: {}", path);
+    async fn open_seekable_reader(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error> {
+        debug!(
+            "StdFileReader::open_seekable_reader called with path: {}",
+            path
+        );
         let path = path.to_string();
         let file = tokio::task::spawn_blocking(move || std::fs::File::open(path))
             .await
@@ -215,7 +234,10 @@ pub struct StdMusicFileLister;
 
 #[async_trait]
 impl MusicFileLister for StdMusicFileLister {
-    async fn list_music_files(&self, base_path: &str) -> Result<Vec<MusicFileInfo>, std::io::Error> {
+    async fn list_music_files(
+        &self,
+        base_path: &str,
+    ) -> Result<Vec<MusicFileInfo>, std::io::Error> {
         // Use spawn_blocking for synchronous directory scanning
         let base_path = base_path.to_string();
         tokio::task::spawn_blocking(move || {
@@ -224,7 +246,10 @@ impl MusicFileLister for StdMusicFileLister {
 
             debug!("Scanning directory with StdMusicFileLister: {}", base_path);
             scan_directory_recursive_sync(dir_path, &mut audio_files);
-            debug!("StdMusicFileLister scan complete. Found {} audio files", audio_files.len());
+            debug!(
+                "StdMusicFileLister scan complete. Found {} audio files",
+                audio_files.len()
+            );
             Ok(audio_files)
         })
         .await
@@ -245,11 +270,9 @@ fn scan_directory_recursive_sync(dir_path: &Path, audio_files: &mut Vec<MusicFil
                     if let Some(extension) = path.extension() {
                         let ext_str = extension.to_string_lossy().to_lowercase();
                         if SUPPORTED_EXTENSIONS.contains(&ext_str.as_str()) {
-                            let filename = path.file_name()
-                                .unwrap()
-                                .to_string_lossy()
-                                .to_string();
-                            let absolute_path = path.canonicalize()
+                            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                            let absolute_path = path
+                                .canonicalize()
                                 .unwrap_or_else(|_| path.clone())
                                 .to_string_lossy()
                                 .to_string();
@@ -263,7 +286,9 @@ fn scan_directory_recursive_sync(dir_path: &Path, audio_files: &mut Vec<MusicFil
                                 artist: None,
                                 album: None,
                                 duration_ms: None,
-                                parent_dir: dir_path.file_name().map(|n| n.to_string_lossy().to_string()),
+                                parent_dir: dir_path
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string()),
                             });
                         }
                     }
@@ -302,7 +327,9 @@ pub fn set_file_reader(reader: Box<dyn FileReader>) -> Result<(), Box<dyn FileRe
 /// # Returns
 /// - `Ok(())` - Successfully set the lister
 /// - `Err(Box<dyn MusicFileLister>)` - A lister was already set, returns the new one
-pub fn set_music_file_lister(lister: Box<dyn MusicFileLister>) -> Result<(), Box<dyn MusicFileLister>> {
+pub fn set_music_file_lister(
+    lister: Box<dyn MusicFileLister>,
+) -> Result<(), Box<dyn MusicFileLister>> {
     MUSIC_FILE_LISTER.set(lister)
 }
 
@@ -311,7 +338,10 @@ pub fn set_music_file_lister(lister: Box<dyn MusicFileLister>) -> Result<(), Box
 /// Returns the custom reader if one was set, otherwise returns
 /// the default StdFileReader.
 pub fn get_file_reader() -> &'static dyn FileReader {
-    let reader = FILE_READER.get().map(|b| b.as_ref()).unwrap_or(&StdFileReader);
+    let reader = FILE_READER
+        .get()
+        .map(|b| b.as_ref())
+        .unwrap_or(&StdFileReader);
     if FILE_READER.get().is_some() {
         debug!("get_file_reader: Returning custom file reader");
     } else {
@@ -325,7 +355,10 @@ pub fn get_file_reader() -> &'static dyn FileReader {
 /// Returns the custom lister if one was set, otherwise returns
 /// the default StdMusicFileLister.
 pub fn get_music_file_lister() -> &'static dyn MusicFileLister {
-    MUSIC_FILE_LISTER.get().map(|b| b.as_ref()).unwrap_or(&StdMusicFileLister)
+    MUSIC_FILE_LISTER
+        .get()
+        .map(|b| b.as_ref())
+        .unwrap_or(&StdMusicFileLister)
 }
 
 #[cfg(test)]
@@ -354,7 +387,10 @@ mod tests {
         fs::write(&file_path, &data).unwrap();
 
         let reader = StdFileReader;
-        let mut stream = reader.read_stream(file_path.to_str().unwrap(), 1024 * 1024).await.unwrap();
+        let mut stream = reader
+            .read_stream(file_path.to_str().unwrap(), 1024 * 1024)
+            .await
+            .unwrap();
         let mut collected = Vec::new();
         while let Some(chunk) = stream.next().await {
             let bytes = chunk.unwrap();
@@ -380,7 +416,10 @@ mod tests {
         fs::write(&file_path, b"abcdef").unwrap();
 
         let reader = StdFileReader;
-        let mut file = reader.open_seekable_reader(file_path.to_str().unwrap()).await.unwrap();
+        let mut file = reader
+            .open_seekable_reader(file_path.to_str().unwrap())
+            .await
+            .unwrap();
 
         file.seek(SeekFrom::Start(2)).unwrap();
         let mut buf = [0_u8; 2];

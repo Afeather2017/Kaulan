@@ -4,15 +4,17 @@
 //! - Triggering a database update (scan for new files, update LUFS, remove deleted files)
 //! - Getting playlists in collection mode (returns collections instead of folders)
 
-use actix_web::{get, post, web, HttpResponse, Responder};
-use crate::entities::music::{Entity as MusicEntity};
-use crate::entities::collection::{Entity as CollectionEntity};
-use crate::entities::collection_item::{Entity as CollectionItemEntity, Column as CollectionItemColumn};
-use crate::types::{AppState, MusicInfo, UpdateResponse};
+use crate::entities::collection::Entity as CollectionEntity;
+use crate::entities::collection_item::{
+    Column as CollectionItemColumn, Entity as CollectionItemEntity,
+};
+use crate::entities::music::Entity as MusicEntity;
 use crate::services::scanner;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
-use tracing::info;
+use crate::types::{AppState, MusicInfo, UpdateResponse};
+use actix_web::{get, post, web, HttpResponse, Responder};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::Deserialize;
+use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateQuery {
@@ -71,12 +73,10 @@ pub async fn update_database_endpoint(
                     message: "Startup scan completed successfully".to_string(),
                 })
             }
-            Err(e) => {
-                HttpResponse::InternalServerError().json(UpdateResponse {
-                    success: false,
-                    message: format!("Startup scan failed: {}", e),
-                })
-            }
+            Err(e) => HttpResponse::InternalServerError().json(UpdateResponse {
+                success: false,
+                message: format!("Startup scan failed: {}", e),
+            }),
         }
     } else {
         match scanner::update_database(&*data.music_path, &data.db_conn).await {
@@ -87,12 +87,10 @@ pub async fn update_database_endpoint(
                     message: "Database updated successfully".to_string(),
                 })
             }
-            Err(e) => {
-                HttpResponse::InternalServerError().json(UpdateResponse {
-                    success: false,
-                    message: format!("Database update failed: {}", e),
-                })
-            }
+            Err(e) => HttpResponse::InternalServerError().json(UpdateResponse {
+                success: false,
+                message: format!("Database update failed: {}", e),
+            }),
         }
     }
 }
@@ -115,7 +113,8 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
     // Block until database scan completes
     let _lock = data.scan_lock.lock().await;
 
-    let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> = std::collections::HashMap::new();
+    let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> =
+        std::collections::HashMap::new();
 
     match MusicEntity::find().all(&data.db_conn).await {
         Ok(music_list) => {
@@ -127,7 +126,10 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
                     lufs: music.lufs,
                     path: music.file_path.clone(),
                 };
-                playlists.entry("所有音乐".to_string()).or_insert_with(Vec::new).push(info);
+                playlists
+                    .entry("所有音乐".to_string())
+                    .or_insert_with(Vec::new)
+                    .push(info);
             }
 
             // Add collections

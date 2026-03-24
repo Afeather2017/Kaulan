@@ -2,8 +2,8 @@
 //!
 //! This module contains all the data structures used for API requests and responses.
 
-use serde::{Deserialize, Serialize};
 use sea_orm::DatabaseConnection;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 

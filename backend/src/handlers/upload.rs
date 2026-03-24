@@ -4,16 +4,16 @@
 //! - Getting the directory tree structure
 //! - Uploading music files to the music directory
 
-use actix_web::{get, post, web, HttpResponse, Responder};
-use actix_multipart::Multipart;
-use futures::TryStreamExt;
-use crate::types::{AppState, DirectoryNode, UploadResponse};
 use crate::file_ops::SUPPORTED_EXTENSIONS;
 use crate::services::scanner;
+use crate::types::{AppState, DirectoryNode, UploadResponse};
+use actix_multipart::Multipart;
+use actix_web::{get, post, web, HttpResponse, Responder};
+use futures::TryStreamExt;
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
 use std::io::Write;
-use tracing::{debug, info, warn, error};
+use std::path::{Path, PathBuf};
+use tracing::{debug, error, info, warn};
 
 /// Get directory tree structure of the music directory
 ///
@@ -30,7 +30,8 @@ pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
 
     fn build_tree(dir_path: &Path, base_path: &Path) -> Option<DirectoryNode> {
         let name = dir_path.file_name()?.to_string_lossy().to_string();
-        let relative_path = dir_path.strip_prefix(base_path)
+        let relative_path = dir_path
+            .strip_prefix(base_path)
             .ok()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| String::new());
@@ -56,7 +57,11 @@ pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
             name,
             path: relative_path,
             node_type: "directory".to_string(),
-            children: if children.is_empty() { None } else { Some(children) },
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
         })
     }
 
@@ -107,10 +112,7 @@ pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
 /// }
 /// ```
 #[post("/api/files/upload")]
-pub async fn upload_files(
-    mut payload: Multipart,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> impl Responder {
     info!("[UPLOAD] ========== FILE UPLOAD REQUEST STARTED ==========");
     let music_path_str = &*data.music_path;
     info!("[UPLOAD] Music directory: {}", music_path_str);
@@ -176,7 +178,10 @@ pub async fn upload_files(
                 // Check if the target would be outside the music directory
                 if let Some(canonical) = target_dir_canonical {
                     if !canonical.starts_with(&music_path_canonical) {
-                        warn!("[UPLOAD] Invalid target path: {} (not within music directory)", target_path);
+                        warn!(
+                            "[UPLOAD] Invalid target path: {} (not within music directory)",
+                            target_path
+                        );
                         return HttpResponse::BadRequest().json(UploadResponse {
                             success: false,
                             message: "Invalid target path".to_string(),
@@ -187,7 +192,10 @@ pub async fn upload_files(
                 } else {
                     // Fallback: check for path traversal patterns in the raw path
                     if target_path.contains("..") {
-                        warn!("[UPLOAD] Invalid target path: {} (contains path traversal)", target_path);
+                        warn!(
+                            "[UPLOAD] Invalid target path: {} (contains path traversal)",
+                            target_path
+                        );
                         return HttpResponse::BadRequest().json(UploadResponse {
                             success: false,
                             message: "Invalid target path".to_string(),
@@ -200,7 +208,11 @@ pub async fn upload_files(
                 // Create target directory if it doesn't exist
                 if !target_dir.exists() {
                     if let Err(e) = fs::create_dir_all(&target_dir) {
-                        error!("[UPLOAD] Failed to create target directory {}: {}", target_dir.display(), e);
+                        error!(
+                            "[UPLOAD] Failed to create target directory {}: {}",
+                            target_dir.display(),
+                            e
+                        );
                         return HttpResponse::InternalServerError().json(UploadResponse {
                             success: false,
                             message: format!("Failed to create target directory: {}", e),
@@ -246,12 +258,17 @@ pub async fn upload_files(
                 let full_target_path = if target_path.is_empty() {
                     Path::new(&music_path_str).join(&filename)
                 } else {
-                    Path::new(&music_path_str).join(&target_path).join(&filename)
+                    Path::new(&music_path_str)
+                        .join(&target_path)
+                        .join(&filename)
                 };
 
                 // Security check: ensure file path is within music directory
                 if !full_target_path.starts_with(&music_path_str) {
-                    warn!("[UPLOAD] Invalid file path: {} (not within music directory)", full_target_path.display());
+                    warn!(
+                        "[UPLOAD] Invalid file path: {} (not within music directory)",
+                        full_target_path.display()
+                    );
                     failed_filename = Some(filename.clone());
                     // Consume remaining field data
                     while let Ok(Some(_)) = field.try_next().await {}
@@ -277,7 +294,12 @@ pub async fn upload_files(
                             let _ = fs::remove_file(&full_target_path);
                             failed_filename = Some(filename);
                         } else {
-                            info!("[UPLOAD] Successfully uploaded file: {} ({} bytes) -> {}", filename, file_size, full_target_path.display());
+                            info!(
+                                "[UPLOAD] Successfully uploaded file: {} ({} bytes) -> {}",
+                                filename,
+                                file_size,
+                                full_target_path.display()
+                            );
                             uploaded_filename = Some(filename);
                         }
                     }
@@ -315,7 +337,11 @@ pub async fn upload_files(
         });
     }
 
-    info!("[UPLOAD] Upload summary: {} successful, {} failed", uploaded_files.len(), failed_files.len());
+    info!(
+        "[UPLOAD] Upload summary: {} successful, {} failed",
+        uploaded_files.len(),
+        failed_files.len()
+    );
 
     // Trigger database update after successful upload
     if !uploaded_files.is_empty() {
@@ -338,7 +364,10 @@ pub async fn upload_files(
         "Upload failed".to_string()
     };
 
-    info!("[UPLOAD] ========== UPLOAD REQUEST COMPLETE: {} ==========", success);
+    info!(
+        "[UPLOAD] ========== UPLOAD REQUEST COMPLETE: {} ==========",
+        success
+    );
     HttpResponse::Ok().json(UploadResponse {
         success,
         message,

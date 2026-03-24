@@ -6,14 +6,14 @@
 //!
 //! Documentation: [docs/settings-and-database-management.md](../../../docs/settings-and-database-management.md)
 
-use actix_web::{post, web, HttpResponse, Responder};
-use crate::entities::music::{Entity as MusicEntity, ActiveModel as MusicActiveModel};
+use crate::entities::music::{ActiveModel as MusicActiveModel, Entity as MusicEntity};
 use crate::file_ops::get_file_reader;
 use crate::types::AppState;
+use actix_web::{post, web, HttpResponse, Responder};
 use lufsgen::LufsCalculator;
-use sea_orm::{EntityTrait, ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::Serialize;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
 /// Response for LUFS pre-cache endpoint
 #[derive(Serialize)]
@@ -46,10 +46,7 @@ pub struct PrecacheLufsResponse {
 /// - `404 Not Found` if music ID doesn't exist
 /// - `500 Internal Server Error` for database errors
 #[post("/api/music/{id}/precache-lufs")]
-pub async fn precache_lufs(
-    path: web::Path<i32>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> impl Responder {
     let id = path.into_inner();
     debug!("LUFS pre-cache requested for music ID: {}", id);
     info!("[ACCESS] POST /api/music/{}/precache-lufs - Started", id);
@@ -61,7 +58,10 @@ pub async fn precache_lufs(
             if music.lufs.is_some() {
                 let existing_lufs = music.lufs.unwrap();
                 debug!("LUFS already cached for music ID {}: {}", id, existing_lufs);
-                info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 200 (Already Cached)", id);
+                info!(
+                    "[ACCESS] POST /api/music/{}/precache-lufs - Status: 200 (Already Cached)",
+                    id
+                );
                 return HttpResponse::Ok().json(PrecacheLufsResponse {
                     success: true,
                     lufs: Some(existing_lufs),
@@ -75,17 +75,26 @@ pub async fn precache_lufs(
             let file_label = file_path.clone();
             let db_conn = data.db_conn.clone();
 
-            debug!("Spawning background LUFS calculation for music ID {} (file: {})", id, file_path);
+            debug!(
+                "Spawning background LUFS calculation for music ID {} (file: {})",
+                id, file_path
+            );
 
             // Spawn background task - non-blocking
             tokio::spawn(async move {
-                info!("Background LUFS calculation started for music ID {}: {}", id, file_label);
+                info!(
+                    "Background LUFS calculation started for music ID {}: {}",
+                    id, file_label
+                );
 
                 // Open seekable reader
                 let reader = match get_file_reader().open_seekable_reader(&file_path).await {
                     Ok(r) => r,
                     Err(e) => {
-                        error!("Background LUFS: Failed to open seekable reader for music ID {}: {}", id, e);
+                        error!(
+                            "Background LUFS: Failed to open seekable reader for music ID {}: {}",
+                            id, e
+                        );
                         return;
                     }
                 };
@@ -99,11 +108,17 @@ pub async fn precache_lufs(
                             Some(lufs)
                         }
                         Ok(None) => {
-                            warn!("[LUFS] BACKGROUND FAILED: Unsupported format for: {}", file_label);
+                            warn!(
+                                "[LUFS] BACKGROUND FAILED: Unsupported format for: {}",
+                                file_label
+                            );
                             None
                         }
                         Err(e) => {
-                            error!("[LUFS] BACKGROUND ERROR: Failed to calculate LUFS for {}: {}", file_label, e);
+                            error!(
+                                "[LUFS] BACKGROUND ERROR: Failed to calculate LUFS for {}: {}",
+                                file_label, e
+                            );
                             None
                         }
                     }
@@ -131,7 +146,10 @@ pub async fn precache_lufs(
                                 warn!("Background LUFS: Music ID {} no longer exists", id);
                             }
                             Err(e) => {
-                                error!("Background LUFS: Database error fetching music ID {}: {}", id, e);
+                                error!(
+                                    "Background LUFS: Database error fetching music ID {}: {}",
+                                    id, e
+                                );
                             }
                         }
                     }
@@ -139,7 +157,10 @@ pub async fn precache_lufs(
                         debug!("Background LUFS: Unsupported format for music ID {}", id);
                     }
                     Err(e) => {
-                        error!("Background LUFS: Task execution failed for music ID {}: {}", id, e);
+                        error!(
+                            "Background LUFS: Task execution failed for music ID {}: {}",
+                            id, e
+                        );
                     }
                 }
             });
@@ -154,7 +175,10 @@ pub async fn precache_lufs(
         }
         Ok(None) => {
             warn!("Music not found for LUFS pre-cache: ID {}", id);
-            info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 404", id);
+            info!(
+                "[ACCESS] POST /api/music/{}/precache-lufs - Status: 404",
+                id
+            );
             HttpResponse::NotFound().json(PrecacheLufsResponse {
                 success: false,
                 lufs: None,
@@ -163,8 +187,14 @@ pub async fn precache_lufs(
             })
         }
         Err(e) => {
-            error!("Database error while fetching music ID {} for LUFS pre-cache: {}", id, e);
-            info!("[ACCESS] POST /api/music/{}/precache-lufs - Status: 500", id);
+            error!(
+                "Database error while fetching music ID {} for LUFS pre-cache: {}",
+                id, e
+            );
+            info!(
+                "[ACCESS] POST /api/music/{}/precache-lufs - Status: 500",
+                id
+            );
             HttpResponse::InternalServerError().json(PrecacheLufsResponse {
                 success: false,
                 lufs: None,

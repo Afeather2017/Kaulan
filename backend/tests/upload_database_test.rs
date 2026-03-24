@@ -3,20 +3,21 @@
 //! This test directly verifies that update_database() correctly adds new files
 //! to the database after they are written to disk.
 
-use actix_web::{test, App, http::StatusCode, web};
-use kaulan::{
-    AppState,
-    update_database,
-    get_all_music,
+use actix_web::{http::StatusCode, test, web, App};
+use kaulan::{get_all_music, update_database, AppState};
+use sea_orm::{
+    sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr,
+    EntityTrait, Schema,
 };
-use sea_orm::{Database, DatabaseConnection, DbErr, EntityTrait, ConnectionTrait, Schema, sea_query::TableCreateStatement};
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-use std::fs;
 
 fn find_test_mp3_path() -> PathBuf {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("test_music");
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("test_music");
     let mut stack = vec![base];
 
     while let Some(dir) = stack.pop() {
@@ -65,7 +66,9 @@ async fn test_update_database_adds_new_files_to_database() {
     let test_music_dir = temp_dir.join("test_upload_db_update");
     fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // STEP 1: Check initial state - database should be empty
     use kaulan::entities::music::Entity as MusicEntity;
@@ -81,17 +84,11 @@ async fn test_update_database_adds_new_files_to_database() {
     fs::copy(&source_mp3, &dest_mp3).expect("Failed to copy test MP3 file");
 
     // Verify file exists on disk
-    assert!(
-        dest_mp3.exists(),
-        "Test MP3 file should exist on disk"
-    );
+    assert!(dest_mp3.exists(), "Test MP3 file should exist on disk");
 
     // STEP 3: Call update_database() to simulate what happens after upload
     println!("Calling update_database() after file copy...");
-    let result = update_database(
-        &test_music_dir.to_string_lossy().to_string(),
-        &db
-    ).await;
+    let result = update_database(&test_music_dir.to_string_lossy().to_string(), &db).await;
 
     assert!(result.is_ok(), "update_database should succeed");
 
@@ -119,7 +116,10 @@ async fn test_update_database_adds_new_files_to_database() {
         .unwrap_or(dest_mp3.clone())
         .to_string_lossy()
         .to_string();
-    assert_eq!(entry.file_path, expected_path, "File path should be correct");
+    assert_eq!(
+        entry.file_path, expected_path,
+        "File path should be correct"
+    );
     assert!(entry.lufs.is_some(), "LUFS should be calculated");
 
     println!("SUCCESS: Database was updated with new file!");
@@ -138,7 +138,9 @@ async fn test_upload_files_then_check_database_via_api() {
     let test_music_dir = temp_dir.join("test_upload_api_integration");
     fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // STEP 1: Manually copy a file to simulate what upload does (write to disk)
     let source_mp3 = find_test_mp3_path();
@@ -165,12 +167,11 @@ async fn test_upload_files_then_check_database_via_api() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_all_music)
-    ).await;
+            .service(get_all_music),
+    )
+    .await;
 
-    let req = test::TestRequest::get()
-        .uri("/api/music")
-        .to_request();
+    let req = test::TestRequest::get().uri("/api/music").to_request();
 
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -189,8 +190,7 @@ async fn test_upload_files_then_check_database_via_api() {
         "API should return 1 file after upload + update"
     );
     assert_eq!(
-        music_array[0]["filename"],
-        "uploaded_song.mp3",
+        music_array[0]["filename"], "uploaded_song.mp3",
         "API should return the uploaded file"
     );
 
@@ -208,7 +208,9 @@ async fn test_update_database_with_multiple_new_files() {
     let _ = fs::remove_dir_all(&test_music_dir);
     fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Copy multiple files using the same valid MP3 source
     let source_mp3 = find_test_mp3_path();
@@ -216,15 +218,11 @@ async fn test_update_database_with_multiple_new_files() {
 
     for dest in &dest_files {
         let dest_path = test_music_dir.join(dest);
-        fs::copy(&source_mp3, &dest_path)
-            .expect(&format!("Failed to copy source MP3 to {}", dest));
+        fs::copy(&source_mp3, &dest_path).expect(&format!("Failed to copy source MP3 to {}", dest));
     }
 
     // Call update_database
-    let _result = update_database(
-        &test_music_dir.to_string_lossy().to_string(),
-        &db
-    ).await;
+    let _result = update_database(&test_music_dir.to_string_lossy().to_string(), &db).await;
 
     // Verify database
     use kaulan::entities::music::Entity as MusicEntity;
@@ -238,11 +236,7 @@ async fn test_update_database_with_multiple_new_files() {
         println!("  - {} (LUFS: {:?})", entry.filename, entry.lufs);
     }
 
-    assert_eq!(
-        music_after.len(),
-        2,
-        "Database should contain 2 entries"
-    );
+    assert_eq!(music_after.len(), 2, "Database should contain 2 entries");
 
     // Cleanup
     fs::remove_dir_all(test_music_dir).ok();

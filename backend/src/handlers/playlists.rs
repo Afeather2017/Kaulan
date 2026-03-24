@@ -6,9 +6,9 @@
 //!
 //! The folder-based playlist structure automatically groups music by their parent folder.
 
-use actix_web::{get, web, HttpResponse, Responder};
-use crate::entities::music::{Entity as MusicEntity};
+use crate::entities::music::Entity as MusicEntity;
 use crate::types::{AppState, MusicInfo, Playlist};
+use actix_web::{get, web, HttpResponse, Responder};
 use sea_orm::EntityTrait;
 
 /// Get all playlists
@@ -26,7 +26,8 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
     // Block until database scan completes
     let _lock = data.scan_lock.lock().await;
 
-    let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> = std::collections::HashMap::new();
+    let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> =
+        std::collections::HashMap::new();
 
     match MusicEntity::find().all(&data.db_conn).await {
         Ok(music_list) => {
@@ -39,11 +40,17 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
                 };
 
                 // Add to "All Music" playlist
-                playlists.entry("所有音乐".to_string()).or_insert_with(Vec::new).push(info.clone());
+                playlists
+                    .entry("所有音乐".to_string())
+                    .or_insert_with(Vec::new)
+                    .push(info.clone());
 
                 // Add to folder-based playlist using parent_dir
                 if let Some(ref parent_dir) = music.parent_dir {
-                    playlists.entry(parent_dir.clone()).or_insert_with(Vec::new).push(info);
+                    playlists
+                        .entry(parent_dir.clone())
+                        .or_insert_with(Vec::new)
+                        .push(info);
                 }
             }
         }
@@ -64,10 +71,7 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
 /// # Returns
 /// JSON object with `name` and `songs` array
 #[get("/api/playlists/{name}")]
-pub async fn get_playlist(
-    path: web::Path<String>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn get_playlist(path: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
     // Block until database scan completes
     let _lock = data.scan_lock.lock().await;
 
@@ -87,7 +91,11 @@ pub async fn get_playlist(
                 let belongs_to_playlist = if playlist_name == "所有音乐" {
                     true
                 } else {
-                    music.parent_dir.as_ref().map(|d| d == &playlist_name).unwrap_or(false)
+                    music
+                        .parent_dir
+                        .as_ref()
+                        .map(|d| d == &playlist_name)
+                        .unwrap_or(false)
                 };
 
                 if belongs_to_playlist {

@@ -1,6 +1,6 @@
-use std::path::Path;
-use tracing::{info, warn, error};
 use lufsgen::LufsCalculator;
+use std::path::Path;
+use tracing::{error, info, warn};
 
 /// Audio file extensions supported for LUFS analysis
 const SUPPORTED_EXTENSIONS: [&str; 5] = ["wav", "mp3", "ogg", "aac", "flac"];
@@ -26,7 +26,10 @@ pub fn get_lufs(file_path: &str) -> Option<f64> {
             None
         }
         Err(e) => {
-            error!("[LUFS] ERROR: Failed to calculate LUFS for {}: {}", file_path, e);
+            error!(
+                "[LUFS] ERROR: Failed to calculate LUFS for {}: {}",
+                file_path, e
+            );
             None
         }
     }
