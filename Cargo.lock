@@ -344,6 +344,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures",
+ "jni",
  "kaulan",
  "log",
  "serde",
@@ -353,6 +354,7 @@ dependencies = [
  "tauri-plugin-android-mediastore",
  "tauri-plugin-dialog",
  "tauri-plugin-log",
+ "tauri-plugin-music-notification-api",
  "tauri-plugin-os",
  "tokio",
 ]
@@ -5470,6 +5472,16 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.18",
  "time",
+]
+
+[[package]]
+name = "tauri-plugin-music-notification-api"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

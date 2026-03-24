@@ -82,7 +82,7 @@ impl ServerInfo {
 /// - No music directory is configured (no CLI arg, no config file, no env var)
 /// - Database connection fails
 pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dyn std::error::Error>> {
-    // Priority: CLI arg > Config file > Environment variable
+    // Priority: CLI arg > Config file > Environment variable > Platform default
     let music_path = if let Some(path) = cli_path {
         // CLI argument provided - use it (highest priority)
         info!("Using music directory from CLI argument: {}", path);
@@ -95,14 +95,51 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
         // Environment variable set
         info!("Using music directory from environment variable: {}", path);
         path
+    } else if cfg!(target_os = "android") {
+        // Android: use /storage as default (covers both internal storage and SD card)
+        let default_path = "/storage".to_string();
+        info!("Using default music directory for Android: {}", default_path);
+        default_path
     } else {
-        // No music directory configured - abort
-        error!("No music directory configured!");
-        error!("Please provide music directory via:");
-        error!("  1. CLI argument: {} run <music_path>", env::args().next().unwrap_or_else(|| "kaulan".to_string()));
-        error!("  2. Config file: {}/config.json", config::get_config_dir().unwrap_or_else(|| PathBuf::from("~/.config/kaulan")).display());
-        error!("  3. Environment variable: KAULAN_MUSIC_DIR");
-        return Err("No music directory configured. Use CLI argument, config file, or KAULAN_MUSIC_DIR environment variable.".into());
+        // Desktop: try ~/Music first, then ./music as fallback
+        let home_dir = dirs::home_dir();
+        let music_dir = home_dir.as_ref().map(|h| h.join("Music"));
+
+        if let Some(ref music_path) = music_dir {
+            if music_path.exists() && music_path.is_dir() {
+                let path_str = music_path.to_string_lossy().to_string();
+                info!("Using default music directory ~/Music: {}", path_str);
+                path_str
+            } else {
+                // Try ./music as fallback
+                let local_music = PathBuf::from("./music");
+                if local_music.exists() && local_music.is_dir() {
+                    let path_str = local_music.to_string_lossy().to_string();
+                    info!("Using ./music as default music directory: {}", path_str);
+                    path_str
+                } else {
+                    // No music directory configured - abort
+                    error!("No music directory configured!");
+                    error!("Please provide music directory via:");
+                    error!("  1. CLI argument: {} run <music_path>", env::args().next().unwrap_or_else(|| "kaulan".to_string()));
+                    error!("  2. Config file: {}/config.json", config::get_config_dir().unwrap_or_else(|| PathBuf::from("~/.config/kaulan")).display());
+                    error!("  3. Environment variable: KAULAN_MUSIC_DIR");
+                    error!("");
+                    error!("Default locations checked (none exist):");
+                    error!("  - ~/Music");
+                    error!("  - ./music");
+                    return Err("No music directory configured. Use CLI argument, config file, or KAULAN_MUSIC_DIR environment variable.".into());
+                }
+            }
+        } else {
+            // No home directory found - abort
+            error!("No music directory configured!");
+            error!("Please provide music directory via:");
+            error!("  1. CLI argument: {} run <music_path>", env::args().next().unwrap_or_else(|| "kaulan".to_string()));
+            error!("  2. Config file: {}/config.json", config::get_config_dir().unwrap_or_else(|| PathBuf::from("~/.config/kaulan")).display());
+            error!("  3. Environment variable: KAULAN_MUSIC_DIR");
+            return Err("No music directory configured. Use CLI argument, config file, or KAULAN_MUSIC_DIR environment variable.".into());
+        }
     };
 
     info!("Connecting to database...");

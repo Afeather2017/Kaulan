@@ -1,0 +1,3 @@
+[submodule "frontend/src-tauri/tauri-plugin-music-notification"]
+	path = frontend/src-tauri/tauri-plugin-music-notification
+	url = https://github.com/Afeather2017/tauri-plugin-music-notification.git
