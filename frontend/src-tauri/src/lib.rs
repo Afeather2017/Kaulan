@@ -1,38 +1,13 @@
-use std::fs;
-use std::sync::Mutex;
-use tauri::{Manager, State, Emitter};
 use serde_json::json;
+use std::fs;
+use std::sync::{Arc, Mutex};
+use tauri::{Manager, State};
 
 // MediaStore adapter module
 mod mediastore_adapter;
 
 // Music notification plugin
-use tauri_plugin_music_notification_api::{Server, set_server};
-
-// JNI bindings for Android (needed for music notification plugin)
-#[cfg(target_os = "android")]
-mod jni_wrappers {
-    // Android log binding for debugging
-    #[allow(non_upper_case_globals)]
-    #[no_mangle]
-    pub extern "C" fn Java_com_plugin_music_1notification_MusicPlayerService_serverStart(
-        _env: jni::JNIEnv,
-        _this: jni::objects::JObject,
-    ) -> i32 {
-        log::info!("JNI: serverStart called from Kaulan app");
-        // Call the plugin's server_start which will invoke the registered Server trait
-        tauri_plugin_music_notification_api::server_start()
-    }
-
-    #[no_mangle]
-    pub extern "C" fn Java_com_plugin_music_1notification_MusicPlayerService_serverStop(
-        _env: jni::JNIEnv,
-        _this: jni::objects::JObject,
-    ) -> i32 {
-        log::info!("JNI: serverStop called from Kaulan app");
-        tauri_plugin_music_notification_api::server_stop()
-    }
-}
+use tauri_plugin_music_notification_api::{set_server, Server};
 
 // HTTP server implementation that implements the Server trait
 struct KaulanServer {
@@ -42,16 +17,19 @@ struct KaulanServer {
 }
 
 impl Server for KaulanServer {
+    fn library_name(&self) -> &str {
+        "app_lib"
+    }
+
     fn start(self: std::sync::Arc<Self>) -> Result<(), String> {
         log::info!("KaulanServer trait: start() called from foreground service");
 
         // Get the music directory and data directory
         let music_dir = self.music_dir.lock().unwrap().clone();
-        let data_dir = self.data_dir.lock().unwrap().clone();
-
         // Set environment variables for Android support
         #[cfg(target_os = "android")]
         {
+            let data_dir = self.data_dir.lock().unwrap().clone();
             std::env::set_var("TAURI_PLATFORM", "android");
             if let Some(ref dir) = data_dir {
                 std::env::set_var("TAURI_ANDROID_DATA_DIR", dir);
@@ -86,7 +64,9 @@ impl Server for KaulanServer {
                 match kaulan::start_server(music_dir_arg).await {
                     Ok(server_info) => {
                         log::info!("HTTP server started on: http://{}", server_info.url());
-                        server_handle.running.store(true, std::sync::atomic::Ordering::Release);
+                        server_handle
+                            .running
+                            .store(true, std::sync::atomic::Ordering::Release);
                     }
                     Err(e) => {
                         log::error!("Failed to start HTTP server: {}", e);
@@ -98,7 +78,10 @@ impl Server for KaulanServer {
             log::info!("Server thread running, keeping alive for foreground service");
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(10));
-                if !server_handle_for_loop.running.load(std::sync::atomic::Ordering::Acquire) {
+                if !server_handle_for_loop
+                    .running
+                    .load(std::sync::atomic::Ordering::Acquire)
+                {
                     log::info!("Server marked as stopped, exiting thread");
                     break;
                 }
@@ -106,13 +89,15 @@ impl Server for KaulanServer {
         });
 
         // Mark as running immediately - the server is starting in background
-        self.running.store(true, std::sync::atomic::Ordering::Release);
+        self.running
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 
     fn stop(self: std::sync::Arc<Self>) -> Result<(), String> {
         log::info!("KaulanServer trait: stop() called");
-        self.running.store(false, std::sync::atomic::Ordering::Release);
+        self.running
+            .store(false, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 
@@ -129,12 +114,24 @@ pub fn run() {
     // Initialize tracing first (must happen before Tauri setup to avoid conflicts)
     kaulan::init_tracing();
 
+    let kaulan_server = Arc::new(KaulanServer {
+        running: std::sync::atomic::AtomicBool::new(false),
+        music_dir: Mutex::new(if cfg!(target_os = "android") {
+            Some("/storage".to_string())
+        } else {
+            None
+        }),
+        data_dir: Mutex::new(None),
+    });
+    set_server(kaulan_server.clone());
+    log::info!("Registered KaulanServer with music notification plugin");
+
     tauri::Builder::default()
         .manage(MusicDirectory(Mutex::new(String::new())))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_android_mediastore::init())
         .plugin(tauri_plugin_music_notification_api::init())
-        .setup(|app| {
+        .setup(move |app| {
             log::info!("======================= Start =======================");
 
             // Read config from Tauri's app data directory for UI display purposes
@@ -166,6 +163,19 @@ pub fn run() {
             let state = app.state::<MusicDirectory>();
             *state.0.lock().unwrap() = music_path.clone();
 
+            {
+                let mut server_music_dir = kaulan_server.music_dir.lock().unwrap();
+                *server_music_dir = if music_path.is_empty() {
+                    if cfg!(target_os = "android") {
+                        Some("/storage".to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(music_path.clone())
+                };
+            }
+
             // Set up custom file operations implementations for Android
             #[cfg(target_os = "android")]
             {
@@ -184,26 +194,9 @@ pub fn run() {
             } else {
                 None
             };
-
-            // Register the HTTP server implementation with the music notification plugin
-            let kaulan_server = std::sync::Arc::new(KaulanServer {
-                running: std::sync::atomic::AtomicBool::new(false),
-                music_dir: Mutex::new(if cfg!(target_os = "android") { Some("/storage".to_string()) } else { None }),
-                data_dir: Mutex::new(data_dir_for_server),
-            });
-            set_server(kaulan_server.clone());
-            log::info!("Registered KaulanServer with music notification plugin");
-
-            // Emit the server library name for auto-registration
-            // IMPORTANT: The frontend MUST call setServer() BEFORE calling startService()
-            // Otherwise the service will use the default "musicnotification_lib" name
+            *kaulan_server.data_dir.lock().unwrap() = data_dir_for_server;
             #[cfg(target_os = "android")]
-            {
-                let lib_name = env!("COMPILED_LIB_NAME");
-                log::info!("Emitting server_library_name event: {} - frontend MUST call setServer() before startService()", lib_name);
-                let _ = app.emit("server_library_name", lib_name);
-                log::info!("On Android: Server will be started by foreground service via serverStart() JNI call");
-            }
+            log::info!("On Android: server library is auto-registered and started by the foreground service");
 
             // Start the backend server directly ONLY on desktop
             // On Android, the foreground service will start it via serverStart()
@@ -243,10 +236,7 @@ fn get_music_directory(state: State<'_, MusicDirectory>) -> Result<String, Strin
 
 /// Set a new music directory (saved to config, takes effect on restart)
 #[tauri::command]
-fn set_music_directory(
-    app: tauri::AppHandle,
-    new_path: String,
-) -> Result<(), String> {
+fn set_music_directory(app: tauri::AppHandle, new_path: String) -> Result<(), String> {
     log::info!("Music directory change requested to: {}", new_path);
 
     // Validate the path exists and is a directory
@@ -259,7 +249,8 @@ fn set_music_directory(
 
     // Save config file using Tauri's path API and std::fs
     let path_resolver = app.path();
-    let config_dir = path_resolver.app_config_dir()
+    let config_dir = path_resolver
+        .app_config_dir()
         .map_err(|e| format!("Failed to get config dir: {}", e))?;
 
     // Create config directory if needed
