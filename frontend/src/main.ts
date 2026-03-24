@@ -21,24 +21,8 @@ async function initMusicService() {
   try {
     // Dynamically import the plugin API (only available on Android)
     console.log('[MusicService] Attempting to import music-notification-api...')
-    const { startService, setServer } = await import('music-notification-api')
+    const { startService } = await import('music-notification-api')
     console.log('[MusicService] ✓ Successfully imported music-notification-api')
-
-    // CRITICAL: Set the server library name FIRST, before starting the service
-    // The service reads from SharedPreferences when it starts
-    // We use "app_lib" which is our compiled library name (COMPILED_LIB_NAME in build.rs)
-    const libraryName = 'app_lib'
-    console.log('[MusicService] Calling setServer with library name:', libraryName)
-
-    const setServerResult = await setServer(libraryName)
-    console.log('[MusicService] setServer result:', setServerResult)
-
-    if (!setServerResult.success) {
-      console.error('[MusicService] ✗ setServer failed:', setServerResult.message)
-      return
-    }
-
-    console.log('[MusicService] ✓ setServer succeeded, now calling startService...')
     const startServiceResult = await startService()
     console.log('[MusicService] startService result:', startServiceResult)
 

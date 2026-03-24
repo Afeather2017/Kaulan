@@ -5478,6 +5478,7 @@ dependencies = [
 name = "tauri-plugin-music-notification-api"
 version = "0.2.0"
 dependencies = [
+ "jni",
  "serde",
  "tauri",
  "tauri-plugin",

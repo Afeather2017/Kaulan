@@ -11,7 +11,11 @@ REM   build-android.bat --target x86_64
 setlocal enabledelayedexpansion
 
 REM Configuration
-set "ANDROID_HOME=%ANDROID_HOME:%=%LOCALAPPDATA%\Android\Sdk%"
+if defined ANDROID_HOME (
+    set "ANDROID_HOME=%ANDROID_HOME%"
+) else (
+    set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
+)
 set "BUILD_TOOLS_VERSION=35.0.0"
 set "BUILD_TOOLS=%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%"
 set "KEYSTORE=%TEMP%\release.keystore"
@@ -35,7 +39,7 @@ echo Android build tools: %BUILD_TOOLS%
 echo.
 
 REM Step 1: Build unsigned APK
-echo [1/4] Building APK with Tauri...
+echo [1/5] Building APK with Tauri...
 cd /d "%FRONTEND_DIR%"
 if "%~1"=="" (
     echo   No target specified, building universal APK...
@@ -48,7 +52,7 @@ if errorlevel 1 exit /b 1
 
 REM Detect the unsigned APK
 echo.
-echo [2/4] Locating built APK...
+echo [2/5] Locating built APK...
 set "UNSIGNED_APK="
 for /r "%APK_DIR%" %%F in (*-release-unsigned.apk) do (
     set "UNSIGNED_APK=%%F"
