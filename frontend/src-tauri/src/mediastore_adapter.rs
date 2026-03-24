@@ -702,7 +702,15 @@ impl MusicFileLister for MediaStoreMusicFileLister {
                 let files: Vec<MusicFileInfo> = audio_files_response.files.into_iter().map(|af| {
                     let filename = Self::generate_filename(&af);
 
-                    log::debug!("Found audio file: {} - {} ({})", af.artist, af.title, af.content_uri);
+                    // Extract parent directory from file_path
+                    let parent_dir = af.file_path.as_ref().and_then(|path| {
+                        std::path::Path::new(path)
+                            .parent()
+                            .and_then(|p| p.file_name())
+                            .map(|name| name.to_string_lossy().to_string())
+                    });
+
+                    log::debug!("Found audio file: {} - {} (parent_dir: {:?})", af.artist, af.title, parent_dir);
 
                     MusicFileInfo {
                         path: af.content_uri.clone(),
@@ -711,6 +719,7 @@ impl MusicFileLister for MediaStoreMusicFileLister {
                         artist: Some(af.artist),
                         album: Some(af.album),
                         duration_ms: Some(af.duration),
+                        parent_dir,
                     }
                 }).collect();
 

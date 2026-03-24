@@ -4,7 +4,59 @@ import router from './router'
 import { checkIsAndroid } from './utils/platform'
 import '@fortawesome/fontawesome-free/css/all.css'
 
+/**
+ * Initialize the music notification service on Android
+ * This starts the foreground service which keeps the backend alive
+ */
+async function initMusicService() {
+  console.log('[MusicService] Starting music service initialization...')
+  const isAndroid = await checkIsAndroid()
+  console.log('[MusicService] Platform check result: isAndroid =', isAndroid)
+
+  if (!isAndroid) {
+    console.log('[MusicService] Not Android, skipping music service initialization')
+    return
+  }
+
+  try {
+    // Dynamically import the plugin API (only available on Android)
+    console.log('[MusicService] Attempting to import music-notification-api...')
+    const { startService, setServer } = await import('music-notification-api')
+    console.log('[MusicService] ✓ Successfully imported music-notification-api')
+
+    // CRITICAL: Set the server library name FIRST, before starting the service
+    // The service reads from SharedPreferences when it starts
+    // We use "app_lib" which is our compiled library name (COMPILED_LIB_NAME in build.rs)
+    const libraryName = 'app_lib'
+    console.log('[MusicService] Calling setServer with library name:', libraryName)
+
+    const setServerResult = await setServer(libraryName)
+    console.log('[MusicService] setServer result:', setServerResult)
+
+    if (!setServerResult.success) {
+      console.error('[MusicService] ✗ setServer failed:', setServerResult.message)
+      return
+    }
+
+    console.log('[MusicService] ✓ setServer succeeded, now calling startService...')
+    const startServiceResult = await startService()
+    console.log('[MusicService] startService result:', startServiceResult)
+
+    if (startServiceResult.success) {
+      console.log('[MusicService] ✓ Music notification service started - backend will stay alive')
+    } else {
+      console.error('[MusicService] ✗ Failed to start music service:', startServiceResult.message)
+    }
+  } catch (e) {
+    console.error('[MusicService] ✗ Failed to initialize music service:', e)
+    console.warn('[MusicService] Music notification plugin not available (this is expected on desktop)')
+  }
+}
+
 const startApp = async () => {
+  // Initialize music service first (before Vue app)
+  await initMusicService()
+
   // Apply Android-specific touch styles to prevent zooming and unwanted scrolling
   const isAndroid = await checkIsAndroid()
   if (isAndroid) {

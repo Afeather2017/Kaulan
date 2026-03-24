@@ -11,6 +11,7 @@ pub struct Model {
     pub filename: String,
     #[sea_orm(unique)]
     pub file_path: String,
+    pub parent_dir: Option<String>,
     pub lufs: Option<f64>,
     pub created_at: DateTimeUtc,
 }

@@ -104,6 +104,7 @@ pub async fn initialize_database(music_path: &str, db_conn: &DatabaseConnection)
                 let music = MusicActiveModel {
                     filename: Set(filename.clone()),
                     file_path: Set(normalized_path.clone()),
+                    parent_dir: Set(file_info.parent_dir.clone()),
                     lufs: Set(None),
                     created_at: Set(Utc::now()),
                     ..Default::default()
@@ -216,6 +217,7 @@ pub async fn update_database(music_path: &str, db_conn: &DatabaseConnection) -> 
                 let music = MusicActiveModel {
                     filename: Set(filename.clone()),
                     file_path: Set(normalized_path.clone()),
+                    parent_dir: Set(file_info.parent_dir.clone()),
                     lufs: Set(None),
                     created_at: Set(Utc::now()),
                     ..Default::default()
