@@ -128,6 +128,8 @@ pub struct MusicFileInfo {
     pub album: Option<String>,
     /// Duration in milliseconds (from metadata if available)
     pub duration_ms: Option<i64>,
+    /// Parent directory name (for folder-based playlists)
+    pub parent_dir: Option<String>,
 }
 
 /// Default FileReader using std::fs
@@ -261,6 +263,7 @@ fn scan_directory_recursive_sync(dir_path: &Path, audio_files: &mut Vec<MusicFil
                                 artist: None,
                                 album: None,
                                 duration_ms: None,
+                                parent_dir: dir_path.file_name().map(|n| n.to_string_lossy().to_string()),
                             });
                         }
                     }

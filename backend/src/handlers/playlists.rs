@@ -10,7 +10,6 @@ use actix_web::{get, web, HttpResponse, Responder};
 use crate::entities::music::{Entity as MusicEntity};
 use crate::types::{AppState, MusicInfo, Playlist};
 use sea_orm::EntityTrait;
-use std::path::Path;
 
 /// Get all playlists
 ///
@@ -42,14 +41,9 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
                 // Add to "All Music" playlist
                 playlists.entry("所有音乐".to_string()).or_insert_with(Vec::new).push(info.clone());
 
-                // Add to folder-based playlist
-                if let Some(parent) = Path::new(&music.file_path).parent() {
-                    if !parent.as_os_str().is_empty() {
-                        if let Some(dir_name) = parent.file_name() {
-                            let playlist_name = dir_name.to_string_lossy().to_string();
-                            playlists.entry(playlist_name).or_insert_with(Vec::new).push(info);
-                        }
-                    }
+                // Add to folder-based playlist using parent_dir
+                if let Some(ref parent_dir) = music.parent_dir {
+                    playlists.entry(parent_dir.clone()).or_insert_with(Vec::new).push(info);
                 }
             }
         }
@@ -93,14 +87,7 @@ pub async fn get_playlist(
                 let belongs_to_playlist = if playlist_name == "所有音乐" {
                     true
                 } else {
-                    match Path::new(&music.file_path).parent() {
-                        Some(parent) if !parent.as_os_str().is_empty() => {
-                            parent.file_name()
-                                .map(|name| name.to_string_lossy() == playlist_name)
-                                .unwrap_or(false)
-                        }
-                        _ => false,
-                    }
+                    music.parent_dir.as_ref().map(|d| d == &playlist_name).unwrap_or(false)
                 };
 
                 if belongs_to_playlist {
