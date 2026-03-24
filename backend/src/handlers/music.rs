@@ -19,14 +19,14 @@
 //!
 //! See [`docs/position-based-streaming.md`](../../../docs/position-based-streaming.md) for details.
 
+use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity, Model as MusicModel};
+use crate::file_ops::get_file_reader;
+use crate::types::AppState;
 use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
-use crate::entities::music::{Entity as MusicEntity, Model as MusicModel, Column as MusicColumn};
-use crate::types::AppState;
-use crate::file_ops::get_file_reader;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 /// Query parameters for position-based seeking
 #[derive(Deserialize)]
@@ -49,10 +49,7 @@ struct MusicQueryParams {
 /// - `404 Not Found` if music not in database or file missing
 /// - `500 Internal Server Error` for database errors
 #[get("/api/music/{filename}")]
-pub async fn get_music(
-    path: web::Path<String>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn get_music(path: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
     let filename = path.into_inner();
     debug!("Music request received for filename: {}", filename);
 
@@ -65,7 +62,10 @@ pub async fn get_music(
         .await
     {
         Ok(Some(music)) => {
-            debug!("Found music in database: filename={}, file_path={}", music.filename, music.file_path);
+            debug!(
+                "Found music in database: filename={}, file_path={}",
+                music.filename, music.file_path
+            );
 
             let file_reader = get_file_reader();
             debug!("File reader obtained for reading: {}", music.file_path);
@@ -81,7 +81,8 @@ pub async fn get_music(
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
-                    response.insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
+                    response
+                        .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
                     response.insert_header(("Accept-Ranges", "bytes"));
 
                     // Add Content-Length if available (helps browser determine duration)
@@ -92,7 +93,10 @@ pub async fn get_music(
                     response.streaming(stream.map_err(actix_web::Error::from))
                 }
                 Err(e) => {
-                    warn!("File not found or could not be read: {} - Error: {}", music.file_path, e);
+                    warn!(
+                        "File not found or could not be read: {} - Error: {}",
+                        music.file_path, e
+                    );
                     info!("[ACCESS] GET /api/music/{} - Status: 404", filename);
                     HttpResponse::NotFound().body("File not found")
                 }
@@ -155,7 +159,9 @@ pub async fn get_music_by_id(
     info!("[ACCESS] GET /api/music/id/{} - Started", id);
 
     // Parse Range header if present (for seeking support)
-    let range_header = req.headers().get("Range")
+    let range_header = req
+        .headers()
+        .get("Range")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
 
@@ -163,7 +169,10 @@ pub async fn get_music_by_id(
 
     match MusicEntity::find_by_id(id).one(&data.db_conn).await {
         Ok(Some(music)) => {
-            debug!("Found music in database: id={}, filename={}, file_path={}", music.id, music.filename, music.file_path);
+            debug!(
+                "Found music in database: id={}, filename={}, file_path={}",
+                music.id, music.filename, music.file_path
+            );
 
             let file_reader = get_file_reader();
             debug!("File reader obtained for reading: {}", music.file_path);
@@ -184,28 +193,38 @@ pub async fn get_music_by_id(
 
             // Handle position-based seek (highest priority)
             // Priority: Position query parameter > Range header > Full file stream
-            let (use_position_seek, start_byte_from_position) = if let (Some(pos), Some(size)) =
-                (query.position, file_size) {
-                // Validate parameters (position must be 0.0 to 1.0)
-                if pos >= 0.0 && pos <= 1.0 {
-                    let mut start_byte = (pos * size as f64).floor() as u64;
-                    // Clamp start_byte to valid range [0, size-1]
-                    if start_byte >= size {
-                        start_byte = size - 1;
+            let (use_position_seek, start_byte_from_position) =
+                if let (Some(pos), Some(size)) = (query.position, file_size) {
+                    // Validate parameters (position must be 0.0 to 1.0)
+                    if pos >= 0.0 && pos <= 1.0 {
+                        let mut start_byte = (pos * size as f64).floor() as u64;
+                        // Clamp start_byte to valid range [0, size-1]
+                        if start_byte >= size {
+                            start_byte = size - 1;
+                        }
+                        debug!(
+                            "Position seek: position={}%, calculated start_byte={}",
+                            pos * 100.0,
+                            start_byte
+                        );
+                        (true, Some(start_byte))
+                    } else {
+                        debug!(
+                            "Invalid position parameter: position={}, falling back to normal",
+                            pos
+                        );
+                        (false, None)
                     }
-                    debug!("Position seek: position={}%, calculated start_byte={}", pos * 100.0, start_byte);
-                    (true, Some(start_byte))
                 } else {
-                    debug!("Invalid position parameter: position={}, falling back to normal", pos);
                     (false, None)
-                }
-            } else {
-                (false, None)
-            };
+                };
 
             if use_position_seek {
                 if let Some(start) = start_byte_from_position {
-                    match file_reader.read_stream_from(&music.file_path, CHUNK_SIZE, start).await {
+                    match file_reader
+                        .read_stream_from(&music.file_path, CHUNK_SIZE, start)
+                        .await
+                    {
                         Ok(stream) => {
                             let content_length = file_size.unwrap() - start;
                             let end = file_size.unwrap() - 1;
@@ -214,10 +233,19 @@ pub async fn get_music_by_id(
                             return HttpResponse::PartialContent()
                                 .insert_header(("Content-Type", "audio/mpeg"))
                                 .insert_header(("Content-Length", content_length.to_string()))
-                                .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, file_size.unwrap())))
+                                .insert_header((
+                                    "Content-Range",
+                                    format!("bytes {}-{}/{}", start, end, file_size.unwrap()),
+                                ))
                                 .insert_header(("Accept-Ranges", "bytes"))
-                                .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"))
-                                .insert_header(("X-Seek-Position", query.position.unwrap().to_string()))
+                                .insert_header((
+                                    "Cache-Control",
+                                    "public, max-age=86400, must-revalidate",
+                                ))
+                                .insert_header((
+                                    "X-Seek-Position",
+                                    query.position.unwrap().to_string(),
+                                ))
                                 .streaming(stream.map_err(actix_web::Error::from));
                         }
                         Err(e) => {
@@ -235,7 +263,10 @@ pub async fn get_music_by_id(
                     if let Some((start, end)) = parse_range_header(&range, size) {
                         debug!("Range request: bytes={}-{}", start, end);
 
-                        match file_reader.read_stream_from(&music.file_path, CHUNK_SIZE, start).await {
+                        match file_reader
+                            .read_stream_from(&music.file_path, CHUNK_SIZE, start)
+                            .await
+                        {
                             Ok(stream) => {
                                 let content_length = end - start + 1;
                                 info!("[ACCESS] GET /api/music/id/{} - Status: 206, Range: bytes={}-{}", id, start, end);
@@ -243,9 +274,15 @@ pub async fn get_music_by_id(
                                 return HttpResponse::PartialContent()
                                     .insert_header(("Content-Type", "audio/mpeg"))
                                     .insert_header(("Content-Length", content_length.to_string()))
-                                    .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, size)))
+                                    .insert_header((
+                                        "Content-Range",
+                                        format!("bytes {}-{}/{}", start, end, size),
+                                    ))
                                     .insert_header(("Accept-Ranges", "bytes"))
-                                    .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"))
+                                    .insert_header((
+                                        "Cache-Control",
+                                        "public, max-age=86400, must-revalidate",
+                                    ))
                                     .streaming(stream.map_err(actix_web::Error::from));
                             }
                             Err(e) => {
@@ -267,7 +304,8 @@ pub async fn get_music_by_id(
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "audio/mpeg"));
                     response.insert_header(("Accept-Ranges", "bytes"));
-                    response.insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
+                    response
+                        .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
 
                     // Add Content-Length if available (helps browser determine duration)
                     if let Some(size) = file_size {
@@ -277,7 +315,10 @@ pub async fn get_music_by_id(
                     response.streaming(stream.map_err(actix_web::Error::from))
                 }
                 Err(e) => {
-                    warn!("File not found or could not be read: {} (ID: {}) - Error: {}", music.file_path, id, e);
+                    warn!(
+                        "File not found or could not be read: {} (ID: {}) - Error: {}",
+                        music.file_path, id, e
+                    );
                     info!("[ACCESS] GET /api/music/id/{} - Status: 404", id);
                     HttpResponse::NotFound().body("File not found")
                 }
@@ -343,14 +384,12 @@ pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
             info!("[ACCESS] GET /api/music - Status: 200");
             let response: Vec<MusicResponse> = music_list
                 .into_iter()
-                .map(|music: MusicModel| {
-                    MusicResponse {
-                        id: music.id,
-                        filename: music.filename,
-                        file_path: music.file_path,
-                        lufs: music.lufs,
-                        created_at: music.created_at.to_rfc3339(),
-                    }
+                .map(|music: MusicModel| MusicResponse {
+                    id: music.id,
+                    filename: music.filename,
+                    file_path: music.file_path,
+                    lufs: music.lufs,
+                    created_at: music.created_at.to_rfc3339(),
                 })
                 .collect();
             HttpResponse::Ok().json(response)

@@ -1,16 +1,14 @@
 //! Integration tests for the Settings and Database Management API
 
-use actix_web::{test, App, http::StatusCode, web};
-use kaulan::{
-    AppState,
-    get_music_directory,
-    update_database_endpoint,
-    update_database,
+use actix_web::{http::StatusCode, test, web, App};
+use chrono::Utc;
+use kaulan::{get_music_directory, update_database, update_database_endpoint, AppState};
+use sea_orm::{
+    sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr,
+    EntityTrait, Schema,
 };
-use sea_orm::{Database, DatabaseConnection, DbErr, EntityTrait, ConnectionTrait, Schema, sea_query::{TableCreateStatement}};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-use chrono::Utc;
 
 /// Creates an in-memory SQLite database for testing
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -39,7 +37,9 @@ async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
 
 #[actix_web::test]
 async fn test_get_music_directory() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let test_music_path = "/tmp/test_music".to_string();
 
@@ -58,8 +58,9 @@ async fn test_get_music_directory() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_directory)
-    ).await;
+            .service(get_music_directory),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri("/api/settings/music-directory")
@@ -75,7 +76,9 @@ async fn test_get_music_directory() {
 
 #[actix_web::test]
 async fn test_update_database_empty() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create a temporary directory for testing
     let temp_dir = std::env::temp_dir();
@@ -97,8 +100,9 @@ async fn test_update_database_empty() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(update_database_endpoint)
-    ).await;
+            .service(update_database_endpoint),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/api/database/update")
@@ -118,7 +122,9 @@ async fn test_update_database_empty() {
 
 #[actix_web::test]
 async fn test_update_database_with_new_files() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create a temporary directory with a test music file
     let temp_dir = std::env::temp_dir();
@@ -144,8 +150,9 @@ async fn test_update_database_with_new_files() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(update_database_endpoint)
-    ).await;
+            .service(update_database_endpoint),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/api/database/update")
@@ -160,7 +167,10 @@ async fn test_update_database_with_new_files() {
 
     // Verify the file was added to the database
     use kaulan::entities::music::Entity as MusicEntity;
-    let all_music = MusicEntity::find().all(&db).await.expect("Failed to query database");
+    let all_music = MusicEntity::find()
+        .all(&db)
+        .await
+        .expect("Failed to query database");
     // Note: The file might not have valid LUFS calculated if ffmpeg is not available
     // so we just check that the database can be queried
 
@@ -170,10 +180,12 @@ async fn test_update_database_with_new_files() {
 
 #[actix_web::test]
 async fn test_startup_update_skips_when_done() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Seed db_meta with initial_scan_done = true
-    use kaulan::entities::db_meta::{ActiveModel as DbMetaActiveModel};
+    use kaulan::entities::db_meta::ActiveModel as DbMetaActiveModel;
     use sea_orm::ActiveModelTrait;
     let meta = DbMetaActiveModel {
         id: sea_orm::ActiveValue::Set(1),
@@ -201,8 +213,9 @@ async fn test_startup_update_skips_when_done() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(update_database_endpoint)
-    ).await;
+            .service(update_database_endpoint),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/api/database/update?startup=true")
@@ -214,7 +227,10 @@ async fn test_startup_update_skips_when_done() {
 
     let response_body: serde_json::Value = test::read_body_json(resp).await;
     assert_eq!(response_body["success"], true);
-    assert_eq!(response_body["message"], "Startup scan skipped (already completed)");
+    assert_eq!(
+        response_body["message"],
+        "Startup scan skipped (already completed)"
+    );
 
     // Cleanup
     std::fs::remove_dir_all(test_music_dir).ok();
@@ -222,7 +238,9 @@ async fn test_startup_update_skips_when_done() {
 
 #[actix_web::test]
 async fn test_startup_update_runs_and_sets_flag() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let temp_dir = std::env::temp_dir();
     let test_music_dir = temp_dir.join("test_startup_run");
@@ -246,8 +264,9 @@ async fn test_startup_update_runs_and_sets_flag() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(update_database_endpoint)
-    ).await;
+            .service(update_database_endpoint),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/api/database/update?startup=true")
@@ -259,16 +278,25 @@ async fn test_startup_update_runs_and_sets_flag() {
 
     let response_body: serde_json::Value = test::read_body_json(resp).await;
     assert_eq!(response_body["success"], true);
-    assert_eq!(response_body["message"], "Startup scan completed successfully");
+    assert_eq!(
+        response_body["message"],
+        "Startup scan completed successfully"
+    );
 
     // Verify flag is set and a music entry exists
     use kaulan::entities::db_meta::Entity as DbMetaEntity;
     use kaulan::entities::music::Entity as MusicEntity;
-    let meta = DbMetaEntity::find_by_id(1).one(&db).await.expect("Failed to read db_meta");
+    let meta = DbMetaEntity::find_by_id(1)
+        .one(&db)
+        .await
+        .expect("Failed to read db_meta");
     assert!(meta.is_some());
     assert_eq!(meta.unwrap().initial_scan_done, true);
 
-    let all_music = MusicEntity::find().all(&db).await.expect("Failed to query database");
+    let all_music = MusicEntity::find()
+        .all(&db)
+        .await
+        .expect("Failed to query database");
     assert_eq!(all_music.len(), 1);
 
     // Cleanup
@@ -277,7 +305,9 @@ async fn test_startup_update_runs_and_sets_flag() {
 
 #[actix_web::test]
 async fn test_update_database_function_with_empty_db() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create a temporary directory
     let temp_dir = std::env::temp_dir();

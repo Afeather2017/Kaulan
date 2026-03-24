@@ -3,16 +3,15 @@
 //! Tests the query parameter based seeking feature that allows clients
 //! to request audio starting from a specific timestamp.
 
-use actix_web::{test, App, http::StatusCode, web};
-use kaulan::{
-    AppState,
-    get_music_by_id,
+use actix_web::{http::StatusCode, test, web, App};
+use kaulan::{get_music_by_id, AppState};
+use sea_orm::{
+    sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr, Schema,
 };
-use sea_orm::{Database, DatabaseConnection, DbErr, ConnectionTrait, Schema, sea_query::TableCreateStatement};
-use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Creates an in-memory SQLite database for testing
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -33,10 +32,15 @@ async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
 }
 
 /// Helper function to create a test music entry
-async fn create_test_music(db: &DatabaseConnection, id: i32, filename: &str, file_path: &str) -> Result<(), DbErr> {
-    use kaulan::entities::music::{ActiveModel as MusicActiveModel};
-    use sea_orm::{ActiveModelTrait, Set, ActiveValue};
+async fn create_test_music(
+    db: &DatabaseConnection,
+    id: i32,
+    filename: &str,
+    file_path: &str,
+) -> Result<(), DbErr> {
     use chrono::Utc;
+    use kaulan::entities::music::ActiveModel as MusicActiveModel;
+    use sea_orm::{ActiveModelTrait, ActiveValue, Set};
 
     let music = MusicActiveModel {
         id: ActiveValue::Set(id),
@@ -70,15 +74,17 @@ fn calculate_start_byte(timestamp: f64, duration: f64, file_size: u64) -> u64 {
 #[actix_web::test]
 async fn test_timestamp_seek_valid() {
     // Setup: Create test database and file
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
     let test_file_path = "/tmp/test_music_seek/audio.mp3";
     let file_size: usize = 3_145_728; // ~3 MB file
 
-    create_test_audio_file(test_file_path, file_size)
-        .expect("Failed to create test audio file");
+    create_test_audio_file(test_file_path, file_size).expect("Failed to create test audio file");
 
     create_test_music(&db, 1, "audio.mp3", test_file_path)
-        .await.expect("Failed to create test music entry");
+        .await
+        .expect("Failed to create test music entry");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -95,8 +101,9 @@ async fn test_timestamp_seek_valid() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // Test: Request with timestamp parameter (30 seconds into a 180 second file)
     let timestamp = 30.0;
@@ -104,7 +111,10 @@ async fn test_timestamp_seek_valid() {
     let expected_start = calculate_start_byte(timestamp, duration, file_size as u64);
 
     let req = test::TestRequest::get()
-        .uri(&format!("/api/music/id/1?t={}&duration={}", timestamp, duration))
+        .uri(&format!(
+            "/api/music/id/1?t={}&duration={}",
+            timestamp, duration
+        ))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -113,11 +123,21 @@ async fn test_timestamp_seek_valid() {
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
 
     // Assert: Content-Range header shows correct byte range
-    let content_range = resp.headers().get("Content-Range").unwrap().to_str().unwrap();
+    let content_range = resp
+        .headers()
+        .get("Content-Range")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(content_range.contains(&format!("bytes {}-", expected_start)));
 
     // Assert: X-Seek-Timestamp header is present
-    let seek_timestamp = resp.headers().get("X-Seek-Timestamp").unwrap().to_str().unwrap();
+    let seek_timestamp = resp
+        .headers()
+        .get("X-Seek-Timestamp")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(seek_timestamp, timestamp.to_string());
 
     // Cleanup
@@ -128,15 +148,17 @@ async fn test_timestamp_seek_valid() {
 #[actix_web::test]
 async fn test_timestamp_seek_start() {
     // Test that t=0 streams from beginning
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
     let test_file_path = "/tmp/test_music_seek_start/audio.mp3";
     let file_size: usize = 1_048_576; // 1 MB
 
-    create_test_audio_file(test_file_path, file_size)
-        .expect("Failed to create test audio file");
+    create_test_audio_file(test_file_path, file_size).expect("Failed to create test audio file");
 
     create_test_music(&db, 1, "audio.mp3", test_file_path)
-        .await.expect("Failed to create test music entry");
+        .await
+        .expect("Failed to create test music entry");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -153,8 +175,9 @@ async fn test_timestamp_seek_start() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // t=0 should still return 206 but start from byte 0
     let req = test::TestRequest::get()
@@ -165,7 +188,12 @@ async fn test_timestamp_seek_start() {
 
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
 
-    let content_range = resp.headers().get("Content-Range").unwrap().to_str().unwrap();
+    let content_range = resp
+        .headers()
+        .get("Content-Range")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(content_range.starts_with("bytes 0-"));
 
     // Cleanup
@@ -176,15 +204,17 @@ async fn test_timestamp_seek_start() {
 #[actix_web::test]
 async fn test_timestamp_seek_end() {
     // Test that t=duration streams from end
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
     let test_file_path = "/tmp/test_music_seek_end/audio.mp3";
     let file_size: usize = 1_048_576; // 1 MB
 
-    create_test_audio_file(test_file_path, file_size)
-        .expect("Failed to create test audio file");
+    create_test_audio_file(test_file_path, file_size).expect("Failed to create test audio file");
 
     create_test_music(&db, 1, "audio.mp3", test_file_path)
-        .await.expect("Failed to create test music entry");
+        .await
+        .expect("Failed to create test music entry");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -201,13 +231,17 @@ async fn test_timestamp_seek_end() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // t=duration should stream from near the end
     let duration = 120.0;
     let req = test::TestRequest::get()
-        .uri(&format!("/api/music/id/1?t={}&duration={}", duration, duration))
+        .uri(&format!(
+            "/api/music/id/1?t={}&duration={}",
+            duration, duration
+        ))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -215,9 +249,22 @@ async fn test_timestamp_seek_end() {
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
 
     // Content-Range should start near file_size - 1 (allowing for floating point precision)
-    let content_range = resp.headers().get("Content-Range").unwrap().to_str().unwrap();
+    let content_range = resp
+        .headers()
+        .get("Content-Range")
+        .unwrap()
+        .to_str()
+        .unwrap();
     // Extract the start byte from Content-Range header (format: "bytes {start}-{end}/{size}")
-    let range_parts: Vec<&str> = content_range.split(' ').nth(1).unwrap().split('/').nth(0).unwrap().split('-').collect();
+    let range_parts: Vec<&str> = content_range
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .split('/')
+        .nth(0)
+        .unwrap()
+        .split('-')
+        .collect();
     let start_byte: u64 = range_parts[0].parse().unwrap();
     // Should start within 100 bytes of the end (due to floating point precision)
     assert!(start_byte >= file_size as u64 - 100);
@@ -230,14 +277,16 @@ async fn test_timestamp_seek_end() {
 #[actix_web::test]
 async fn test_timestamp_seek_negative() {
     // Test that negative timestamp falls back to full stream
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
     let test_file_path = "/tmp/test_music_seek_negative/audio.mp3";
 
-    create_test_audio_file(test_file_path, 1024)
-        .expect("Failed to create test audio file");
+    create_test_audio_file(test_file_path, 1024).expect("Failed to create test audio file");
 
     create_test_music(&db, 1, "audio.mp3", test_file_path)
-        .await.expect("Failed to create test music entry");
+        .await
+        .expect("Failed to create test music entry");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -254,8 +303,9 @@ async fn test_timestamp_seek_negative() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // Negative timestamp should return 200 OK (fallback)
     let req = test::TestRequest::get()
@@ -275,14 +325,16 @@ async fn test_timestamp_seek_negative() {
 #[actix_web::test]
 async fn test_timestamp_seek_exceeds_duration() {
     // Test that t > duration falls back to full stream
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
     let test_file_path = "/tmp/test_music_seek_exceeds/audio.mp3";
 
-    create_test_audio_file(test_file_path, 1024)
-        .expect("Failed to create test audio file");
+    create_test_audio_file(test_file_path, 1024).expect("Failed to create test audio file");
 
     create_test_music(&db, 1, "audio.mp3", test_file_path)
-        .await.expect("Failed to create test music entry");
+        .await
+        .expect("Failed to create test music entry");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -299,8 +351,9 @@ async fn test_timestamp_seek_exceeds_duration() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // t > duration should return 200 OK (fallback)
     let req = test::TestRequest::get()
@@ -319,14 +372,16 @@ async fn test_timestamp_seek_exceeds_duration() {
 #[actix_web::test]
 async fn test_timestamp_seek_missing_duration() {
     // Test that providing t without duration falls back to full stream
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
     let test_file_path = "/tmp/test_music_seek_missing/audio.mp3";
 
-    create_test_audio_file(test_file_path, 1024)
-        .expect("Failed to create test audio file");
+    create_test_audio_file(test_file_path, 1024).expect("Failed to create test audio file");
 
     create_test_music(&db, 1, "audio.mp3", test_file_path)
-        .await.expect("Failed to create test music entry");
+        .await
+        .expect("Failed to create test music entry");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -343,8 +398,9 @@ async fn test_timestamp_seek_missing_duration() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // t without duration should return 200 OK (fallback)
     let req = test::TestRequest::get()
@@ -363,7 +419,9 @@ async fn test_timestamp_seek_missing_duration() {
 #[actix_web::test]
 async fn test_timestamp_seek_invalid_id() {
     // Test that 404 is returned for invalid ID even with valid params
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -380,8 +438,9 @@ async fn test_timestamp_seek_invalid_id() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // Non-existent ID should return 404
     let req = test::TestRequest::get()
@@ -396,14 +455,16 @@ async fn test_timestamp_seek_invalid_id() {
 #[actix_web::test]
 async fn test_normal_request_without_timestamp() {
     // Test that requests without timestamp parameters work as before
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
     let test_file_path = "/tmp/test_music_normal/audio.mp3";
 
-    create_test_audio_file(test_file_path, 1024)
-        .expect("Failed to create test audio file");
+    create_test_audio_file(test_file_path, 1024).expect("Failed to create test audio file");
 
     create_test_music(&db, 1, "audio.mp3", test_file_path)
-        .await.expect("Failed to create test music entry");
+        .await
+        .expect("Failed to create test music entry");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -420,13 +481,12 @@ async fn test_normal_request_without_timestamp() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_music_by_id)
-    ).await;
+            .service(get_music_by_id),
+    )
+    .await;
 
     // Normal request without timestamp should return 200 OK
-    let req = test::TestRequest::get()
-        .uri("/api/music/id/1")
-        .to_request();
+    let req = test::TestRequest::get().uri("/api/music/id/1").to_request();
 
     let resp = test::call_service(&app, req).await;
 

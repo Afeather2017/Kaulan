@@ -1,7 +1,7 @@
-use sea_orm::{Database, DatabaseConnection, DbErr, Schema, ConnectionTrait};
-use sea_orm::sea_query::TableCreateStatement;
 use crate::entities;
-use tracing::{info, debug};
+use sea_orm::sea_query::TableCreateStatement;
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbErr, Schema};
+use tracing::{debug, info};
 
 /// Get the database path based on platform and environment
 fn get_database_path(music_path: &str) -> String {

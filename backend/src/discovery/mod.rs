@@ -38,8 +38,8 @@
 //! - [`socket`] - Shared UDP socket for discovery (single socket for send/receive)
 //! - [`discovery`] - UDP listener and request sender logic
 
-pub mod types;
-pub mod socket;
 pub mod discovery;
+pub mod socket;
+pub mod types;
 
-pub use types::{DiscoveryMessage, DiscoveredDevice, DiscoveryState, DiscoveryError};
+pub use types::{DiscoveredDevice, DiscoveryError, DiscoveryMessage, DiscoveryState};

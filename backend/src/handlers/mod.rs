@@ -2,12 +2,12 @@
 //!
 //! This module organizes all API endpoint handlers by domain.
 
+pub mod collections;
+pub mod database;
+pub mod discovery;
+pub mod lufs;
+pub mod lyrics;
 pub mod music;
 pub mod playlists;
-pub mod collections;
 pub mod settings;
 pub mod upload;
-pub mod database;
-pub mod lyrics;
-pub mod lufs;
-pub mod discovery;

@@ -2,49 +2,44 @@
 //!
 //! This module provides the HTTP server startup functionality.
 
-use actix_web::{web, App, HttpServer};
 use actix_cors::Cors;
+use actix_web::{web, App, HttpServer};
 use std::env;
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::UdpSocket;
-use tracing::{info, error};
 use tokio::sync::Mutex as TokioMutex;
+use tracing::{error, info};
 
-use crate::types::AppState;
 use crate::config;
 use crate::database::establish_connection;
+use crate::handlers::collections;
+use crate::handlers::database;
+use crate::handlers::discovery;
+use crate::handlers::lufs;
+use crate::handlers::lyrics;
 use crate::handlers::music;
 use crate::handlers::playlists;
-use crate::handlers::collections;
 use crate::handlers::settings;
 use crate::handlers::upload;
-use crate::handlers::database;
-use crate::handlers::lyrics;
-use crate::handlers::lufs;
-use crate::handlers::discovery;
+use crate::types::AppState;
 
 // Re-export handler modules for convenience and for integration tests
-pub use music::{get_music, get_music_by_id, get_all_music};
-pub use playlists::{get_all_playlists, get_playlist};
 pub use collections::{
-    get_all_collections,
-    create_collection,
-    delete_collection,
-    get_collection,
-    get_collection_items,
-    add_to_collection,
-    remove_from_collection,
+    add_to_collection, create_collection, delete_collection, get_all_collections, get_collection,
+    get_collection_items, remove_from_collection,
 };
-pub use settings::{get_music_directory, set_music_directory};
-pub use upload::{get_directory_tree, upload_files};
-pub use database::{update_database_endpoint, get_playlists_collection_mode};
-pub use lyrics::{get_lyrics, get_lyrics_by_id};
-pub use lufs::precache_lufs;
+pub use database::{get_playlists_collection_mode, update_database_endpoint};
 pub use discovery::{
     finish_discovery_scan, get_discovered_devices, get_self_device, request_discovery_once,
     set_device_name, start_discovery_scan,
 };
+pub use lufs::precache_lufs;
+pub use lyrics::{get_lyrics, get_lyrics_by_id};
+pub use music::{get_all_music, get_music, get_music_by_id};
+pub use playlists::{get_all_playlists, get_playlist};
+pub use settings::{get_music_directory, set_music_directory};
+pub use upload::{get_directory_tree, upload_files};
 
 /// Represents the server address information
 #[derive(Debug, Clone)]
@@ -81,7 +76,9 @@ impl ServerInfo {
 /// Returns an error if:
 /// - No music directory is configured (no CLI arg, no config file, no env var)
 /// - Database connection fails
-pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dyn std::error::Error>> {
+pub async fn start_server(
+    cli_path: Option<String>,
+) -> Result<ServerInfo, Box<dyn std::error::Error>> {
     // Priority: CLI arg > Config file > Environment variable > Platform default
     let music_path = if let Some(path) = cli_path {
         // CLI argument provided - use it (highest priority)
@@ -98,7 +95,10 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
     } else if cfg!(target_os = "android") {
         // Android: use /storage as default (covers both internal storage and SD card)
         let default_path = "/storage".to_string();
-        info!("Using default music directory for Android: {}", default_path);
+        info!(
+            "Using default music directory for Android: {}",
+            default_path
+        );
         default_path
     } else {
         // Desktop: try ~/Music first, then ./music as fallback
@@ -121,8 +121,16 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
                     // No music directory configured - abort
                     error!("No music directory configured!");
                     error!("Please provide music directory via:");
-                    error!("  1. CLI argument: {} run <music_path>", env::args().next().unwrap_or_else(|| "kaulan".to_string()));
-                    error!("  2. Config file: {}/config.json", config::get_config_dir().unwrap_or_else(|| PathBuf::from("~/.config/kaulan")).display());
+                    error!(
+                        "  1. CLI argument: {} run <music_path>",
+                        env::args().next().unwrap_or_else(|| "kaulan".to_string())
+                    );
+                    error!(
+                        "  2. Config file: {}/config.json",
+                        config::get_config_dir()
+                            .unwrap_or_else(|| PathBuf::from("~/.config/kaulan"))
+                            .display()
+                    );
                     error!("  3. Environment variable: KAULAN_MUSIC_DIR");
                     error!("");
                     error!("Default locations checked (none exist):");
@@ -135,8 +143,16 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
             // No home directory found - abort
             error!("No music directory configured!");
             error!("Please provide music directory via:");
-            error!("  1. CLI argument: {} run <music_path>", env::args().next().unwrap_or_else(|| "kaulan".to_string()));
-            error!("  2. Config file: {}/config.json", config::get_config_dir().unwrap_or_else(|| PathBuf::from("~/.config/kaulan")).display());
+            error!(
+                "  1. CLI argument: {} run <music_path>",
+                env::args().next().unwrap_or_else(|| "kaulan".to_string())
+            );
+            error!(
+                "  2. Config file: {}/config.json",
+                config::get_config_dir()
+                    .unwrap_or_else(|| PathBuf::from("~/.config/kaulan"))
+                    .display()
+            );
             error!("  3. Environment variable: KAULAN_MUSIC_DIR");
             return Err("No music directory configured. Use CLI argument, config file, or KAULAN_MUSIC_DIR environment variable.".into());
         }
@@ -170,13 +186,14 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
     info!("Discovery mode: manual scan request/reply");
 
     // Create shared UDP socket for discovery (single socket for both send and receive)
-    let discovery_socket: Option<Arc<UdpSocket>> = match crate::discovery::socket::create_discovery_socket().await {
-        Some(socket) => Some(socket),
-        None => {
-            error!("Failed to create discovery socket, device discovery disabled");
-            None
-        }
-    };
+    let discovery_socket: Option<Arc<UdpSocket>> =
+        match crate::discovery::socket::create_discovery_socket().await {
+            Some(socket) => Some(socket),
+            None => {
+                error!("Failed to create discovery socket, device discovery disabled");
+                None
+            }
+        };
 
     let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
         device_id.clone(),
@@ -188,10 +205,8 @@ pub async fn start_server(cli_path: Option<String>) -> Result<ServerInfo, Box<dy
     if let Some(socket) = discovery_socket {
         let discovery_state_clone = discovery_state.clone();
         tokio::spawn(async move {
-            crate::discovery::discovery::start_discovery_listener(
-                socket,
-                discovery_state_clone,
-            ).await;
+            crate::discovery::discovery::start_discovery_listener(socket, discovery_state_clone)
+                .await;
         });
 
         info!("Device discovery services started");

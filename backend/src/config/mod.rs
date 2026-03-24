@@ -31,7 +31,6 @@ pub struct Config {
 
     /// Human-readable device name (user-configurable)
     pub device_name: Option<String>,
-
 }
 
 /// Get the config directory path
@@ -172,9 +171,7 @@ pub fn get_device_name() -> Option<String> {
     }
 
     // Fallback to hostname if no device name is set
-    gethostname::gethostname()
-        .into_string()
-        .ok()
+    gethostname::gethostname().into_string().ok()
 }
 
 /// Set the device name

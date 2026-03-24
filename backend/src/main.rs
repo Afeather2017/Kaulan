@@ -1,7 +1,7 @@
 use std::env;
 
 // Import from the library (init_tracing is now in the library)
-use kaulan::{start_server, update_database, establish_connection, init_tracing, start_log_server};
+use kaulan::{establish_connection, init_tracing, start_log_server, start_server, update_database};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -50,7 +50,10 @@ async fn main() -> std::io::Result<()> {
                 Err(e) => {
                     tracing::error!("Failed to start server: {}", e);
                     eprintln!("Failed to start server: {}", e);
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()));
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    ));
                 }
             }
         }
@@ -78,7 +81,10 @@ async fn main() -> std::io::Result<()> {
                 Err(e) => {
                     tracing::error!("Failed to connect to database: {}", e);
                     eprintln!("Failed to connect to database: {}", e);
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()));
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    ));
                 }
             };
             match update_database(&music_path, &db_conn).await {

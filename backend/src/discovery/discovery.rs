@@ -4,7 +4,7 @@
 //! request messages for manual on-demand scanning.
 
 use crate::discovery::socket::get_broadcast_addr;
-use crate::discovery::types::{DiscoveryError, DiscoveryMessage, DiscoveryState, DiscoveredDevice};
+use crate::discovery::types::{DiscoveredDevice, DiscoveryError, DiscoveryMessage, DiscoveryState};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
@@ -144,7 +144,8 @@ async fn respond_to_request(requester_addr: std::net::SocketAddr, state: &Arc<Di
     };
 
     let device_name = state.get_device_name().await;
-    let response = DiscoveryMessage::new_response(state.device_id.clone(), device_name, state.api_port);
+    let response =
+        DiscoveryMessage::new_response(state.device_id.clone(), device_name, state.api_port);
     let payload = match serde_json::to_vec(&response) {
         Ok(payload) => payload,
         Err(e) => {
@@ -159,7 +160,10 @@ async fn respond_to_request(requester_addr: std::net::SocketAddr, state: &Arc<Di
     }
 
     if let Err(e) = socket.send_to(&payload, requester_addr).await {
-        warn!("Failed to send discovery response to {}: {}", requester_addr, e);
+        warn!(
+            "Failed to send discovery response to {}: {}",
+            requester_addr, e
+        );
     }
 }
 
@@ -172,7 +176,8 @@ mod tests {
         let msg = DiscoveryMessage::new_request();
         assert!(msg.validate().is_ok());
 
-        let msg = DiscoveryMessage::new_response("test-id".to_string(), "Test Player".to_string(), 2080);
+        let msg =
+            DiscoveryMessage::new_response("test-id".to_string(), "Test Player".to_string(), 2080);
         assert!(msg.validate().is_ok());
     }
 }

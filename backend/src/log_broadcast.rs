@@ -25,11 +25,11 @@
 //!                         └──────────────────┘
 //! ```
 
-use std::sync::Arc;
 use std::io;
+use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing_subscriber::{fmt, Layer, registry};
 use tracing::Subscriber;
+use tracing_subscriber::{fmt, registry, Layer};
 
 /// Global log broadcaster state
 #[derive(Clone)]
@@ -82,7 +82,9 @@ impl io::Write for BroadcastWriter {
 ///
 /// This creates a fmt::Layer that writes to our broadcast writer,
 /// sending formatted log lines to all connected TCP clients.
-pub fn create_broadcast_layer<S>(broadcaster: Arc<LogBroadcaster>) -> Box<dyn Layer<S> + Send + Sync>
+pub fn create_broadcast_layer<S>(
+    broadcaster: Arc<LogBroadcaster>,
+) -> Box<dyn Layer<S> + Send + Sync>
 where
     S: Subscriber + for<'a> registry::LookupSpan<'a>,
 {
@@ -153,15 +155,12 @@ pub async fn start_log_server(broadcaster: Arc<LogBroadcaster>) {
 }
 
 /// Handle a single TCP client connection
-async fn handle_client(
-    socket: tokio::net::TcpStream,
-    broadcaster: Arc<LogBroadcaster>,
-) {
+async fn handle_client(socket: tokio::net::TcpStream, broadcaster: Arc<LogBroadcaster>) {
     // Subscribe to log broadcasts
     let mut receiver = broadcaster.subscribe();
 
     // Use a buffered writer for better performance
-    use tokio::io::{AsyncWriteExt, AsyncReadExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (mut reader, mut writer) = socket.into_split();
 
     // Spawn a task to monitor for client disconnect

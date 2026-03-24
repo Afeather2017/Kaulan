@@ -6,17 +6,21 @@
 //! Related documentation: docs/file-upload-feature.md
 //! Related source: backend/src/lib.rs (upload_files function)
 
-use actix_web::{test, App, http, web};
-use kaulan::{AppState, upload_files, get_all_music};
-use sea_orm::{Database, DatabaseConnection, DbErr, ConnectionTrait, Schema, sea_query::TableCreateStatement};
+use actix_web::web::Bytes;
+use actix_web::{http, test, web, App};
+use kaulan::{get_all_music, upload_files, AppState};
+use sea_orm::{
+    sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr, Schema,
+};
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-use std::fs;
-use actix_web::web::Bytes;
 
 fn find_test_mp3_path() -> PathBuf {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("test_music");
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("test_music");
     let mut stack = vec![base];
 
     while let Some(dir) = stack.pop() {
@@ -64,16 +68,22 @@ async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
 }
 
 /// Creates a multipart body with binary content for single file upload
-fn create_multipart_body_bytes(files: &[(&str, &[u8])], target_path: Option<&str>) -> (String, Bytes) {
+fn create_multipart_body_bytes(
+    files: &[(&str, &[u8])],
+    target_path: Option<&str>,
+) -> (String, Bytes) {
     let boundary = "---------------------------202022185716362916172375148227";
     let mut body = Vec::new();
 
     // Add target path field if provided
     if let Some(path) = target_path {
-        body.extend_from_slice(format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"targetPath\"\r\n\r\n{}\r\n",
-            boundary, path
-        ).as_bytes());
+        body.extend_from_slice(
+            format!(
+                "--{}\r\nContent-Disposition: form-data; name=\"targetPath\"\r\n\r\n{}\r\n",
+                boundary, path
+            )
+            .as_bytes(),
+        );
     }
 
     // Add files
@@ -112,9 +122,7 @@ async fn test_upload_single_file_to_root() {
         discovery: discovery_state,
     });
 
-    let app = test::init_service(
-        App::new().app_data(app_state).service(upload_files)
-    ).await;
+    let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
 
     // Read test file
     let file_content = read_test_mp3();
@@ -164,14 +172,13 @@ async fn test_upload_to_subdirectory() {
         discovery: discovery_state,
     });
 
-    let app = test::init_service(
-        App::new().app_data(app_state).service(upload_files)
-    ).await;
+    let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
 
     let file_content = read_test_mp3();
 
     // Upload to subdirectory "test-subfolder"
-    let (boundary, body) = create_multipart_body_bytes(&[("1-m.mp3", &file_content)], Some("test-subfolder"));
+    let (boundary, body) =
+        create_multipart_body_bytes(&[("1-m.mp3", &file_content)], Some("test-subfolder"));
 
     let req = test::TestRequest::post()
         .uri("/api/files/upload")
@@ -214,16 +221,11 @@ async fn test_upload_unsupported_file_type_rejected() {
         discovery: discovery_state,
     });
 
-    let app = test::init_service(
-        App::new().app_data(app_state).service(upload_files)
-    ).await;
+    let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
 
     // Create multipart body with an unsupported .exe file
     let fake_content = b"This is not a real audio file";
-    let (boundary, body) = create_multipart_body_bytes(
-        &[("malicious.exe", fake_content)],
-        None
-    );
+    let (boundary, body) = create_multipart_body_bytes(&[("malicious.exe", fake_content)], None);
 
     let req = test::TestRequest::post()
         .uri("/api/files/upload")
@@ -266,17 +268,13 @@ async fn test_upload_path_traversal_protection() {
         discovery: discovery_state,
     });
 
-    let app = test::init_service(
-        App::new().app_data(app_state).service(upload_files)
-    ).await;
+    let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
 
     let file_content = read_test_mp3();
 
     // Try to upload with path traversal in target path
-    let (boundary, body) = create_multipart_body_bytes(
-        &[("3-m.mp3", &file_content)],
-        Some("../../../etc")
-    );
+    let (boundary, body) =
+        create_multipart_body_bytes(&[("3-m.mp3", &file_content)], Some("../../../etc"));
 
     let req = test::TestRequest::post()
         .uri("/api/files/upload")
@@ -290,11 +288,16 @@ async fn test_upload_path_traversal_protection() {
     let resp = test::call_service(&app, req).await;
 
     // Should be rejected
-    assert!(!resp.status().is_success(), "Path traversal should be rejected");
+    assert!(
+        !resp.status().is_success(),
+        "Path traversal should be rejected"
+    );
 
     // Verify file was NOT created outside the music directory
-    assert!(!temp_dir.join("../../../etc").join("3-m.mp3").exists()
-            || !temp_dir.join("3-m.mp3").exists());
+    assert!(
+        !temp_dir.join("../../../etc").join("3-m.mp3").exists()
+            || !temp_dir.join("3-m.mp3").exists()
+    );
 
     // Cleanup
     fs::remove_dir_all(temp_dir).ok();
@@ -324,13 +327,12 @@ async fn test_upload_updates_database() {
         App::new()
             .app_data(app_state)
             .service(upload_files)
-            .service(get_all_music)
-    ).await;
+            .service(get_all_music),
+    )
+    .await;
 
     // Verify database is empty initially
-    let req_get = test::TestRequest::get()
-        .uri("/api/music")
-        .to_request();
+    let req_get = test::TestRequest::get().uri("/api/music").to_request();
     let resp_get = test::call_service(&app, req_get).await;
     let initial_music: serde_json::Value = test::read_body_json(resp_get).await;
     assert_eq!(initial_music.as_array().unwrap().len(), 0);
@@ -356,13 +358,14 @@ async fn test_upload_updates_database() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Verify database now contains the uploaded file
-    let req_get_after = test::TestRequest::get()
-        .uri("/api/music")
-        .to_request();
+    let req_get_after = test::TestRequest::get().uri("/api/music").to_request();
     let resp_get_after = test::call_service(&app, req_get_after).await;
     let music_after: serde_json::Value = test::read_body_json(resp_get_after).await;
 
-    assert!(music_after.as_array().unwrap().len() > 0, "Database should contain uploaded file");
+    assert!(
+        music_after.as_array().unwrap().len() > 0,
+        "Database should contain uploaded file"
+    );
 
     // Cleanup
     fs::remove_dir_all(temp_dir).ok();
@@ -388,9 +391,7 @@ async fn test_upload_empty_request() {
         discovery: discovery_state,
     });
 
-    let app = test::init_service(
-        App::new().app_data(app_state).service(upload_files)
-    ).await;
+    let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
 
     // Send empty multipart request
     let boundary = "---------------------------202022185716362916172375148227";
@@ -434,17 +435,13 @@ async fn test_upload_to_nested_subdirectories() {
         discovery: discovery_state,
     });
 
-    let app = test::init_service(
-        App::new().app_data(app_state).service(upload_files)
-    ).await;
+    let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
 
     let file_content = read_test_mp3();
 
     // Upload to nested subdirectory
-    let (boundary, body) = create_multipart_body_bytes(
-        &[("5-m.mp3", &file_content)],
-        Some("level1/level2/level3")
-    );
+    let (boundary, body) =
+        create_multipart_body_bytes(&[("5-m.mp3", &file_content)], Some("level1/level2/level3"));
 
     let req = test::TestRequest::post()
         .uri("/api/files/upload")
@@ -460,8 +457,15 @@ async fn test_upload_to_nested_subdirectories() {
     assert!(resp.status().is_success());
 
     // Verify file exists in nested subdirectory
-    let dest_file = temp_dir.join("level1").join("level2").join("level3").join("5-m.mp3");
-    assert!(dest_file.exists(), "File should exist in nested subdirectory");
+    let dest_file = temp_dir
+        .join("level1")
+        .join("level2")
+        .join("level3")
+        .join("5-m.mp3");
+    assert!(
+        dest_file.exists(),
+        "File should exist in nested subdirectory"
+    );
 
     // Cleanup
     fs::remove_dir_all(temp_dir).ok();

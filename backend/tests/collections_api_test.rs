@@ -1,19 +1,14 @@
 //! Integration tests for the Collections API
 
-use actix_web::{test, App, http::StatusCode, web};
-use serde_json::json;
+use actix_web::{http::StatusCode, test, web, App};
 use kaulan::{
-    AppState,
-    get_all_collections,
-    get_collection,
-    create_collection,
-    delete_collection,
-    get_collection_items,
-    add_to_collection,
-    remove_from_collection,
-    get_playlists_collection_mode,
+    add_to_collection, create_collection, delete_collection, get_all_collections, get_collection,
+    get_collection_items, get_playlists_collection_mode, remove_from_collection, AppState,
 };
-use sea_orm::{Database, DatabaseConnection, DbErr, ConnectionTrait, Schema, sea_query::{TableCreateStatement}};
+use sea_orm::{
+    sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr, Schema,
+};
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -50,10 +45,14 @@ async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
 }
 
 /// Helper function to create a test music entry
-async fn create_test_music(db: &DatabaseConnection, filename: &str, file_path: &str) -> Result<i32, DbErr> {
-    use kaulan::entities::music::{ActiveModel as MusicActiveModel};
-    use sea_orm::{ActiveModelTrait, Set};
+async fn create_test_music(
+    db: &DatabaseConnection,
+    filename: &str,
+    file_path: &str,
+) -> Result<i32, DbErr> {
     use chrono::Utc;
+    use kaulan::entities::music::ActiveModel as MusicActiveModel;
+    use sea_orm::{ActiveModelTrait, Set};
 
     let music = MusicActiveModel {
         filename: Set(filename.to_string()),
@@ -69,9 +68,9 @@ async fn create_test_music(db: &DatabaseConnection, filename: &str, file_path: &
 
 /// Helper function to create a test collection
 async fn create_test_collection(db: &DatabaseConnection, name: &str) -> Result<i32, DbErr> {
-    use kaulan::entities::collection::{ActiveModel as CollectionActiveModel};
-    use sea_orm::{ActiveModelTrait, Set};
     use chrono::Utc;
+    use kaulan::entities::collection::ActiveModel as CollectionActiveModel;
+    use sea_orm::{ActiveModelTrait, Set};
 
     let collection = CollectionActiveModel {
         name: Set(name.to_string()),
@@ -84,10 +83,14 @@ async fn create_test_collection(db: &DatabaseConnection, name: &str) -> Result<i
 }
 
 /// Helper function to add a music item to a collection
-async fn add_music_to_collection(db: &DatabaseConnection, collection_id: i32, music_id: i32) -> Result<(), DbErr> {
-    use kaulan::entities::collection_item::{ActiveModel as CollectionItemActiveModel};
-    use sea_orm::{ActiveModelTrait, Set};
+async fn add_music_to_collection(
+    db: &DatabaseConnection,
+    collection_id: i32,
+    music_id: i32,
+) -> Result<(), DbErr> {
     use chrono::Utc;
+    use kaulan::entities::collection_item::ActiveModel as CollectionItemActiveModel;
+    use sea_orm::{ActiveModelTrait, Set};
 
     let item = CollectionItemActiveModel {
         collection_id: Set(collection_id),
@@ -103,7 +106,9 @@ async fn add_music_to_collection(db: &DatabaseConnection, collection_id: i32, mu
 #[actix_web::test]
 async fn test_get_all_collections_empty() {
     // Setup test database
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -120,8 +125,9 @@ async fn test_get_all_collections_empty() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_all_collections)
-    ).await;
+            .service(get_all_collections),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri("/api/collections")
@@ -137,7 +143,9 @@ async fn test_get_all_collections_empty() {
 
 #[actix_web::test]
 async fn test_get_playlists_collection_mode_empty() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -154,8 +162,9 @@ async fn test_get_playlists_collection_mode_empty() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_playlists_collection_mode)
-    ).await;
+            .service(get_playlists_collection_mode),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri("/api/playlists/collection-mode")
@@ -173,7 +182,9 @@ async fn test_get_playlists_collection_mode_empty() {
 
 #[actix_web::test]
 async fn test_create_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -191,8 +202,9 @@ async fn test_create_collection() {
         App::new()
             .app_data(web::Data::new(app_state))
             .service(create_collection)
-            .service(get_all_collections)
-    ).await;
+            .service(get_all_collections),
+    )
+    .await;
 
     // Create a new collection
     let create_req = test::TestRequest::post()
@@ -220,7 +232,9 @@ async fn test_create_collection() {
 
 #[actix_web::test]
 async fn test_create_duplicate_collection_fails() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -237,8 +251,9 @@ async fn test_create_duplicate_collection_fails() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(create_collection)
-    ).await;
+            .service(create_collection),
+    )
+    .await;
 
     let collection_name = "Duplicate Collection";
 
@@ -263,10 +278,14 @@ async fn test_create_duplicate_collection_fails() {
 
 #[actix_web::test]
 async fn test_get_collection_by_id() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create a test collection
-    let collection_id = create_test_collection(&db, "Test Collection").await.expect("Failed to create test collection");
+    let collection_id = create_test_collection(&db, "Test Collection")
+        .await
+        .expect("Failed to create test collection");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -283,8 +302,9 @@ async fn test_get_collection_by_id() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_collection)
-    ).await;
+            .service(get_collection),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/collections/{}", collection_id))
@@ -300,7 +320,9 @@ async fn test_get_collection_by_id() {
 
 #[actix_web::test]
 async fn test_get_nonexistent_collection_by_id() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -317,8 +339,9 @@ async fn test_get_nonexistent_collection_by_id() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_collection)
-    ).await;
+            .service(get_collection),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri("/api/collections/999")
@@ -330,10 +353,14 @@ async fn test_get_nonexistent_collection_by_id() {
 
 #[actix_web::test]
 async fn test_delete_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create a test collection
-    let collection_id = create_test_collection(&db, "To Delete").await.expect("Failed to create test collection");
+    let collection_id = create_test_collection(&db, "To Delete")
+        .await
+        .expect("Failed to create test collection");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -351,8 +378,9 @@ async fn test_delete_collection() {
         App::new()
             .app_data(web::Data::new(app_state))
             .service(delete_collection)
-            .service(get_all_collections)
-    ).await;
+            .service(get_all_collections),
+    )
+    .await;
 
     // Delete the collection
     let delete_req = test::TestRequest::delete()
@@ -376,7 +404,9 @@ async fn test_delete_collection() {
 
 #[actix_web::test]
 async fn test_delete_nonexistent_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -393,8 +423,9 @@ async fn test_delete_nonexistent_collection() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(delete_collection)
-    ).await;
+            .service(delete_collection),
+    )
+    .await;
 
     let req = test::TestRequest::delete()
         .uri("/api/collections/999")
@@ -406,18 +437,30 @@ async fn test_delete_nonexistent_collection() {
 
 #[actix_web::test]
 async fn test_get_collection_items() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create test music entries
-    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3").await.expect("Failed to create music 1");
-    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3").await.expect("Failed to create music 2");
+    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3")
+        .await
+        .expect("Failed to create music 1");
+    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3")
+        .await
+        .expect("Failed to create music 2");
 
     // Create a test collection
-    let collection_id = create_test_collection(&db, "My Collection").await.expect("Failed to create collection");
+    let collection_id = create_test_collection(&db, "My Collection")
+        .await
+        .expect("Failed to create collection");
 
     // Add music to collection
-    add_music_to_collection(&db, collection_id, music_id1).await.expect("Failed to add music 1");
-    add_music_to_collection(&db, collection_id, music_id2).await.expect("Failed to add music 2");
+    add_music_to_collection(&db, collection_id, music_id1)
+        .await
+        .expect("Failed to add music 1");
+    add_music_to_collection(&db, collection_id, music_id2)
+        .await
+        .expect("Failed to add music 2");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -434,8 +477,9 @@ async fn test_get_collection_items() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_collection_items)
-    ).await;
+            .service(get_collection_items),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/collections/{}/items", collection_id))
@@ -452,7 +496,9 @@ async fn test_get_collection_items() {
 
 #[actix_web::test]
 async fn test_get_nonexistent_collection_items() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -469,8 +515,9 @@ async fn test_get_nonexistent_collection_items() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(get_collection_items)
-    ).await;
+            .service(get_collection_items),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri("/api/collections/999/items")
@@ -482,14 +529,22 @@ async fn test_get_nonexistent_collection_items() {
 
 #[actix_web::test]
 async fn test_add_to_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create test music entries
-    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3").await.expect("Failed to create music 1");
-    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3").await.expect("Failed to create music 2");
+    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3")
+        .await
+        .expect("Failed to create music 1");
+    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3")
+        .await
+        .expect("Failed to create music 2");
 
     // Create a test collection
-    let collection_id = create_test_collection(&db, "My Collection").await.expect("Failed to create collection");
+    let collection_id = create_test_collection(&db, "My Collection")
+        .await
+        .expect("Failed to create collection");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -507,8 +562,9 @@ async fn test_add_to_collection() {
         App::new()
             .app_data(web::Data::new(app_state))
             .service(add_to_collection)
-            .service(get_collection_items)
-    ).await;
+            .service(get_collection_items),
+    )
+    .await;
 
     // Add music to collection
     let add_req = test::TestRequest::post()
@@ -531,10 +587,14 @@ async fn test_add_to_collection() {
 
 #[actix_web::test]
 async fn test_add_to_nonexistent_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create a test music entry
-    let music_id = create_test_music(&db, "song1.mp3", "song1.mp3").await.expect("Failed to create music");
+    let music_id = create_test_music(&db, "song1.mp3", "song1.mp3")
+        .await
+        .expect("Failed to create music");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -551,8 +611,9 @@ async fn test_add_to_nonexistent_collection() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
-            .service(add_to_collection)
-    ).await;
+            .service(add_to_collection),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/api/collections/999/items")
@@ -565,16 +626,24 @@ async fn test_add_to_nonexistent_collection() {
 
 #[actix_web::test]
 async fn test_add_duplicate_to_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create test music entry
-    let music_id = create_test_music(&db, "song1.mp3", "song1.mp3").await.expect("Failed to create music");
+    let music_id = create_test_music(&db, "song1.mp3", "song1.mp3")
+        .await
+        .expect("Failed to create music");
 
     // Create a test collection
-    let collection_id = create_test_collection(&db, "My Collection").await.expect("Failed to create collection");
+    let collection_id = create_test_collection(&db, "My Collection")
+        .await
+        .expect("Failed to create collection");
 
     // Add music to collection directly
-    add_music_to_collection(&db, collection_id, music_id).await.expect("Failed to add music");
+    add_music_to_collection(&db, collection_id, music_id)
+        .await
+        .expect("Failed to add music");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -592,8 +661,9 @@ async fn test_add_duplicate_to_collection() {
         App::new()
             .app_data(web::Data::new(app_state))
             .service(add_to_collection)
-            .service(get_collection_items)
-    ).await;
+            .service(get_collection_items),
+    )
+    .await;
 
     // Try to add the same music again (should succeed but not duplicate)
     let add_req = test::TestRequest::post()
@@ -616,18 +686,30 @@ async fn test_add_duplicate_to_collection() {
 
 #[actix_web::test]
 async fn test_remove_from_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create test music entries
-    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3").await.expect("Failed to create music 1");
-    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3").await.expect("Failed to create music 2");
+    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3")
+        .await
+        .expect("Failed to create music 1");
+    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3")
+        .await
+        .expect("Failed to create music 2");
 
     // Create a test collection
-    let collection_id = create_test_collection(&db, "My Collection").await.expect("Failed to create collection");
+    let collection_id = create_test_collection(&db, "My Collection")
+        .await
+        .expect("Failed to create collection");
 
     // Add music to collection
-    add_music_to_collection(&db, collection_id, music_id1).await.expect("Failed to add music 1");
-    add_music_to_collection(&db, collection_id, music_id2).await.expect("Failed to add music 2");
+    add_music_to_collection(&db, collection_id, music_id1)
+        .await
+        .expect("Failed to add music 1");
+    add_music_to_collection(&db, collection_id, music_id2)
+        .await
+        .expect("Failed to add music 2");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -645,8 +727,9 @@ async fn test_remove_from_collection() {
         App::new()
             .app_data(web::Data::new(app_state))
             .service(remove_from_collection)
-            .service(get_collection_items)
-    ).await;
+            .service(get_collection_items),
+    )
+    .await;
 
     // Remove one music from collection
     let remove_req = test::TestRequest::delete()
@@ -669,10 +752,14 @@ async fn test_remove_from_collection() {
 
 #[actix_web::test]
 async fn test_remove_nonexistent_item_from_collection() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     // Create a test collection
-    let collection_id = create_test_collection(&db, "My Collection").await.expect("Failed to create collection");
+    let collection_id = create_test_collection(&db, "My Collection")
+        .await
+        .expect("Failed to create collection");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -690,8 +777,9 @@ async fn test_remove_nonexistent_item_from_collection() {
         App::new()
             .app_data(web::Data::new(app_state))
             .service(remove_from_collection)
-            .service(get_collection_items)
-    ).await;
+            .service(get_collection_items),
+    )
+    .await;
 
     // Try to remove a music that doesn't exist in the collection
     let remove_req = test::TestRequest::delete()
@@ -706,7 +794,9 @@ async fn test_remove_nonexistent_item_from_collection() {
 
 #[actix_web::test]
 async fn test_collection_workflow() {
-    let db = setup_test_db().await.expect("Failed to setup test database");
+    let db = setup_test_db()
+        .await
+        .expect("Failed to setup test database");
 
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
         "test-id".to_string(),
@@ -728,12 +818,17 @@ async fn test_collection_workflow() {
             .service(get_collection_items)
             .service(add_to_collection)
             .service(remove_from_collection)
-            .service(delete_collection)
-    ).await;
+            .service(delete_collection),
+    )
+    .await;
 
     // Step 1: Create test music
-    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3").await.expect("Failed to create music 1");
-    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3").await.expect("Failed to create music 2");
+    let music_id1 = create_test_music(&db, "song1.mp3", "song1.mp3")
+        .await
+        .expect("Failed to create music 1");
+    let music_id2 = create_test_music(&db, "song2.mp3", "song2.mp3")
+        .await
+        .expect("Failed to create music 2");
 
     // Step 2: Create a collection
     let create_req = test::TestRequest::post()

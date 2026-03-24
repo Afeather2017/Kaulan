@@ -3,13 +3,13 @@
 //! This module provides endpoints for:
 //! - Streaming LRC (lyrics) files synchronized with music playback
 
-use actix_web::{get, web, HttpResponse, Responder};
-use crate::entities::music::{Entity as MusicEntity, Column as MusicColumn};
-use crate::types::AppState;
+use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity};
 use crate::file_ops::get_file_reader;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
-use tracing::{debug, info, warn, error};
+use crate::types::AppState;
+use actix_web::{get, web, HttpResponse, Responder};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::path::Path;
+use tracing::{debug, error, info, warn};
 
 /// Stream lyrics file (LRC format) by music filename
 ///
@@ -33,10 +33,7 @@ use std::path::Path;
 /// curl http://localhost:2080/api/lyrics/song.mp3
 /// ```
 #[get("/api/lyrics/{filename}")]
-pub async fn get_lyrics(
-    path: web::Path<String>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn get_lyrics(path: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
     let filename = path.into_inner();
     debug!("Lyrics request received for filename: {}", filename);
 
@@ -49,7 +46,10 @@ pub async fn get_lyrics(
         .await
     {
         Ok(Some(music)) => {
-            debug!("Found music in database: filename={}, file_path={}", music.filename, music.file_path);
+            debug!(
+                "Found music in database: filename={}, file_path={}",
+                music.filename, music.file_path
+            );
 
             // Construct LRC file path by replacing the file extension with .lrc
             let lrc_path = Path::new(&music.file_path)
@@ -63,11 +63,18 @@ pub async fn get_lyrics(
 
             match file_reader.read_file(&lrc_path).await {
                 Ok(content) => {
-                    debug!("Successfully served lyrics file: {} ({} bytes)", lrc_path, content.len());
+                    debug!(
+                        "Successfully served lyrics file: {} ({} bytes)",
+                        lrc_path,
+                        content.len()
+                    );
                     info!("[ACCESS] GET /api/lyrics/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "text/plain; charset=utf-8"));
-                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
+                    response.insert_header((
+                        "Cache-Control",
+                        "no-store, no-cache, must-revalidate, max-age=0",
+                    ));
                     response.insert_header(("Pragma", "no-cache"));
                     response.insert_header(("Expires", "0"));
                     response.body(content)
@@ -113,10 +120,7 @@ pub async fn get_lyrics(
 /// curl http://localhost:2080/api/lyrics/id/1
 /// ```
 #[get("/api/lyrics/id/{id}")]
-pub async fn get_lyrics_by_id(
-    path: web::Path<i32>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+pub async fn get_lyrics_by_id(path: web::Path<i32>, data: web::Data<AppState>) -> impl Responder {
     let id = path.into_inner();
     debug!("Lyrics request received for ID: {}", id);
 
@@ -125,7 +129,10 @@ pub async fn get_lyrics_by_id(
 
     match MusicEntity::find_by_id(id).one(&data.db_conn).await {
         Ok(Some(music)) => {
-            debug!("Found music in database: id={}, filename={}, file_path={}", music.id, music.filename, music.file_path);
+            debug!(
+                "Found music in database: id={}, filename={}, file_path={}",
+                music.id, music.filename, music.file_path
+            );
 
             // Construct LRC file path by replacing the file extension with .lrc
             let lrc_path = Path::new(&music.file_path)
@@ -139,11 +146,18 @@ pub async fn get_lyrics_by_id(
 
             match file_reader.read_file(&lrc_path).await {
                 Ok(content) => {
-                    debug!("Successfully served lyrics file: {} ({} bytes)", lrc_path, content.len());
+                    debug!(
+                        "Successfully served lyrics file: {} ({} bytes)",
+                        lrc_path,
+                        content.len()
+                    );
                     info!("[ACCESS] GET /api/lyrics/id/{} - Status: 200", id);
                     let mut response = HttpResponse::Ok();
                     response.insert_header(("Content-Type", "text/plain; charset=utf-8"));
-                    response.insert_header(("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"));
+                    response.insert_header((
+                        "Cache-Control",
+                        "no-store, no-cache, must-revalidate, max-age=0",
+                    ));
                     response.insert_header(("Pragma", "no-cache"));
                     response.insert_header(("Expires", "0"));
                     response.body(content)
@@ -170,7 +184,7 @@ pub async fn get_lyrics_by_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App, web};
+    use actix_web::{test, web, App};
     use std::sync::Arc;
 
     /// Helper function to create a test directory with music and lyrics files
@@ -186,8 +200,9 @@ mod tests {
         let lyrics_path = music_dir.join("test-song.lrc");
         std::fs::write(
             &lyrics_path,
-            "[00:00.54]First lyric line\n[00:02.52]Second lyric line\n[00:05.00]Third lyric line"
-        ).unwrap();
+            "[00:00.54]First lyric line\n[00:02.52]Second lyric line\n[00:05.00]Third lyric line",
+        )
+        .unwrap();
 
         // Setup database connection
         let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
@@ -218,11 +233,7 @@ mod tests {
     async fn test_get_lyrics_with_lrc_file() {
         let (_temp_dir, app_state) = create_test_setup().await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(app_state)
-                .service(get_lyrics)
-        ).await;
+        let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
 
         let req = test::TestRequest::get()
             .uri("/api/lyrics/test-song.mp3")
@@ -275,11 +286,7 @@ mod tests {
             discovery: discovery_state,
         });
 
-        let app = test::init_service(
-            App::new()
-                .app_data(app_state)
-                .service(get_lyrics)
-        ).await;
+        let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
 
         let req = test::TestRequest::get()
             .uri("/api/lyrics/no-lyrics.mp3")
@@ -311,11 +318,7 @@ mod tests {
             discovery: discovery_state,
         });
 
-        let app = test::init_service(
-            App::new()
-                .app_data(app_state)
-                .service(get_lyrics)
-        ).await;
+        let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
 
         let req = test::TestRequest::get()
             .uri("/api/lyrics/nonexistent.mp3")
@@ -339,8 +342,9 @@ mod tests {
         let lyrics_path = music_dir.join("japanese.lrc");
         std::fs::write(
             &lyrics_path,
-            "[00:00.54]欢迎光临。\n[00:02.52]是美容店的店员茉子哦♪\n[00:05.00]ときめきもどぎまぎも"
-        ).unwrap();
+            "[00:00.54]欢迎光临。\n[00:02.52]是美容店的店员茉子哦♪\n[00:05.00]ときめきもどぎまぎも",
+        )
+        .unwrap();
 
         // Setup database connection
         let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
@@ -364,11 +368,7 @@ mod tests {
             discovery: discovery_state,
         });
 
-        let app = test::init_service(
-            App::new()
-                .app_data(app_state)
-                .service(get_lyrics)
-        ).await;
+        let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
 
         let req = test::TestRequest::get()
             .uri("/api/lyrics/japanese.mp3")
