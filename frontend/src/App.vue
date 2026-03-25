@@ -267,21 +267,31 @@ const playbackSource = ref<'playlist' | 'search'>('playlist')
 const searchPlaybackSongs = ref<SongInfo[]>([])
 const lastPlayedPlaylist = ref<{ name: string; songs: SongInfo[] } | null>(null)
 
-const playbackSongs = computed(() => {
+const sourcePlaybackSongs = computed(() => {
   if (playbackSource.value === 'search') {
     return searchPlaybackSongs.value
   }
   return lastPlayedPlaylist.value?.songs || []
 })
 
-const playbackPlaylist = computed(() => {
-  if (playbackSource.value === 'search') {
-    return {
-      name: '搜索结果',
-      songs: searchPlaybackSongs.value
-    }
+const playbackQueueTitle = computed(() => {
+  if (lastPlayedPlaylist.value?.name) {
+    return lastPlayedPlaylist.value.name
   }
-  return lastPlayedPlaylist.value
+  if (playbackSource.value === 'search') {
+    return '搜索结果'
+  }
+  return '当前播放列表'
+})
+
+const playbackPlaylist = computed(() => {
+  if (activeQueue.value.length === 0 && sourcePlaybackSongs.value.length === 0) {
+    return null
+  }
+  return {
+    name: playbackQueueTitle.value,
+    songs: activeQueue.value.length > 0 ? activeQueue.value : sourcePlaybackSongs.value
+  }
 })
 
 // Handler for song start event - trigger LUFS pre-caching for next song
@@ -290,6 +300,7 @@ const handleSongStartRef = ref<((currentSongInfo: { id: number }, nextSongInfo: 
 
 const {
   audioElement,
+  activeQueue,
   currentSong,
   isPlaying,
   currentTime,
@@ -304,13 +315,18 @@ const {
   seekToTime,
   setVolume,
   resetPlaylist,
-  initAudio
+  initAudio,
+  refreshAndroidSession
 } = useAudioPlayer({
-  songs: () => playbackSongs.value,
+  songs: () => sourcePlaybackSongs.value,
   onSongEnd: () => {},
   onSongStart: (currentSongInfo, nextSongInfo) => {
     handleSongStartRef.value?.(currentSongInfo, nextSongInfo)
   }
+})
+
+const playbackSongs = computed(() => {
+  return activeQueue.value.length > 0 ? activeQueue.value : sourcePlaybackSongs.value
 })
 
 const {
@@ -335,11 +351,11 @@ const {
   cancelTimer
 } = useTimer(() => {
   // Timer complete callback
-  if (audioElement.value) {
+  if (isPlaying.value) {
+    void togglePlay()
+  } else if (audioElement.value) {
     audioElement.value.pause()
   }
-  isPlaying.value = false
-  currentTime.value = 0
 })
 
 // Lyrics composable for synchronized lyrics display
@@ -417,7 +433,7 @@ const updateLayoutMode = () => {
 
 // Watch for volume changes and update audio
 watch([volumeMode, manualVolume, fixedLufs, currentSong], () => {
-  setVolume(calculateVolume())
+  void setVolume(calculateVolume())
 }, { deep: true })
 
 // Watch for view mode changes
@@ -624,11 +640,13 @@ const handleStartTimer = () => {
 const handleDirectoryChanged = () => {
   // Refresh data when directory changes
   refreshData()
+  void refreshAndroidSession()
 }
 
 const handleDatabaseUpdated = async () => {
   // Refresh data when database is updated
   await refreshData()
+  await refreshAndroidSession()
 }
 
 const handleDatabaseUpdateStart = () => {
@@ -780,8 +798,8 @@ onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
   await triggerDatabaseUpdate()
 
-  initAudio()
-  refreshData()
+  await refreshData()
+  await initAudio()
   updateLayoutMode()
   window.addEventListener('resize', updateLayoutMode)
 })
