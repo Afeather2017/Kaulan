@@ -5,6 +5,7 @@ import { fileURLToPath, URL } from 'node:url'
 export default defineConfig({
   plugins: [vue()],
   build: {
+    target: 'chrome84',
     cssMinify: false
   },
   resolve: {

@@ -78,6 +78,7 @@ cargo test                          # Run tests
 **CSS Compatibility Notes:**
 - **Do not use the `inset` property.** The build process must not convert `top: 0; left: 0; right: 0; bottom: 0;` to `inset: 0` due to old Android webview compatibility.
 - **Font Awesome version:** Use v6.7.2 or lower. Font Awesome v7 uses modern CSS features (`:is()` pseudo-class, `font-synthesis` property) not supported in Android WebView 84.x. The caret notation `^6.7.2` in package.json allows patch/minor updates within v6 but prevents accidental upgrade to v7.
+- **JavaScript target:** The frontend bundle must stay compatible with Android WebView 84.x. Do not rely on modern syntax such as logical assignment operators (`??=`, `||=`, `&&=`). Keep Vite `build.target` pinned to `chrome84`.
 ```bash
 cd frontend
 
