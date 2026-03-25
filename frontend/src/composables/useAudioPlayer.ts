@@ -43,7 +43,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   let lastStartedSongId: number | null = null
 
   const loadPluginApi = async (): Promise<MusicNotificationApi> => {
-    pluginApiPromise ??= import('music-notification-api')
+    if (pluginApiPromise === null) {
+      pluginApiPromise = import('music-notification-api')
+    }
     return pluginApiPromise
   }
 
