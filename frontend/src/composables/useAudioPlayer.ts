@@ -163,7 +163,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const applyAndroidSession = (session: PlaybackSession, source = 'unknown') => {
     activeQueue.value = session.queue.songs.map(song => toMusicInfo(song))
     currentIndex.value = session.queue.currentIndex ?? -1
-    currentSong.value = currentIndex.value >= 0 ? activeQueue.value[currentIndex.value] ?? null : null
+    const nextSong = currentIndex.value >= 0 ? activeQueue.value[currentIndex.value] ?? null : null
+    if (!nextSong) {
+      currentSong.value = null
+    } else if (currentSong.value?.id !== nextSong.id) {
+      currentSong.value = nextSong
+    }
     isPlaying.value = session.runtime.isPlaying
     currentTime.value = session.runtime.positionMs / 1000
     duration.value = session.runtime.durationMs / 1000
