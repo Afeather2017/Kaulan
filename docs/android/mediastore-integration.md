@@ -4,6 +4,8 @@
 
 Kaulan integrates with Android's MediaStore API to scan and play music files on Android devices. This integration is necessary because Android's scoped storage restrictions (introduced in Android 10) prevent direct filesystem access to media files.
 
+For Android playback queue ownership, session polling, and webview restart recovery, see [`docs/android/playback-session.md`](./playback-session.md).
+
 ## Problem
 
 On Android 10 (API 29) and later, direct filesystem access to media files is restricted due to scoped storage. A traditional music player that scans directories using `std::fs` cannot:

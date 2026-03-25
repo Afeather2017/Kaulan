@@ -4,6 +4,8 @@
 
 The lyrics display feature adds synchronized lyrics display to the Kaulan music player. LRC (Lyric) files stored alongside music files are served via a backend API endpoint, parsed on the frontend, and displayed with real-time highlighting and auto-scrolling.
 
+On Android, lyric updates are still frontend-driven. The frontend polls the playback session from the Android plugin, updates the current song and playback position, and the lyric panel reacts to those values.
+
 ## Related Files
 
 **Backend:**
@@ -142,6 +144,17 @@ The `updateCurrentLyric(time)` function:
 1. Finds the last lyric line with `time <= current_time`
 2. Updates `currentLyricIndex` to highlight the active line
 3. Triggers auto-scroll to center the active line
+
+### Android Behavior
+
+On Android:
+
+1. playback queue and runtime state come from the plugin session
+2. the frontend polls the plugin every second
+3. `currentSong` changes trigger lyric file reloads
+4. `currentTime` updates drive lyric highlighting
+
+See [`docs/android/playback-session.md`](./android/playback-session.md) for the playback/session side of this flow.
 
 ## Testing
 

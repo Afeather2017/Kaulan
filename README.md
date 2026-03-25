@@ -7,6 +7,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Music Library Management** - Automatically scans and organizes music files
 - **Mobile-First Design** - Responsive UI optimized for mobile devices
 - **Android Support** - Native Android app using MediaStore API for music access
+- **Android Playback Session** - Queue and current playback state survive webview recreation
 - **Audio Streaming** - Direct streaming from server to browser with position-based seeking
 - **File System Playlists** - Automatic playlist creation from folder structure
 - **Collection Management** - User-defined playlists/collections
@@ -565,11 +566,13 @@ npm run tauri android dev
 ### Android-Specific Features
 
 - **MediaStore Integration** - Uses Android's MediaStore API to scan and play music
+- **Plugin-Owned Playback Session** - Android queue, index, runtime state, and play mode are stored in the foreground service plugin
 - **Scoped Storage Support** - Compatible with Android 10+ scoped storage restrictions
 - **Content URI Streaming** - Reads audio files via content URIs instead of file paths
 - **Permission Handling** - Requests `READ_MEDIA_AUDIO` permission on Android 13+
 
 See [`docs/android/mediastore-integration.md`](docs/android/mediastore-integration.md) for detailed technical documentation.
+See [`docs/android/playback-session.md`](docs/android/playback-session.md) for Android playback/session behavior.
 
 ### Android Permissions
 
