@@ -7,6 +7,7 @@
   ],
   "permissions": [
     "core:default",
-    "android-mediastore:default"
+    "android-mediastore:default",
+    "music-notification:default"
   ]
 }

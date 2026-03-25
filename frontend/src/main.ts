@@ -9,26 +9,17 @@ import '@fortawesome/fontawesome-free/css/all.css'
  * This starts the foreground service which keeps the backend alive
  */
 async function initMusicService() {
-  console.log('[MusicService] Starting music service initialization...')
   const isAndroid = await checkIsAndroid()
-  console.log('[MusicService] Platform check result: isAndroid =', isAndroid)
 
   if (!isAndroid) {
-    console.log('[MusicService] Not Android, skipping music service initialization')
     return
   }
 
   try {
-    // Dynamically import the plugin API (only available on Android)
-    console.log('[MusicService] Attempting to import music-notification-api...')
     const { startService } = await import('music-notification-api')
-    console.log('[MusicService] ✓ Successfully imported music-notification-api')
     const startServiceResult = await startService()
-    console.log('[MusicService] startService result:', startServiceResult)
 
-    if (startServiceResult.success) {
-      console.log('[MusicService] ✓ Music notification service started - backend will stay alive')
-    } else {
+    if (!startServiceResult.success) {
       console.error('[MusicService] ✗ Failed to start music service:', startServiceResult.message)
     }
   } catch (e) {
@@ -38,7 +29,6 @@ async function initMusicService() {
 }
 
 const startApp = async () => {
-  // Initialize music service first (before Vue app)
   await initMusicService()
 
   // Apply Android-specific touch styles to prevent zooming and unwanted scrolling

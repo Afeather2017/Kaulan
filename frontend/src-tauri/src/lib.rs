@@ -1,6 +1,7 @@
 use serde_json::json;
 use std::fs;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use tauri::{Manager, State};
 
 // MediaStore adapter module
@@ -16,44 +17,40 @@ struct KaulanServer {
     data_dir: Mutex<Option<String>>,
 }
 
-impl Server for KaulanServer {
-    fn library_name(&self) -> &str {
-        "app_lib"
-    }
+impl KaulanServer {
+    fn start_backend(self: Arc<Self>, source: &str) -> Result<(), String> {
+        if self
+            .running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            log::info!("Backend server already running, skipping startup from {}", source);
+            return Ok(());
+        }
 
-    fn start(self: std::sync::Arc<Self>) -> Result<(), String> {
-        log::info!("KaulanServer trait: start() called from foreground service");
-
-        // Get the music directory and data directory
         let music_dir = self.music_dir.lock().unwrap().clone();
-        // Set environment variables for Android support
+
         #[cfg(target_os = "android")]
         {
             let data_dir = self.data_dir.lock().unwrap().clone();
             std::env::set_var("TAURI_PLATFORM", "android");
             if let Some(ref dir) = data_dir {
                 std::env::set_var("TAURI_ANDROID_DATA_DIR", dir);
-                log::info!("Set Android data directory: {}", dir);
             }
         }
 
-        // Spawn the HTTP server in a background task
         let server_handle = self.clone();
-        let server_handle_for_loop = server_handle.clone();
+        let keepalive_handle = self.clone();
         std::thread::spawn(move || {
-            log::info!("Spawning HTTP server from foreground service context");
-
-            // Create a new async runtime for this thread
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
                 Err(e) => {
                     log::error!("Failed to create runtime: {}", e);
+                    server_handle.running.store(false, Ordering::Release);
                     return;
                 }
             };
 
-            // For Android, use /storage as default music directory
-            // For other platforms, use None (will read from config file)
             let music_dir_arg = if cfg!(target_os = "android") {
                 music_dir.or_else(|| Some("/storage".to_string()))
             } else {
@@ -61,48 +58,40 @@ impl Server for KaulanServer {
             };
 
             rt.block_on(async move {
-                match kaulan::start_server(music_dir_arg).await {
-                    Ok(server_info) => {
-                        log::info!("HTTP server started on: http://{}", server_info.url());
-                        server_handle
-                            .running
-                            .store(true, std::sync::atomic::Ordering::Release);
-                    }
-                    Err(e) => {
-                        log::error!("Failed to start HTTP server: {}", e);
-                    }
+                if let Err(e) = kaulan::start_server(music_dir_arg).await {
+                    log::error!("Failed to start HTTP server: {}", e);
+                    server_handle.running.store(false, Ordering::Release);
                 }
             });
 
-            // Keep the thread alive to maintain the server
-            log::info!("Server thread running, keeping alive for foreground service");
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(10));
-                if !server_handle_for_loop
-                    .running
-                    .load(std::sync::atomic::Ordering::Acquire)
-                {
-                    log::info!("Server marked as stopped, exiting thread");
+                if !keepalive_handle.running.load(Ordering::Acquire) {
                     break;
                 }
             }
         });
 
-        // Mark as running immediately - the server is starting in background
-        self.running
-            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
+    }
+}
+
+impl Server for KaulanServer {
+    fn library_name(&self) -> &str {
+        "app_lib"
+    }
+
+    fn start(self: std::sync::Arc<Self>) -> Result<(), String> {
+        self.start_backend("foreground service")
     }
 
     fn stop(self: std::sync::Arc<Self>) -> Result<(), String> {
-        log::info!("KaulanServer trait: stop() called");
-        self.running
-            .store(false, std::sync::atomic::Ordering::Release);
+        self.running.store(false, Ordering::Release);
         Ok(())
     }
 
     fn is_running(self: std::sync::Arc<Self>) -> bool {
-        self.running.load(std::sync::atomic::Ordering::Acquire)
+        self.running.load(Ordering::Acquire)
     }
 }
 
@@ -196,35 +185,42 @@ pub fn run() {
             };
             *kaulan_server.data_dir.lock().unwrap() = data_dir_for_server;
             #[cfg(target_os = "android")]
-            log::info!("On Android: server library is auto-registered and started by the foreground service");
+            if let Err(e) = kaulan_server.clone().start_backend("app startup") {
+                log::error!("Failed to start backend server during app startup: {}", e);
+            }
 
-            // Start the backend server directly ONLY on desktop
-            // On Android, the foreground service will start it via serverStart()
             #[cfg(not(target_os = "android"))]
-            {
-                let _handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    log::info!("Starting backend server (desktop mode, will use config file)");
-
-                    match kaulan::start_server(None).await {
-                        Ok(server_info) => {
-                            log::info!("Backend server started on: http://{}", server_info.url());
-                        }
-                        Err(e) => {
-                            log::error!("Failed to start backend server: {}", e);
-                        }
-                    }
-                });
+            if let Err(e) = kaulan_server.clone().start_backend("desktop app startup") {
+                log::error!("Failed to start backend server during desktop startup: {}", e);
             }
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_platform,
             get_music_directory,
             set_music_directory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Get the current platform for frontend boot gating.
+#[tauri::command]
+fn get_platform() -> String {
+    if cfg!(target_os = "android") {
+        "android".to_string()
+    } else if cfg!(target_os = "ios") {
+        "ios".to_string()
+    } else if cfg!(target_os = "windows") {
+        "windows".to_string()
+    } else if cfg!(target_os = "macos") {
+        "macos".to_string()
+    } else if cfg!(target_os = "linux") {
+        "linux".to_string()
+    } else {
+        "unknown".to_string()
+    }
 }
 
 /// Get the current music directory

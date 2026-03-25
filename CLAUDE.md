@@ -92,6 +92,7 @@ npm run test        # Run tests (vitest)
 - Backend API runs on `http://localhost:2080`
 - Frontend dev server runs on `http://localhost:3000`
 - Vite proxy forwards `/api` requests to backend (see `frontend/vite.config.ts`)
+- On Android, the Tauri app starts the backend during app setup; the music notification foreground service reuses that server to keep it alive in background.
 
 ## Architecture
 
@@ -345,4 +346,3 @@ There is icon, you should use this to generate icons for the app
 # cd to the root of the project
 tauri icon ./favicon.ico
 ```
-
