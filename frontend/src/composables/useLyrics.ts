@@ -188,10 +188,14 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
     isLoading.value = false
   }
 
-  // Auto-load lyrics when song changes
-  watch(currentSong, () => {
-    fetchLyrics()
-  }, { immediate: true })
+  // Auto-load lyrics only when the song identity changes.
+  watch(
+    () => currentSong.value?.id ?? null,
+    () => {
+      void fetchLyrics()
+    },
+    { immediate: true }
+  )
 
   return {
     lyrics,

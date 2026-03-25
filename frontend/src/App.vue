@@ -431,8 +431,9 @@ const updateLayoutMode = () => {
   }
 }
 
-// Watch for volume changes and update audio
-watch([volumeMode, manualVolume, fixedLufs, currentSong], () => {
+// Watch for volume changes and update audio.
+// Track the current song by ID so Android polling does not retrigger volume updates every second.
+watch([volumeMode, manualVolume, fixedLufs, () => currentSong.value?.id ?? null], () => {
   void setVolume(calculateVolume())
 }, { deep: true })
 
