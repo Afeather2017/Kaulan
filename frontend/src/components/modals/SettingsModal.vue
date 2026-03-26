@@ -177,12 +177,13 @@
               @input="handleTimerMinutesInput"
               @blur="handleTimerMinutesBlur"
             />
+            <span class="value-suffix">分钟</span>
           </div>
 
           <!-- Timer Presets -->
           <div class="timer-presets">
             <button
-              v-for="preset in [15, 30, 60, 90]"
+              v-for="preset in [15, 30, 60]"
               :key="preset"
               class="timer-preset-btn"
               @click="$emit('setTimerPreset', preset)"
@@ -468,17 +469,7 @@ const timerMinutesInputTemp = ref('')
 // Computed display values
 const manualVolumeDisplay = computed(() => `${Math.round(props.manualVolume * 100)}%`)
 const fixedLufsDisplay = computed(() => `${props.fixedLufs} LUFS`)
-const timerMinutesDisplay = computed(() => formatTimerMinutes(props.timerMinutes))
-
-const formatTimerMinutes = (minutes: number) => {
-  if (minutes < 60) {
-    return `${minutes}分钟`
-  } else {
-    const hours = Math.floor(minutes / 60)
-    const mins = minutes % 60
-    return mins > 0 ? `${hours}小时${mins}分钟` : `${hours}小时`
-  }
-}
+const timerMinutesDisplay = computed(() => `${props.timerMinutes}`)
 
 // Manual Volume handlers
 const handleManualVolumeSlider = (e: Event) => {
@@ -868,6 +859,7 @@ const openManualAddressDialog = async () => {
   display: flex;
   align-items: center;
   gap: 15px;
+  min-width: 0;
 }
 
 .volume-slider {
@@ -926,7 +918,9 @@ const openManualAddressDialog = async () => {
 }
 
 .value-input {
-  width: 100px;
+  width: 72px;
+  flex: 0 0 72px;
+  min-width: 0;
   padding: 8px 12px;
   border: 1px solid #1db954;
   border-radius: 5px;
@@ -947,6 +941,13 @@ const openManualAddressDialog = async () => {
 .value-input::placeholder {
   color: #1db954;
   opacity: 0.5;
+}
+
+.value-suffix {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 15px;
+  color: #777;
 }
 
 .timer-status {

@@ -171,9 +171,9 @@
       @update:fixed-lufs-input="fixedLufsInput = $event"
       @update:timer-minutes="timerMinutes = $event"
       @update:timer-minutes-input="timerMinutesInput = $event"
-      @set-timer-preset="setTimerPreset"
+      @set-timer-preset="handleSetTimerPreset"
       @start-timer="handleStartTimer"
-      @cancel-timer="cancelTimer"
+      @cancel-timer="handleCancelTimer"
       @directory-changed="handleDirectoryChanged"
       @database-updated="handleDatabaseUpdated"
       @database-update-start="handleDatabaseUpdateStart"
@@ -314,9 +314,11 @@ const {
   nextSong,
   seekToTime,
   setVolume,
+  setTimedPause,
   resetPlaylist,
   initAudio,
-  refreshAndroidSession
+  refreshAndroidSession,
+  isAndroidPlayer
 } = useAudioPlayer({
   songs: () => sourcePlaybackSongs.value,
   onSongEnd: () => {},
@@ -346,12 +348,13 @@ const {
   timerMinutesInput,
   timerActive,
   timerStatusDisplay,
-  setTimerPreset,
   startTimer,
   cancelTimer
 } = useTimer(() => {
   // Timer complete callback
-  if (isPlaying.value) {
+  if (isAndroidPlayer.value) {
+    void refreshAndroidSession()
+  } else if (isPlaying.value) {
     void togglePlay()
   } else if (audioElement.value) {
     audioElement.value.pause()
@@ -634,8 +637,24 @@ const handleToggleVolumeMode = () => {
   toggleVolumeMode()
 }
 
-const handleStartTimer = () => {
+const handleStartTimer = async () => {
+  if (isAndroidPlayer.value) {
+    await setTimedPause(timerMinutes.value * 60 * 1000)
+  }
   startTimer()
+}
+
+const handleSetTimerPreset = async (minutes: number) => {
+  timerMinutes.value = minutes
+  timerMinutesInput.value = minutes
+  await handleStartTimer()
+}
+
+const handleCancelTimer = async () => {
+  cancelTimer()
+  if (isAndroidPlayer.value) {
+    await setTimedPause(0)
+  }
 }
 
 const handleDirectoryChanged = () => {
