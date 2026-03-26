@@ -516,6 +516,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
   }
 
+  const setTimedPause = async (delayMs: number) => {
+    if (!isAndroidPlayer.value) {
+      return
+    }
+    const plugin = await loadPluginApi()
+    await plugin.pauseAfter(Math.max(0, Math.floor(delayMs)))
+  }
+
   const resetPlaylist = () => {
     playedSongIndexes.value = new Set()
     currentIndex.value = -1
@@ -588,6 +596,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     nextSong,
     seekToTime,
     setVolume,
+    setTimedPause,
     resetPlaylist,
     formatTime,
     initAudio,
