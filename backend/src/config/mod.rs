@@ -11,6 +11,15 @@ use std::path::PathBuf;
 use tracing::info;
 use uuid::Uuid;
 
+const GENERIC_HOSTNAMES: &[&str] = &[
+    "",
+    "localhost",
+    "localhost.localdomain",
+    "localhost6",
+    "android",
+    "unknown",
+];
+
 /// Configuration file structure
 ///
 /// # Config Format
@@ -157,21 +166,48 @@ pub fn load_or_create_device_id() -> String {
     new_id
 }
 
-/// Get the device name
+fn is_generic_hostname(name: &str) -> bool {
+    let normalized = name.trim().to_ascii_lowercase();
+    GENERIC_HOSTNAMES.iter().any(|candidate| *candidate == normalized)
+}
+
+/// Get the configured device name.
 ///
 /// # Returns
-/// - `Some(String)` - Device name from config, or hostname as fallback
-/// - `None` - No device name available (very unlikely)
-pub fn get_device_name() -> Option<String> {
-    // Try to load from config first
+/// - `Some(String)` - Device name explicitly saved in config
+/// - `None` - No configured device name
+pub fn get_configured_device_name() -> Option<String> {
     if let Ok(config) = load_full_config() {
         if let Some(name) = config.device_name {
             return Some(name);
         }
     }
 
-    // Fallback to hostname if no device name is set
-    gethostname::gethostname().into_string().ok()
+    None
+}
+
+/// Get a hostname-derived device name when the hostname is usable for display.
+///
+/// # Returns
+/// - `Some(String)` - Hostname when it is non-generic
+/// - `None` - Hostname missing, invalid UTF-8, or too generic for display
+pub fn get_hostname_device_name() -> Option<String> {
+    let hostname = gethostname::gethostname().into_string().ok()?;
+    if is_generic_hostname(&hostname) {
+        return None;
+    }
+    Some(hostname)
+}
+
+/// Build a deterministic fallback device name from the device ID.
+///
+/// Example: `Kaulan Player a1b2c3`
+pub fn generate_fallback_device_name(device_id: &str) -> String {
+    let short_id: String = device_id.chars().filter(|c| *c != '-').take(6).collect();
+    if short_id.is_empty() {
+        return "Kaulan Player".to_string();
+    }
+    format!("Kaulan Player {}", short_id)
 }
 
 /// Set the device name

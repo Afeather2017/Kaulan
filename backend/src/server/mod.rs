@@ -175,12 +175,9 @@ pub async fn start_server(
 
     // Initialize device discovery
     let device_id = config::load_or_create_device_id();
-    let device_name = config::get_device_name().unwrap_or_else(|| {
-        gethostname::gethostname()
-            .into_string()
-            .ok()
-            .unwrap_or_else(|| "Kaulan Player".to_string())
-    });
+    let device_name = config::get_configured_device_name()
+        .or_else(config::get_hostname_device_name)
+        .unwrap_or_else(|| config::generate_fallback_device_name(&device_id));
     info!("Device ID: {}", device_id);
     info!("Device name: {}", device_name);
     info!("Discovery mode: manual scan request/reply");
