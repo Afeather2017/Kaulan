@@ -6,6 +6,12 @@ Kaulan uses a manual local-network discovery protocol. Discovery only runs when 
 
 There is no timer-based periodic discovery.
 
+For the local device name, backend uses this fallback order:
+
+1. Saved `device_name` from config
+2. Hostname, when it is not a generic value such as `localhost`
+3. Generated fallback `Kaulan Player <short-device-id>`
+
 ## Protocol (Kaulan Discovery Protocol v1.1)
 
 - Transport: UDP IPv4 on port `2082`
@@ -53,8 +59,13 @@ If scan fails, frontend calls `POST /api/discovery/scan/finish` with `{ "success
 ## Settings UI
 
 - Device list always includes `localhost(self)` (`http://localhost:2080/api`), so users can switch back to local server quickly.
-- `手动指定地址` button is part of the device discovery section and opens a popup dialog for manual API address input.
+- `手动指定地址` button is part of the device discovery section and opens a popup dialog for manual address input.
+- Manual address input accepts:
+  - IP or domain name, which is normalized to `http://host:2080/api`
+  - IP or domain name with port, which is normalized to `http://host:port/api`
+  - Full HTTP/HTTPS URL, which is normalized to end with `/api`
 - Manual address save updates server URL and reloads the app to connect to that target.
+- In the device list, `last seen` and manual remove action are shown on the same row as the device name, while long API URLs wrap inside the card instead of overflowing.
 
 ## API Endpoints
 

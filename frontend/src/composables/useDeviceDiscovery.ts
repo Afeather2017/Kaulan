@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { getApiBase, setApiBase } from '@/utils/api'
+import { getApiBase, normalizeApiBase, setApiBase } from '@/utils/api'
 
 export interface DiscoveredDevice {
   device_id: string
@@ -171,12 +171,7 @@ export function useDeviceDiscovery() {
    * Connect to a discovered device.
    */
   const connectToDevice = (device: DiscoveredDevice): void => {
-    let apiUrl = device.api_url
-    if (!apiUrl.endsWith('/api')) {
-      apiUrl = apiUrl.endsWith('/') ? apiUrl + 'api' : apiUrl + '/api'
-    }
-
-    setApiBase(apiUrl)
+    setApiBase(normalizeApiBase(device.api_url))
     window.location.reload()
   }
 

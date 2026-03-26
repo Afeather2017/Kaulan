@@ -56,23 +56,25 @@
               @click="connectToDevice(device)"
             >
               <div class="device-info">
-                <div class="device-name">
-                  {{ device.device_name }}
-                  <span v-if="device.isManual" class="manual-badge">手动添加</span>
+                <div class="device-header">
+                  <div class="device-name-row">
+                    <div class="device-name">{{ device.device_name }}</div>
+                    <span v-if="device.isManual" class="manual-badge">手动添加</span>
+                  </div>
+                  <div class="device-actions">
+                    <div class="device-last-seen">
+                      {{ isLocalhostDevice(device) ? '本机' : formatLastSeen(device.last_seen_secs_ago) }}
+                    </div>
+                    <button
+                      v-if="device.isManual"
+                      class="remove-device-btn"
+                      @click.stop="removeManualDevice(device.api_url)"
+                    >
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="device-url">{{ device.api_url }}</div>
-              </div>
-              <div class="device-actions">
-                <div class="device-last-seen">
-                  {{ isLocalhostDevice(device) ? '本机' : formatLastSeen(device.last_seen_secs_ago) }}
-                </div>
-                <button
-                  v-if="device.isManual"
-                  class="remove-device-btn"
-                  @click.stop="removeManualDevice(device.api_url)"
-                >
-                  <i class="fas fa-times"></i>
-                </button>
               </div>
             </div>
           </div>
@@ -256,7 +258,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
-import { getApiBase, setApiBase } from '@/utils/api'
+import { getApiBase, normalizeApiBase, setApiBase } from '@/utils/api'
 import { validateServerUrl } from '@/utils/validation'
 import { setShowLufs } from '@/utils/storage'
 import { useDeviceDiscovery, type DiscoveredDevice } from '@/composables/useDeviceDiscovery'
@@ -342,7 +344,7 @@ const manualDevices = ref<ManualDevice[]>([])
 // Fetch device name from a manual device by calling its API
 const fetchDeviceName = async (url: string): Promise<string | null> => {
   try {
-    const normalizedUrl = url.endsWith('/api') ? url : (url.endsWith('/') ? url + 'api' : url + '/api')
+    const normalizedUrl = normalizeApiBase(url)
     const response = await fetch(`${normalizedUrl}/discovery/self`)
     if (response.ok) {
       const data = await response.json()
@@ -389,7 +391,7 @@ const saveManualDevices = () => {
 }
 
 const addManualDevice = async (url: string) => {
-  const normalizedUrl = url.endsWith('/api') ? url : (url.endsWith('/') ? url + 'api' : url + '/api')
+  const normalizedUrl = normalizeApiBase(url)
 
   // Check if already exists
   const existing = manualDevices.value.find(m => m.api_url === normalizedUrl)
@@ -719,7 +721,7 @@ const refreshDevices = async () => {
 }
 
 const openManualAddressDialog = async () => {
-  const input = prompt('请输入服务器地址:', serverUrlInput.value)
+  const input = prompt('请输入服务器地址，可直接填写 IP、域名或带端口地址:', serverUrlInput.value)
   if (input === null) return
 
   const trimmed = input.trim()
@@ -1235,8 +1237,7 @@ const openManualAddressDialog = async () => {
 
 .device-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
   padding: 12px 15px;
   background-color: #f9f9f9;
   border: 1px solid #e0e0e0;
@@ -1257,19 +1258,38 @@ const openManualAddressDialog = async () => {
 
 .device-info {
   flex: 1;
+  min-width: 0;
+}
+
+.device-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.device-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .device-name {
   font-size: 15px;
   font-weight: 500;
   color: #333;
-  margin-bottom: 4px;
+  min-width: 0;
 }
 
 .device-url {
   font-size: 12px;
   color: #777;
   font-family: monospace;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .device-last-seen {
@@ -1291,6 +1311,7 @@ const openManualAddressDialog = async () => {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .remove-device-btn {

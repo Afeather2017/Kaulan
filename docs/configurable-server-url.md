@@ -16,7 +16,10 @@ The server URL is saved to browser localStorage and persists across page reloads
 
 1. Open the Settings panel (齿轮 icon)
 2. Scroll to the "服务器地址" (Server Address) section
-3. Enter your server URL in the format: `http://your-server:port/api`
+3. Enter one of these forms:
+   - `192.168.1.23` or `music-box.local`
+   - `192.168.1.23:3090` or `music-box.local:3090`
+   - Full HTTP/HTTPS URL such as `http://your-server:port/api`
 4. Click "保存地址" (Save Address)
 5. The page will reload and connect to your custom server
 
@@ -31,10 +34,12 @@ The server URL is saved to browser localStorage and persists across page reloads
 
 The URL input validates the format as you type:
 
-- **Empty input**: Not allowed (shows validation error)
-- **Invalid format**: Shows error message (e.g., "Invalid URL format")
-- **Non-HTTP/HTTPS protocol**: Shows error (must use http:// or https://)
-- **Valid URL**: Input border turns green, save button becomes enabled
+- **Empty input**: Allowed and falls back to the default server URL
+- **IP or domain without protocol**: Converted to `http://host:2080/api`
+- **IP or domain with port**: Converted to `http://host:port/api`
+- **Full HTTP/HTTPS URL**: Preserved and normalized to end with `/api`
+- **Non-HTTP/HTTPS protocol**: Shows an error
+- **Missing host or malformed value**: Shows an error
 
 ## Technical Details
 

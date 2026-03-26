@@ -1,3 +1,5 @@
+import { normalizeApiBase } from './api'
+
 /**
  * URL validation utilities
  *
@@ -25,12 +27,12 @@ export function validateServerUrl(url: string): UrlValidationResult {
   }
 
   try {
-    const urlObj = new URL(trimmed)
-    if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
-      return { valid: false, error: 'URL must use HTTP or HTTPS protocol' }
-    }
+    normalizeApiBase(trimmed)
     return { valid: true }
-  } catch {
-    return { valid: false, error: 'Invalid URL format' }
+  } catch (error) {
+    return {
+      valid: false,
+      error: error instanceof Error ? error.message : 'Invalid URL format'
+    }
   }
 }
