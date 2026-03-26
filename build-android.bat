@@ -104,19 +104,14 @@ echo.
 echo === Build Complete ===
 echo Signed APK: %SIGNED_APK%
 echo.
-echo To install, run:
-echo   adb install "%SIGNED_APK%"
-echo.
 
-REM Optionally install immediately
-set /p INSTALL="Install to device now? [y/N] "
-if /i "%INSTALL%"=="y" (
-    adb install "%SIGNED_APK%"
-    if errorlevel 1 (
-        echo Installation failed!
-        exit /b 1
-    )
-    echo Installation complete!
+REM Install to device
+echo [6/6] Installing to device...
+adb install -r "%SIGNED_APK%"
+if errorlevel 1 (
+    echo Installation failed!
+    exit /b 1
 )
+echo Installation complete!
 
 endlocal
