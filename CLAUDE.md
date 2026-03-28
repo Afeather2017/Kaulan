@@ -60,6 +60,8 @@ Update documentation when fixed
 ## Rules
 
 1. In the ts/js/html, use tauri feature is strictly forbidden! We need to provide a web.
+2. If it is android, use @build-android.sh or @build-android.bat . Ignore the failure if there is no phone found.
+3. If it is desktop, use cargo check and npm run build to check.
 
 ## Development Commands
 
