@@ -9,7 +9,8 @@ The Settings and Database Management features allow users to configure the music
 1. **Music Directory Configuration** - Set and view the music directory path through the settings UI
 2. **Database Update** - Trigger database refresh to scan for new files and remove deleted files
 3. **On-Demand LUFS Pre-caching** - LUFS values are calculated automatically during playback for the next song
-4. **Persistent Configuration** - Music directory is saved to a config file and persists across restarts
+4. **Playback Normalization Settings** - Volume mode and slider settings affect playback immediately
+5. **Persistent Configuration** - Music directory is saved to a config file and persists across restarts
 
 ## API Endpoints
 
@@ -187,6 +188,21 @@ sequenceDiagram
 ```
 
 ## User Interface Usage
+
+### Volume Mode and Slider
+
+The settings modal also controls playback normalization:
+
+1. Open the settings modal.
+2. Tap the volume mode row to cycle between `auto`, `manual`, and `fixed`.
+3. In `manual` mode, move the percentage slider to set a fixed playback volume.
+4. In `fixed` mode, move the LUFS slider to choose the target loudness.
+
+Behavior:
+
+- Web playback applies the new effective volume immediately to the current `HTMLAudioElement`.
+- Android playback sends the normalization config to `MusicPlayerService`, which reapplies the current track volume immediately and reuses the same config for later track changes.
+- If the current song has no LUFS yet, `auto` and `fixed` temporarily fall back to the manual volume baseline until a real LUFS value is available.
 
 ### Viewing Current Music Directory
 

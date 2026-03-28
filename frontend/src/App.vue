@@ -119,7 +119,8 @@
               @seek="seekToTime"
               @toggle-play-mode="togglePlayMode"
               @previous="previousSong"
-              @toggle-play="togglePlay"
+              @play="play"
+              @pause="pause"
               @next="nextSong"
               @show-current-playlist="handleShowCurrentPlaylist"
               @toggle-lyric="handleToggleLyric"
@@ -139,7 +140,8 @@
         @seek="seekToTime"
         @toggle-play-mode="togglePlayMode"
         @previous="previousSong"
-        @toggle-play="togglePlay"
+        @play="play"
+        @pause="pause"
         @next="nextSong"
         @show-current-playlist="handleShowCurrentPlaylist"
         @toggle-lyric="handleToggleLyric"
@@ -307,20 +309,21 @@ const {
   currentTime,
   duration,
   playMode,
+  play,
+  pause,
   playSong,
   playSongAtIndex,
-  togglePlay,
   togglePlayMode,
   previousSong,
   nextSong,
   seekToTime,
-  setVolume,
   setTimedPause,
   resetPlaylist,
   initAudio,
   refreshAndroidSession,
   isAndroidPlayer,
-  syncAndroidQueueState
+  syncAndroidQueueState,
+  syncNormalizationConfig
 } = useAudioPlayer({
   songs: () => sourcePlaybackSongs.value,
   onSongEnd: () => {},
@@ -358,7 +361,7 @@ const {
   if (isAndroidPlayer.value) {
     void refreshAndroidSession()
   } else if (isPlaying.value) {
-    void togglePlay()
+    void pause()
   } else if (audioElement.value) {
     audioElement.value.pause()
   }
@@ -555,18 +558,23 @@ const syncPlaybackMetadataFromBackend = () => {
   }
 }
 
-// Watch for volume changes and update audio.
-// Track LUFS signatures so metadata refreshes can update normalization without replaying the song.
 watch([
   volumeMode,
   manualVolume,
+  manualVolumeInput,
   fixedLufs,
+  fixedLufsInput,
   () => currentSong.value?.id ?? null,
   () => currentSong.value?.lufs ?? null,
   () => playbackSongs.value.map(song => `${song.id}:${song.lufs ?? 'null'}`).join('|')
 ], () => {
-  void setVolume(calculateVolume())
-}, { deep: true })
+  void syncNormalizationConfig(
+    volumeMode.value,
+    manualVolume.value,
+    fixedLufs.value,
+    calculateVolume()
+  )
+}, { deep: true, immediate: true })
 
 watch(() => activeQueue.value.map(song => `${song.id}:${song.lufs ?? 'null'}`).join('|'), () => {
   syncPlaybackMetadataFromBackend()

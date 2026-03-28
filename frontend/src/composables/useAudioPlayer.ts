@@ -1,7 +1,12 @@
 import { ref, watch, onUnmounted } from 'vue'
 import { getApiBase } from '@/utils/api'
 import { checkIsAndroid } from '@/utils/platform'
-import type { PlaybackSession, PlayMode as AndroidPlayMode, PlayingQueue } from 'music-notification-api'
+import type {
+  PlaybackSession,
+  PlayMode as AndroidPlayMode,
+  PlayingQueue,
+  NormalizationMode
+} from 'music-notification-api'
 
 export interface MusicInfo {
   id: number
@@ -407,12 +412,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
   }
 
-  const togglePlay = async () => {
+  const play = async () => {
     if (isAndroidPlayer.value) {
       const plugin = await loadPluginApi()
-      if (isPlaying.value) {
-        await plugin.pause()
-      } else if (currentSong.value) {
+      if (currentSong.value) {
         await plugin.play({
           url: buildAudioUrl(currentSong.value.id),
           title: currentSong.value.name
@@ -434,18 +437,30 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
 
     if (!audioElement.value) return
 
-    if (isPlaying.value) {
-      audioElement.value.pause()
-      isPlaying.value = false
-    } else {
-      const allSongs = songs()
-      if (!currentSong.value && allSongs.length > 0) {
-        await playSongAtIndex(allSongs[0], 0)
-      } else if (currentSong.value) {
-        await audioElement.value.play()
-        isPlaying.value = true
-      }
+    const allSongs = songs()
+    if (!currentSong.value && allSongs.length > 0) {
+      await playSongAtIndex(allSongs[0], 0)
+      return
     }
+
+    if (currentSong.value) {
+      await audioElement.value.play()
+      isPlaying.value = true
+    }
+  }
+
+  const pause = async () => {
+    if (isAndroidPlayer.value) {
+      const plugin = await loadPluginApi()
+      await plugin.pause()
+      await refreshAndroidSession()
+      return
+    }
+
+    if (!audioElement.value) return
+
+    audioElement.value.pause()
+    isPlaying.value = false
   }
 
   const togglePlayMode = async () => {
@@ -550,17 +565,30 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentTime.value = clampedTime
   }
 
-  const setVolume = async (volume: number) => {
+  const applyWebVolume = (volume: number) => {
     const normalizedVolume = Math.min(1, Math.max(0, volume))
-    if (isAndroidPlayer.value) {
-      const plugin = await loadPluginApi()
-      await plugin.setVolume({ volume: normalizedVolume })
-      return
-    }
-
     if (audioElement.value) {
       audioElement.value.volume = normalizedVolume
     }
+  }
+
+  const syncNormalizationConfig = async (
+    mode: NormalizationMode,
+    manualVolume: number,
+    fixedLufs: number,
+    currentVolume: number
+  ) => {
+    if (isAndroidPlayer.value) {
+      const plugin = await loadPluginApi()
+      await plugin.setNormalizationConfig({
+        mode,
+        manualVolume: Math.min(1, Math.max(0, manualVolume)),
+        fixedLufs
+      })
+      return
+    }
+
+    applyWebVolume(currentVolume)
   }
 
   const setTimedPause = async (delayMs: number) => {
@@ -635,20 +663,21 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     duration,
     playMode,
     currentIndex,
+    play,
+    pause,
     playSong,
     playSongAtIndex,
-    togglePlay,
     togglePlayMode,
     previousSong,
     nextSong,
     seekToTime,
-    setVolume,
     setTimedPause,
     resetPlaylist,
     formatTime,
     initAudio,
     refreshAndroidSession,
     isAndroidPlayer,
-    syncAndroidQueueState
+    syncAndroidQueueState,
+    syncNormalizationConfig
   }
 }

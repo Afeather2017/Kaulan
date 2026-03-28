@@ -35,7 +35,7 @@
       <button class="control-btn" @click="$emit('previous')">
         <i class="fas fa-step-backward"></i>
       </button>
-      <button class="control-btn" @click="$emit('togglePlay')">
+      <button class="control-btn" @click="handlePlayPause">
         <i v-if="isPlaying" class="fas fa-pause"></i>
         <i v-else class="fas fa-play"></i>
       </button>
@@ -64,7 +64,8 @@ const emit = defineEmits<{
   (e: 'seek', time: number): void
   (e: 'togglePlayMode'): void
   (e: 'previous'): void
-  (e: 'togglePlay'): void
+  (e: 'play'): void
+  (e: 'pause'): void
   (e: 'next'): void
   (e: 'showCurrentPlaylist'): void
   (e: 'toggleLyric'): void
@@ -88,6 +89,14 @@ const handleSeek = (event: MouseEvent) => {
   const seekTime = percent * props.duration
 
   emit('seek', seekTime)
+}
+
+const handlePlayPause = () => {
+  if (props.isPlaying) {
+    emit('pause')
+    return
+  }
+  emit('play')
 }
 
 const formatTime = (seconds: number) => {
