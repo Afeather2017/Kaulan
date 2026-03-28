@@ -89,6 +89,7 @@ Important note:
 1. webview-initiated playback resolves current-song LUFS before playback through the frontend player
 2. native auto-next inside `MusicPlayerService` also resolves current-song LUFS before playback
 3. the webview polls `getPlaybackSession()` every second and updates visible metadata if the backend playback queue has newer LUFS values
+4. volume mode and slider changes are sent once through `setNormalizationConfig()` and applied inside `MusicPlayerService`
 
 ## Sequence Diagram when tap next/prev in webview
 
@@ -144,11 +145,27 @@ The browser path intentionally uses the simplest possible behavior to avoid regr
 - `resume`
 - `stop`
 - `seek`
-- `set_volume`
 - `set_playing_queue`
 - `get_playback_session`
 - `clear_playing_queue`
 - `set_play_mode`
+- `set_normalization_config`
+
+## Normalization Config Flow
+
+Android playback does not depend on repeated frontend `setVolume()` calls.
+
+Current behavior:
+
+1. the settings watcher in [`frontend/src/App.vue`](../../frontend/src/App.vue) reacts to volume mode and slider changes
+2. [`frontend/src/composables/useAudioPlayer.ts`](../../frontend/src/composables/useAudioPlayer.ts) sends `setNormalizationConfig()`
+3. [`tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt`](../../tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt) forwards that command to the service
+4. [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt) saves the config and reapplies current track volume immediately
+5. later native playback operations reuse that stored config without needing the webview to resend a raw volume value every second
+
+## ACL Requirement
+
+The plugin command `set_normalization_config` must be present in the plugin ACL manifests and included in the plugin default permission set. Otherwise Android settings changes appear in the UI but do not affect native playback.
 
 ## Failure Handling
 

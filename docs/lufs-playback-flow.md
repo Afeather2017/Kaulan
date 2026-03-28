@@ -102,10 +102,14 @@ interface PlaybackBackend {
   pause(): Promise<void>
   stop(): Promise<void>
   seek(positionMs: number): Promise<void>
-  setVolume(volume: number): Promise<void>
 
   setPlayingQueue(queue: PlayingQueue, playMode: PlayMode): Promise<void>
   setPlayMode(playMode: PlayMode): Promise<void>
+  setNormalizationConfig(input: {
+    mode: 'auto' | 'manual' | 'fixed'
+    manualVolume: number
+    fixedLufs: number
+  }): Promise<void>
   getPlaybackSession(): Promise<PlaybackSession>
 }
 ```
@@ -119,7 +123,8 @@ Any playback backend used by Kaulan should provide these behaviors:
 3. `getPlaybackSession()` must return the backend's latest queue metadata.
 4. If backend playback changes queue metadata later, such as resolving LUFS, the next `getPlaybackSession()` result should expose that updated value.
 5. `play()` must start playback from the queue item selected by the backend state.
-6. `setVolume()` must apply the normalized volume chosen by frontend volume logic.
+6. `setNormalizationConfig()` must update backend normalization state so later playback, resume, and track changes use the same mode and slider values.
+7. Web playback may apply volume directly from frontend state, but Android playback should apply track volume inside the playback service.
 
 ### Why LUFS needs to be part of the backend contract
 
@@ -153,15 +158,16 @@ Its concrete interface is already close to the conceptual one above:
 - `pause`
 - `stop`
 - `seek`
-- `setVolume`
 - `setPlayingQueue`
 - `setPlayMode`
+- `setNormalizationConfig`
 - `getPlaybackSession`
 
 The important rule is:
 
 - `getPlaybackSession()` is the source of truth for the webview on Android
 - if service state differs from the webview, the webview should update itself
+- Android normalization settings are pushed once through `setNormalizationConfig()`, then applied by `MusicPlayerService`
 
 ## Current Song Flow
 
@@ -320,6 +326,26 @@ On the next polling tick:
 3. frontend updates visible playlist state and current song state
 4. volume calculation can now use the real LUFS value
 
+## Volume Mode and Slider Behavior
+
+When the user changes volume mode or moves the volume slider in settings, Kaulan updates normalization differently on the two playback backends.
+
+### Web playback
+
+- the watcher in [`frontend/src/App.vue`](../frontend/src/App.vue) recalculates the effective volume immediately
+- [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts) applies that value directly to `HTMLAudioElement.volume`
+- if the current song still has `lufs = null`, [`frontend/src/composables/useVolume.ts`](../frontend/src/composables/useVolume.ts) falls back to `manualVolume`
+
+### Android playback
+
+- the same watcher sends `setNormalizationConfig({ mode, manualVolume, fixedLufs })` through the plugin
+- [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt) stores that config and immediately reapplies the current track volume
+- future `play`, `resume`, next, previous, and native auto-next all reuse the stored normalization config inside the service
+
+### Important note about ACL
+
+The Android plugin command `set_normalization_config` must be allowed by the plugin ACL manifests. If that permission is missing, slider changes in the frontend do not reach the Android service even though the UI updates locally.
+
 ## Frontend State Synchronization
 
 When LUFS is resolved immediately, Kaulan updates every frontend copy of that song, not just one field.
@@ -398,3 +424,4 @@ sequenceDiagram
 | `frontend/src/composables/useVolume.ts` | normalization math and null-LUFS fallback |
 | `backend/src/handlers/lufs.rs` | LUFS pre-cache API |
 | `tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt` | Android native pre-play LUFS resolution |
+| `tauri-plugin-music-notification/permissions/default.toml` | Android plugin ACL default permission set |
