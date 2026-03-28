@@ -237,6 +237,7 @@ import { useVolume } from '@/composables/useVolume'
 import { useLyrics } from '@/composables/useLyrics'
 import { getApiBase } from '@/utils/api'
 import { getShowLufs } from '@/utils/storage'
+import { checkIsAndroid } from '@/utils/platform'
 
 // Search behavior docs: docs/search.md
 // Use composables
@@ -378,6 +379,7 @@ const lyricContainerRef = ref<HTMLElement | null>(null)
 const isWideLayout = ref(false)
 const hasUserToggledLyric = ref(false)
 const isScanning = ref(false)
+let androidBackListener: { unregister(): Promise<void> } | null = null
 
 const triggerDatabaseUpdate = async () => {
   try {
@@ -511,6 +513,95 @@ const handleActionBack = () => {
     return
   }
   handleBackToPlaylists()
+}
+
+const closeTopOverlay = () => {
+  if (showCurrentPlaylistModal.value) {
+    showCurrentPlaylistModal.value = false
+    return true
+  }
+
+  if (showUploadModal.value) {
+    showUploadModal.value = false
+    return true
+  }
+
+  if (showCreateCollection.value) {
+    hideCreateCollectionModal()
+    return true
+  }
+
+  if (showAddToCollection.value) {
+    hideAddToCollectionModal()
+    return true
+  }
+
+  if (showSettings.value) {
+    hideSettingsModal()
+    return true
+  }
+
+  return false
+}
+
+const handleAndroidBackPress = () => {
+  if (closeTopOverlay()) {
+    return true
+  }
+
+  if (selectMode.value) {
+    selectMode.value = false
+    selectedSongs.value.clear()
+    return true
+  }
+
+  if (collectionSelectMode.value) {
+    collectionSelectMode.value = false
+    selectedCollectionsList.value.clear()
+    return true
+  }
+
+  // Match the visible "返回" button behavior on mobile.
+  if (showLyric.value && !isWideLayout.value) {
+    showLyric.value = false
+    return true
+  }
+
+  if (currentView.value !== 'playlists') {
+    handleBackToPlaylists()
+    return true
+  }
+
+  return false
+}
+
+const registerAndroidBackHandler = async () => {
+  const isAndroid = await checkIsAndroid()
+  if (!isAndroid) {
+    return
+  }
+
+  try {
+    const [{ onBackButtonPress }, { getCurrentWindow }] = await Promise.all([
+      import('@tauri-apps/api/app'),
+      import('@tauri-apps/api/window')
+    ])
+
+    androidBackListener = await onBackButtonPress(async ({ canGoBack }) => {
+      if (handleAndroidBackPress()) {
+        return
+      }
+
+      if (canGoBack) {
+        window.history.back()
+        return
+      }
+
+      await getCurrentWindow().close()
+    })
+  } catch (error) {
+    console.warn('[app] Failed to register Android back handler:', error)
+  }
 }
 
 const handleChooseAction = () => {
@@ -820,6 +911,7 @@ onMounted(async () => {
 
   await refreshData()
   await initAudio()
+  await registerAndroidBackHandler()
   updateLayoutMode()
   window.addEventListener('resize', updateLayoutMode)
 })
@@ -827,6 +919,10 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', updateLayoutMode)
+  }
+  if (androidBackListener) {
+    void androidBackListener.unregister()
+    androidBackListener = null
   }
 })
 </script>
