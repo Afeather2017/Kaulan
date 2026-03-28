@@ -319,13 +319,15 @@ const {
   resetPlaylist,
   initAudio,
   refreshAndroidSession,
-  isAndroidPlayer
+  isAndroidPlayer,
+  syncAndroidQueueState
 } = useAudioPlayer({
   songs: () => sourcePlaybackSongs.value,
   onSongEnd: () => {},
   onSongStart: (currentSongInfo, nextSongInfo) => {
     handleSongStartRef.value?.(currentSongInfo, nextSongInfo)
-  }
+  },
+  prepareSong: async (song) => await resolveSongForPlayback(song)
 })
 
 const playbackSongs = computed(() => {
@@ -436,11 +438,139 @@ const updateLayoutMode = () => {
   }
 }
 
+const patchSongLufsInList = (songs: SongInfo[], songId: number, lufs: number): SongInfo[] => {
+  let changed = false
+  const updatedSongs = songs.map(song => {
+    if (song.id !== songId || song.lufs === lufs) {
+      return song
+    }
+    changed = true
+    return {
+      ...song,
+      lufs
+    }
+  })
+
+  return changed ? updatedSongs : songs
+}
+
+const patchSongLufs = (songId: number, lufs: number) => {
+  if (currentSong.value?.id === songId && currentSong.value.lufs !== lufs) {
+    currentSong.value = {
+      ...currentSong.value,
+      lufs
+    }
+  }
+
+  activeQueue.value = patchSongLufsInList(activeQueue.value, songId, lufs)
+  searchPlaybackSongs.value = patchSongLufsInList(searchPlaybackSongs.value, songId, lufs)
+
+  if (selectedPlaylist.value) {
+    selectedPlaylist.value = {
+      ...selectedPlaylist.value,
+      songs: patchSongLufsInList(selectedPlaylist.value.songs, songId, lufs)
+    }
+  }
+
+  if (lastPlayedPlaylist.value) {
+    lastPlayedPlaylist.value = {
+      ...lastPlayedPlaylist.value,
+      songs: patchSongLufsInList(lastPlayedPlaylist.value.songs, songId, lufs)
+    }
+  }
+
+  let playlistsChanged = false
+  const nextPlaylists = Object.fromEntries(
+    Object.entries(playlists.value).map(([name, songs]) => {
+      const updatedSongs = patchSongLufsInList(songs, songId, lufs)
+      if (updatedSongs !== songs) {
+        playlistsChanged = true
+      }
+      return [name, updatedSongs]
+    })
+  )
+  if (playlistsChanged) {
+    playlists.value = nextPlaylists
+  }
+}
+
+interface PrecacheLufsResult {
+  success: boolean
+  lufs: number | null
+  cached?: boolean
+  error?: string
+}
+
+const requestSongLufs = async (song: SongInfo, context: 'current' | 'next'): Promise<SongInfo> => {
+  if (song.lufs !== null) {
+    return song
+  }
+
+  try {
+    const response = await fetch(`${getApiBase()}/music/${song.id}/precache-lufs`, {
+      method: 'POST'
+    })
+
+    if (!response.ok) {
+      console.warn(`[app] LUFS ${context} pre-cache failed:`, response.status)
+      return song
+    }
+
+    const result: PrecacheLufsResult = await response.json()
+    if (result.success && result.lufs !== null) {
+      console.log(`[app] LUFS ${context} resolved immediately:`, result.lufs)
+      patchSongLufs(song.id, result.lufs)
+      if (context === 'next' && isAndroidPlayer.value) {
+        await syncAndroidQueueState()
+      }
+      return {
+        ...song,
+        lufs: result.lufs
+      }
+    }
+
+    if (result.success && result.cached === false) {
+      console.log(`[app] LUFS ${context} started in background (non-blocking)`)
+    }
+  } catch (error) {
+    console.error(`[app] LUFS ${context} pre-cache error:`, error)
+  }
+
+  return song
+}
+
+const resolveSongForPlayback = async (song: SongInfo): Promise<SongInfo> => {
+  return await requestSongLufs(song, 'current')
+}
+
+const syncPlaybackMetadataFromBackend = () => {
+  if (!isAndroidPlayer.value || activeQueue.value.length === 0) {
+    return
+  }
+
+  for (const song of activeQueue.value) {
+    if (song.lufs !== null) {
+      patchSongLufs(song.id, song.lufs)
+    }
+  }
+}
+
 // Watch for volume changes and update audio.
-// Track the current song by ID so Android polling does not retrigger volume updates every second.
-watch([volumeMode, manualVolume, fixedLufs, () => currentSong.value?.id ?? null], () => {
+// Track LUFS signatures so metadata refreshes can update normalization without replaying the song.
+watch([
+  volumeMode,
+  manualVolume,
+  fixedLufs,
+  () => currentSong.value?.id ?? null,
+  () => currentSong.value?.lufs ?? null,
+  () => playbackSongs.value.map(song => `${song.id}:${song.lufs ?? 'null'}`).join('|')
+], () => {
   void setVolume(calculateVolume())
 }, { deep: true })
+
+watch(() => activeQueue.value.map(song => `${song.id}:${song.lufs ?? 'null'}`).join('|'), () => {
+  syncPlaybackMetadataFromBackend()
+})
 
 // Watch for view mode changes
 watch(viewMode, async () => {
@@ -636,19 +766,10 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
   }
 }
 
-// Handle song start event - trigger LUFS pre-caching for current and next song
+// Handle song start event - trigger LUFS pre-caching for next song
 const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { id: number } | null) => {
   console.log('[app] onSongStart called: currentSongId =', currentSongInfo.id, ', nextSongInfo =', nextSongInfo)
-
-  // Fire-and-forget: Pre-cache LUFS for CURRENT song if it has no LUFS
   const allSongs = playbackSongs.value
-  const currentSong = allSongs.find((s: { id: number }) => s.id === currentSongInfo.id)
-  if (currentSong && currentSong.lufs === null) {
-    console.log('[app] Current song has no LUFS, triggering fire-and-forget calculation for ID:', currentSongInfo.id)
-    // Fire without await - don't block playback
-    fetch(`${getApiBase()}/music/${currentSongInfo.id}/precache-lufs`, { method: 'POST' })
-      .catch(error => console.warn('[app] Fire-and-forget LUFS request failed:', error))
-  }
 
   if (!nextSongInfo) {
     console.log('[app] No next song, skipping pre-cache')
@@ -657,6 +778,10 @@ const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { 
 
   // Skip pre-caching if next song already has LUFS calculated
   const nextSong = allSongs.find((s: { id: number }) => s.id === nextSongInfo.id)
+  if (!nextSong) {
+    console.log('[app] Next song metadata missing in current playback list, skipping pre-cache')
+    return
+  }
   if (nextSong && nextSong.lufs !== null) {
     console.log('[app] Next song already has LUFS:', nextSong.lufs, ', skipping pre-cache')
     return
@@ -669,31 +794,7 @@ const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { 
   }
 
   console.log('[app] Pre-caching LUFS for next song ID:', nextSongInfo.id)
-
-  try {
-    const response = await fetch(`${getApiBase()}/music/${nextSongInfo.id}/precache-lufs`, {
-      method: 'POST'
-    })
-    if (response.ok) {
-      const result = await response.json()
-      if (result.success && result.lufs !== null) {
-        console.log('[app] LUFS pre-cache complete (already cached):', result.lufs)
-        // Refresh the current playlist data to get the updated LUFS value
-        await refreshData()
-        // If a playlist is currently selected, update its songs
-        if (selectedPlaylist.value) {
-          const playlistName = selectedPlaylist.value.name
-          selectPlaylist(playlistName)
-        }
-      } else if (result.success && result.cached === false) {
-        console.log('[app] LUFS pre-cache started in background (non-blocking)')
-      }
-    } else {
-      console.warn('[app] LUFS pre-cache failed:', response.status)
-    }
-  } catch (error) {
-    console.error('[app] LUFS pre-cache error:', error)
-  }
+  await requestSongLufs(nextSong, 'next')
 }
 
 // Assign the handler to the ref so useAudioPlayer can call it

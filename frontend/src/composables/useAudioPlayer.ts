@@ -16,12 +16,13 @@ interface UseAudioPlayerOptions {
   songs: () => MusicInfo[]
   onSongEnd?: () => void
   onSongStart?: (currentSong: MusicInfo, nextSong: MusicInfo | null) => void
+  prepareSong?: (song: MusicInfo) => Promise<MusicInfo>
 }
 
 type MusicNotificationApi = typeof import('music-notification-api')
 
 export function useAudioPlayer(options: UseAudioPlayerOptions) {
-  const { songs, onSongEnd, onSongStart } = options
+  const { songs, onSongEnd, onSongStart, prepareSong } = options
 
   const audioElement = ref<HTMLAudioElement | null>(null)
   const currentSong = ref<MusicInfo | null>(null)
@@ -103,19 +104,33 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       return { queue: [selectedSong], index: 0 }
     }
 
-    const resolvedIndex = selectedIndex ?? baseQueue.findIndex(song => song.id === selectedSong.id)
+    const normalizedQueue = baseQueue.map(song => {
+      if (song.id !== selectedSong.id) {
+        return song
+      }
+      return selectedSong
+    })
+
+    const resolvedIndex = selectedIndex ?? normalizedQueue.findIndex(song => song.id === selectedSong.id)
     const clampedIndex = resolvedIndex >= 0 ? resolvedIndex : 0
 
     if (playMode.value !== 'shuffle') {
-      return { queue: baseQueue, index: clampedIndex }
+      return { queue: normalizedQueue, index: clampedIndex }
     }
 
-    const current = baseQueue[clampedIndex] ?? selectedSong
-    const remaining = baseQueue.filter((_song, index) => index !== clampedIndex)
+    const current = normalizedQueue[clampedIndex] ?? selectedSong
+    const remaining = normalizedQueue.filter((_song, index) => index !== clampedIndex)
     return {
       queue: [current, ...shuffleSongs(remaining)],
       index: 0
     }
+  }
+
+  const prepareSongForPlayback = async (song: MusicInfo): Promise<MusicInfo> => {
+    if (!prepareSong) {
+      return song
+    }
+    return await prepareSong(song)
   }
 
   const randomSongIndexNoRepeat = (): number => {
@@ -166,7 +181,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     const nextSong = currentIndex.value >= 0 ? activeQueue.value[currentIndex.value] ?? null : null
     if (!nextSong) {
       currentSong.value = null
-    } else if (currentSong.value?.id !== nextSong.id) {
+    } else if (
+      currentSong.value?.id !== nextSong.id ||
+      currentSong.value?.lufs !== nextSong.lufs ||
+      currentSong.value?.name !== nextSong.name ||
+      currentSong.value?.path !== nextSong.path
+    ) {
       currentSong.value = nextSong
     }
     isPlaying.value = session.runtime.isPlaying
@@ -238,6 +258,20 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentSong.value = queue[index] ?? selectedSong
   }
 
+  const syncAndroidQueueState = async () => {
+    if (!isAndroidPlayer.value || activeQueue.value.length === 0) {
+      return
+    }
+
+    const plugin = await loadPluginApi()
+    const payload: PlayingQueue = {
+      songs: activeQueue.value.map(song => toQueueSong(song)),
+      currentIndex: currentIndex.value >= 0 ? currentIndex.value : null
+    }
+
+    await plugin.setPlayingQueue(payload, playMode.value as AndroidPlayMode)
+  }
+
   const restartAndroidPlayback = async (
     queue: MusicInfo[],
     index: number,
@@ -248,9 +282,16 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
 
     const plugin = await loadPluginApi()
     const resolvedIndex = Math.min(Math.max(index, 0), queue.length - 1)
-    const targetSong = queue[resolvedIndex]
+    const preparedTargetSong = await prepareSongForPlayback(queue[resolvedIndex])
+    const preparedQueue = queue.map(song => {
+      if (song.id !== preparedTargetSong.id) {
+        return song
+      }
+      return preparedTargetSong
+    })
+    const targetSong = preparedQueue[resolvedIndex]
     const payload: PlayingQueue = {
-      songs: queue.map(song => toQueueSong(song)),
+      songs: preparedQueue.map(song => toQueueSong(song)),
       currentIndex: resolvedIndex
     }
 
@@ -259,14 +300,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       resolvedIndex,
       targetSongId: targetSong.id,
       targetSongName: targetSong.name,
-      queueSize: queue.length,
+      queueSize: preparedQueue.length,
       playMode: playMode.value
     })
 
     await plugin.stop()
     await plugin.setPlayingQueue(payload, playMode.value as AndroidPlayMode)
 
-    activeQueue.value = queue
+    activeQueue.value = preparedQueue
     currentIndex.value = resolvedIndex
     currentSong.value = targetSong
 
@@ -302,14 +343,20 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       return
     }
 
-    activeQueue.value = songs().slice()
+    const preparedSong = await prepareSongForPlayback(song)
+    activeQueue.value = songs().map(sourceSong => {
+      if (sourceSong.id !== preparedSong.id) {
+        return sourceSong
+      }
+      return preparedSong
+    })
 
     if (audioElement.value && !audioElement.value.paused) {
       audioElement.value.pause()
     }
 
     const newAudio = new Audio()
-    const sourceUrl = buildAudioUrl(song.id, seekTime)
+    const sourceUrl = buildAudioUrl(preparedSong.id, seekTime)
     newAudio.src = sourceUrl
     newAudio.preload = 'auto'
 
@@ -341,11 +388,11 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     })
 
     audioElement.value = newAudio
-    currentSong.value = song
+    currentSong.value = preparedSong
     duration.value = 0
     isPlayingInternal = true
 
-    maybeEmitSongStart(activeQueue.value, song, currentIndex.value)
+    maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value)
 
     await new Promise(resolve => setTimeout(resolve, 50))
 
@@ -601,6 +648,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     formatTime,
     initAudio,
     refreshAndroidSession,
-    isAndroidPlayer
+    isAndroidPlayer,
+    syncAndroidQueueState
   }
 }

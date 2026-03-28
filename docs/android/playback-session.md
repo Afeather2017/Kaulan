@@ -15,7 +15,7 @@ This document covers the Android playback/session flow implemented by:
 
 ## Why This Exists
 
-On Android, the webview can be recreated while the foreground playback service keeps running.
+On Android, the webview is frozen, or killed by os, so it can be recreated while the foreground playback service keeps running.
 
 If the frontend owns the playback queue, the UI loses:
 
@@ -80,7 +80,17 @@ Instead:
 
 This is intentionally simple. Queue sizes are small enough that correctness is more important than avoiding one extra queue copy.
 
-## Sequence Diagram
+## LUFS Behavior
+
+Android playback also follows the shared LUFS playback rules documented in [`docs/lufs-playback-flow.md`](../lufs-playback-flow.md).
+
+Important note:
+
+1. webview-initiated playback resolves current-song LUFS before playback through the frontend player
+2. native auto-next inside `MusicPlayerService` also resolves current-song LUFS before playback
+3. the webview polls `getPlaybackSession()` every second and updates visible metadata if the backend playback queue has newer LUFS values
+
+## Sequence Diagram when tap next/prev in webview
 
 ```mermaid
 sequenceDiagram

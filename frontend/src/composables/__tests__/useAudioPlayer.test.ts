@@ -128,4 +128,22 @@ describe('useAudioPlayer - duration loading', () => {
     expect(endedCalls[0][0]).toBe('ended')
     expect(typeof endedCalls[0][1]).toBe('function')
   })
+
+  it('should use prepared song metadata before playback starts', async () => {
+    const prepareSong = vi.fn(async (song: MusicInfo) => ({
+      ...song,
+      lufs: -11.8
+    }))
+
+    const { playSong, currentSong } = useAudioPlayer({
+      songs: () => mockSongs,
+      prepareSong
+    })
+
+    await playSong(mockSongs[1])
+
+    expect(prepareSong).toHaveBeenCalledWith(mockSongs[1])
+    expect(currentSong.value?.id).toBe(mockSongs[1].id)
+    expect(currentSong.value?.lufs).toBe(-11.8)
+  })
 })
