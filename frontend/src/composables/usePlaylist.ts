@@ -5,7 +5,7 @@ import { getViewMode, setViewMode } from '@/utils/storage'
 export interface MusicInfo {
   id: number
   name: string
-  lufs: number
+  lufs: number | null
   path: string
 }
 

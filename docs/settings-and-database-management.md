@@ -276,30 +276,32 @@ The update process will:
 
 LUFS (Loudness Units Full Scale) values are calculated on-demand during playback rather than during database updates. This provides a faster database update experience and ensures LUFS is only calculated for songs that are actually played.
 
-**How it works:**
+The detailed playback behavior has changed over time and is documented separately in [`docs/lufs-playback-flow.md`](./lufs-playback-flow.md).
 
-1. When a song starts playing, the frontend triggers LUFS calculation for the **next song** in the playlist
-2. The backend calculates LUFS asynchronously using `tokio::task::spawn_blocking`
-3. Each song's LUFS is calculated **once** - subsequent plays read from the database
-4. First song plays with manual volume (no LUFS initially)
+Current high-level rule:
+
+1. The current song may do one LUFS request before playback starts.
+2. The next song may do one non-blocking pre-cache request after current playback starts.
+3. If LUFS is already cached, the player can use it immediately.
+4. If LUFS is not cached yet, playback starts without waiting for a long calculation.
 
 **Pre-cache endpoint:**
 
 ```bash
 POST /api/music/{id}/precache-lufs
 
-Response (200 OK - Newly calculated):
-{
-  "success": true,
-  "lufs": -14.5,
-  "cached": false
-}
-
 Response (200 OK - Already cached):
 {
   "success": true,
   "lufs": -14.5,
   "cached": true
+}
+
+Response (202 Accepted - Processing in background):
+{
+  "success": true,
+  "lufs": null,
+  "cached": false
 }
 
 Response (500 Internal Server Error - Content URI read failure):
@@ -309,15 +311,6 @@ Response (500 Internal Server Error - Content URI read failure):
   "error": "LUFS calculation failed: Failed to read content URI: ..."
 }
 ```
-
-**Edge cases handled:**
-
-- **First song**: No pre-caching, plays with manual volume
-- **Loop mode**: Same song - skip pre-caching if LUFS exists
-- **Shuffle mode**: Next random song is pre-cached
-- **Last song**: Wraps to first song - pre-caches first song's LUFS
-- **Single song playlist**: No next song - skip pre-caching
-- **Android content URIs**: Read through MediaStore seekable `FileReader` and analyzed directly
 
 **Note:** FFmpeg must be installed on the system for LUFS calculation to work. If FFmpeg is not available, the pre-cache request will fail gracefully.
 
