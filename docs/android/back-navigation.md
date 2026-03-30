@@ -75,8 +75,8 @@ Modal overlays are handled by a dedicated helper:
 
 ```ts
 const closeTopOverlay = () => {
-  if (showCurrentPlaylistModal.value) {
-    showCurrentPlaylistModal.value = false
+  if (showActiveQueueModal.value) {
+    showActiveQueueModal.value = false
     return true
   }
 
