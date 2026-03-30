@@ -42,7 +42,7 @@
       <button class="control-btn" @click="$emit('next')">
         <i class="fas fa-step-forward"></i>
       </button>
-      <button class="control-btn" @click="$emit('showCurrentPlaylist')">
+      <button class="control-btn" @click="$emit('showActiveQueue')">
         <i class="fas fa-list"></i>
       </button>
     </div>
@@ -67,7 +67,7 @@ const emit = defineEmits<{
   (e: 'play'): void
   (e: 'pause'): void
   (e: 'next'): void
-  (e: 'showCurrentPlaylist'): void
+  (e: 'showActiveQueue'): void
   (e: 'toggleLyric'): void
 }>()
 

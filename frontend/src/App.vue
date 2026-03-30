@@ -122,7 +122,7 @@
               @play="play"
               @pause="pause"
               @next="nextSong"
-              @show-current-playlist="handleShowCurrentPlaylist"
+              @show-active-queue="handleShowActiveQueue"
               @toggle-lyric="handleToggleLyric"
             />
           </div>
@@ -143,7 +143,7 @@
         @play="play"
         @pause="pause"
         @next="nextSong"
-        @show-current-playlist="handleShowCurrentPlaylist"
+        @show-active-queue="handleShowActiveQueue"
         @toggle-lyric="handleToggleLyric"
       />
     </div>
@@ -209,13 +209,13 @@
       @upload-complete="handleUploadComplete"
     />
 
-    <!-- Current Playlist Modal -->
-    <CurrentPlaylistModal
-      v-if="showCurrentPlaylistModal"
-      :playlist="playbackPlaylist"
+    <!-- Active Queue Modal -->
+    <ActiveQueueModal
+      v-if="showActiveQueueModal"
+      :songs="activeQueue"
       :current-song-name="currentSong?.name"
-      @close="showCurrentPlaylistModal = false"
-      @play="handlePlaySong"
+      @close="showActiveQueueModal = false"
+      @play="handlePlayQueueSong"
     />
   </div>
 </template>
@@ -227,11 +227,11 @@ import PlaylistListView from '@/components/PlaylistListView.vue'
 import SongListView, { type SongInfo } from '@/components/SongListView.vue'
 import PlayerControls from '@/components/PlayerControls.vue'
 import SettingsModal from '@/components/modals/SettingsModal.vue'
-import CurrentPlaylistModal from '@/components/modals/CurrentPlaylistModal.vue'
+import ActiveQueueModal from '@/components/modals/ActiveQueueModal.vue'
 import AddToCollectionModal from '@/components/modals/AddToCollectionModal.vue'
 import CreateCollectionModal from '@/components/modals/CreateCollectionModal.vue'
 import UploadModal from '@/components/modals/UploadModal.vue'
-import { useAudioPlayer } from '@/composables/useAudioPlayer'
+import { useAudioPlayer, type MusicInfo } from '@/composables/useAudioPlayer'
 import { usePlaylist } from '@/composables/usePlaylist'
 import { useSelection } from '@/composables/useSelection'
 import { useTimer } from '@/composables/useTimer'
@@ -268,34 +268,6 @@ const {
 
 const playbackSource = ref<'playlist' | 'search'>('playlist')
 const searchPlaybackSongs = ref<SongInfo[]>([])
-const lastPlayedPlaylist = ref<{ name: string; songs: SongInfo[] } | null>(null)
-
-const sourcePlaybackSongs = computed(() => {
-  if (playbackSource.value === 'search') {
-    return searchPlaybackSongs.value
-  }
-  return lastPlayedPlaylist.value?.songs || []
-})
-
-const playbackQueueTitle = computed(() => {
-  if (lastPlayedPlaylist.value?.name) {
-    return lastPlayedPlaylist.value.name
-  }
-  if (playbackSource.value === 'search') {
-    return '搜索结果'
-  }
-  return '当前播放列表'
-})
-
-const playbackPlaylist = computed(() => {
-  if (activeQueue.value.length === 0 && sourcePlaybackSongs.value.length === 0) {
-    return null
-  }
-  return {
-    name: playbackQueueTitle.value,
-    songs: activeQueue.value.length > 0 ? activeQueue.value : sourcePlaybackSongs.value
-  }
-})
 
 // Handler for song start event - trigger LUFS pre-caching for next song
 // Defined as ref to allow useAudioPlayer to reference it, but implemented below
@@ -325,7 +297,7 @@ const {
   syncAndroidQueueState,
   syncNormalizationConfig
 } = useAudioPlayer({
-  songs: () => sourcePlaybackSongs.value,
+  songs: () => playbackSource.value === 'search' ? searchPlaybackSongs.value : [],
   onSongEnd: () => {},
   onSongStart: (currentSongInfo, nextSongInfo) => {
     handleSongStartRef.value?.(currentSongInfo, nextSongInfo)
@@ -334,7 +306,7 @@ const {
 })
 
 const playbackSongs = computed(() => {
-  return activeQueue.value.length > 0 ? activeQueue.value : sourcePlaybackSongs.value
+  return activeQueue.value
 })
 
 const {
@@ -378,7 +350,7 @@ const selectedCollections = ref<number[]>([])
 const newCollectionName = ref('')
 const showCreateCollection = ref(false)
 const showUploadModal = ref(false)
-const showCurrentPlaylistModal = ref(false)
+const showActiveQueueModal = ref(false)
 const showLyric = ref(false)
 const lyricContainerRef = ref<HTMLElement | null>(null)
 const isWideLayout = ref(false)
@@ -472,13 +444,6 @@ const patchSongLufs = (songId: number, lufs: number) => {
     selectedPlaylist.value = {
       ...selectedPlaylist.value,
       songs: patchSongLufsInList(selectedPlaylist.value.songs, songId, lufs)
-    }
-  }
-
-  if (lastPlayedPlaylist.value) {
-    lastPlayedPlaylist.value = {
-      ...lastPlayedPlaylist.value,
-      songs: patchSongLufsInList(lastPlayedPlaylist.value.songs, songId, lufs)
     }
   }
 
@@ -627,10 +592,6 @@ const handleSearch = () => {
 
 const handleSelectPlaylist = (name: string) => {
   selectPlaylist(name)
-  lastPlayedPlaylist.value = {
-    name: name,
-    songs: playlists.value[name] || []
-  }
   playbackSource.value = 'playlist'
   searchPlaybackSongs.value = []
   resetPlaylist()
@@ -654,8 +615,8 @@ const handleActionBack = () => {
 }
 
 const closeTopOverlay = () => {
-  if (showCurrentPlaylistModal.value) {
-    showCurrentPlaylistModal.value = false
+  if (showActiveQueueModal.value) {
+    showActiveQueueModal.value = false
     return true
   }
 
@@ -752,20 +713,17 @@ const handleChooseAction = () => {
   }
 }
 
+const handlePlayQueueSong = async (song: MusicInfo, index: number) => {
+  await playSongAtIndex(song, index)
+}
+
 const handlePlaySong = async (song: SongInfo, index?: number) => {
   if (currentView.value === 'search') {
     playbackSource.value = 'search'
     searchPlaybackSongs.value = searchResults.value.slice()
-    lastPlayedPlaylist.value = null
   } else {
     playbackSource.value = 'playlist'
     searchPlaybackSongs.value = []
-    if (selectedPlaylist.value) {
-      lastPlayedPlaylist.value = {
-        name: selectedPlaylist.value.name,
-        songs: selectedPlaylist.value.songs
-      }
-    }
   }
   if (index !== undefined) {
     await playSongAtIndex(song, index)
@@ -812,8 +770,8 @@ const handleShowSettingsModal = () => {
   showSettings.value = true
 }
 
-const handleShowCurrentPlaylist = () => {
-  showCurrentPlaylistModal.value = true
+const handleShowActiveQueue = () => {
+  showActiveQueueModal.value = true
 }
 
 const handleToggleLyric = () => {

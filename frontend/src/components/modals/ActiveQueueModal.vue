@@ -6,12 +6,12 @@
           <i class="fas fa-arrow-left"></i>
           返回
         </button>
-        <h3 class="modal-title">{{ playlist?.name || '当前播放列表' }}</h3>
+        <h3 class="modal-title">当前播放列表</h3>
       </div>
       <div class="modal-body">
-        <div v-if="playlist && playlist.songs.length > 0" class="song-list">
+        <div v-if="songs.length > 0" class="song-list">
           <div
-            v-for="(song, index) in playlist.songs"
+            v-for="(song, index) in songs"
             :key="song.name"
             class="song-item"
             :class="{ 'active': currentSongName === song.name }"
@@ -37,21 +37,16 @@
 </template>
 
 <script setup lang="ts">
-import type { SongInfo } from '@/components/SongListView.vue'
-
-export interface Playlist {
-  name: string
-  songs: SongInfo[]
-}
+import type { MusicInfo } from '@/composables/useAudioPlayer'
 
 defineProps<{
-  playlist: Playlist | null
+  songs: MusicInfo[]
   currentSongName?: string
 }>()
 
 defineEmits<{
   (e: 'close'): void
-  (e: 'play', song: SongInfo, index: number): void
+  (e: 'play', song: MusicInfo, index: number): void
 }>()
 </script>
 
