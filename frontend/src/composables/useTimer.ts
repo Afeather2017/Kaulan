@@ -7,6 +7,7 @@ export function useTimer(onTimerComplete?: () => void) {
   const timerActive = ref(false)
   const timerRemaining = ref(0)
   const timerInterval = ref<number | null>(null)
+  let targetTime = 0
 
   const timerStatusDisplay = computed(() => {
     if (timerActive.value) {
@@ -31,10 +32,11 @@ export function useTimer(onTimerComplete?: () => void) {
       }
 
       timerActive.value = true
+      targetTime = Date.now() + timerMinutes.value * 60 * 1000
       timerRemaining.value = timerMinutes.value * 60
 
       timerInterval.value = window.setInterval(() => {
-        timerRemaining.value--
+        timerRemaining.value = Math.max(0, Math.ceil((targetTime - Date.now()) / 1000))
 
         if (timerRemaining.value <= 0) {
           cancelTimer()
@@ -51,6 +53,7 @@ export function useTimer(onTimerComplete?: () => void) {
     }
     timerActive.value = false
     timerRemaining.value = 0
+    targetTime = 0
   }
 
   // Sync slider and input bidirectionally for timer
