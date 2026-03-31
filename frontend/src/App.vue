@@ -297,7 +297,15 @@ const {
   syncAndroidQueueState,
   syncNormalizationConfig
 } = useAudioPlayer({
-  songs: () => playbackSource.value === 'search' ? searchPlaybackSongs.value : [],
+  songs: () => {
+    if (playbackSource.value === 'search') {
+      return searchPlaybackSongs.value
+    }
+    if (selectedPlaylist.value) {
+      return selectedPlaylist.value.songs
+    }
+    return []
+  },
   onSongEnd: () => {},
   onSongStart: (currentSongInfo, nextSongInfo) => {
     handleSongStartRef.value?.(currentSongInfo, nextSongInfo)
