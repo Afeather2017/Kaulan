@@ -5401,9 +5401,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-android-mediastore"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69a70beb705384d8b8d5d1f68d3da47bb4110b796140348b5e4b3486bc5183ff"
+checksum = "6e4916695411c297bec4b40fabed4a7ecd2c538fbe4cc37a91cbe755f0ce240e"
 dependencies = [
  "serde",
  "serde_json",

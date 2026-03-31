@@ -342,7 +342,7 @@ MediaStore/StdFileReader ──► Read Chunk (1MB) ──► Bytes ──► Ht
 
 ```toml
 [dependencies]
-tauri-plugin-android-mediastore = "0.1.5"
+tauri-plugin-android-mediastore = "0.1.9"
 ```
 
 ### ACL Permissions
