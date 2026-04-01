@@ -184,11 +184,6 @@ pub fn run() {
                 None
             };
             *kaulan_server.data_dir.lock().unwrap() = data_dir_for_server;
-            #[cfg(target_os = "android")]
-            if let Err(e) = kaulan_server.clone().start_backend("app startup") {
-                log::error!("Failed to start backend server during app startup: {}", e);
-            }
-
             #[cfg(not(target_os = "android"))]
             if let Err(e) = kaulan_server.clone().start_backend("desktop app startup") {
                 log::error!("Failed to start backend server during desktop startup: {}", e);
