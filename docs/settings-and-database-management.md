@@ -2,12 +2,13 @@
 
 ## Overview
 
-The Settings and Database Management features allow users to configure the music directory and update the music database through the UI. Music directory changes are persisted to a config file and take effect on the next application restart.
+The Settings and Database Management features allow users to configure the music directory, choose which media types are scanned, and update the music database through the UI. Music directory and media type changes are persisted to a config file.
 
 ## Features
 
 1. **Music Directory Configuration** - Set and view the music directory path through the settings UI
-2. **Database Update** - Trigger database refresh to scan for new files and remove deleted files
+2. **Media Type Filter** - Choose whether database scans include audio only or both audio and video files
+3. **Database Update** - Trigger database refresh to scan for new files and remove deleted files
 3. **On-Demand LUFS Pre-caching** - LUFS values are calculated automatically during playback for the next song
 4. **Playback Normalization Settings** - Volume mode and slider settings affect playback immediately
 5. **Persistent Configuration** - Music directory is saved to a config file and persists across restarts
@@ -20,6 +21,8 @@ The Settings and Database Management features allow users to configure the music
 |--------|----------|-------------|
 | GET | `/api/settings/music-directory` | Get the current music directory path |
 | POST | `/api/settings/music-directory` | Set the music directory path (saved to config, takes effect on restart) |
+| GET | `/api/settings/media-types` | Get enabled media types for scanning |
+| POST | `/api/settings/media-types` | Set enabled media types for scanning |
 | POST | `/api/database/update` | Trigger database update (scan for new files, remove deleted files) |
 | POST | `/api/music/{id}/precache-lufs` | Pre-cache LUFS for a music track (called automatically during playback) |
 
@@ -72,6 +75,34 @@ Response:
 ```
 
 When the user triggers a database update from the settings panel, the frontend shows a `扫描中...` banner while the update request is in progress.
+
+### Get Media Types
+
+```bash
+GET /api/settings/media-types
+
+Response:
+{
+  "media_types": ["audio"]
+}
+```
+
+### Set Media Types
+
+```bash
+POST /api/settings/media-types
+Content-Type: application/json
+
+{
+  "media_types": ["audio", "video"]
+}
+
+Success Response:
+{
+  "success": true,
+  "message": "Media types updated. Re-scan database to apply changes."
+}
+```
 
 ## Sequence Diagrams
 
@@ -262,12 +293,13 @@ The music directory is stored in a JSON configuration file:
 ### Updating the Database
 
 1. Open the settings modal
-2. Click the "更新数据库" (Update Database) button
+2. Adjust the media type filter if needed and save it
+3. Click the "更新数据库" (Update Database) button
 3. Wait for the update to complete (a loading indicator will be shown)
 4. The UI will automatically refresh after a successful update
 
 The update process will:
-- **Scan for new files** - Add newly discovered audio files to the database
+- **Scan for new files** - Add newly discovered audio files or supported video files to the database, depending on the media type filter
 - **Update LUFS values** - Calculate LUFS for files with missing or default (0.5) values
 - **Remove deleted files** - Delete database entries for files that no longer exist on disk
 
@@ -287,6 +319,15 @@ The update process will:
 - WAV (`.wav`)
 - AAC (`.aac`)
 - FLAC (`.flac`)
+
+### Supported Video Formats
+
+- MP4 (`.mp4`)
+- Matroska (`.mkv`)
+- WebM (`.webm`)
+- AVI (`.avi`)
+- MOV (`.mov`)
+- 3GP (`.3gp`)
 
 ### LUFS Pre-caching (On-Demand Calculation)
 
@@ -329,6 +370,8 @@ Response (500 Internal Server Error - Content URI read failure):
 ```
 
 **Note:** FFmpeg must be installed on the system for LUFS calculation to work. If FFmpeg is not available, the pre-cache request will fail gracefully.
+
+Video files are excluded from LUFS pre-caching. The backend returns success immediately for video entries so playback does not block on an analysis path that is not supported.
 
 ## Technical Notes
 

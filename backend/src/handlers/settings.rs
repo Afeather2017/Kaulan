@@ -8,7 +8,8 @@
 
 use crate::config;
 use crate::types::{
-    AppState, MusicDirectoryResponse, SetDirectoryResponse, SetMusicDirectoryRequest,
+    AppState, MediaTypesResponse, MusicDirectoryResponse, SetDirectoryResponse,
+    SetMediaTypesRequest, SetMusicDirectoryRequest,
 };
 use actix_web::{get, post, web, HttpResponse, Responder};
 use std::path::Path;
@@ -121,6 +122,59 @@ pub async fn set_music_directory(req: web::Json<SetMusicDirectoryRequest>) -> im
             HttpResponse::InternalServerError().json(SetDirectoryResponse {
                 success: false,
                 message: format!("Failed to save configuration: {}", e),
+            })
+        }
+    }
+}
+
+/// Get enabled media types
+///
+/// Returns the list of enabled media types (e.g. `["audio"]` or `["audio", "video"]`).
+///
+/// # Returns
+/// JSON response with the current media types
+#[get("/api/settings/media-types")]
+pub async fn get_media_types() -> impl Responder {
+    let media_types = config::load_media_types();
+    HttpResponse::Ok().json(MediaTypesResponse {
+        media_types,
+    })
+}
+
+/// Set enabled media types
+///
+/// Validates and saves the media types to the config file.
+/// The change takes effect on the next database scan.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "media_types": ["audio", "video"]
+/// }
+/// ```
+///
+/// # Validation
+/// - Only "audio" and "video" are allowed values
+/// - At least one type must be selected
+///
+/// # Returns
+/// - `200 OK` with success message
+/// - `400 Bad Request` if validation fails
+#[post("/api/settings/media-types")]
+pub async fn set_media_types(req: web::Json<SetMediaTypesRequest>) -> impl Responder {
+    match config::save_media_types(&req.media_types) {
+        Ok(_) => {
+            info!("Media types saved: {:?}", req.media_types);
+            HttpResponse::Ok().json(SetDirectoryResponse {
+                success: true,
+                message: "Media types updated. Re-scan database to apply changes.".to_string(),
+            })
+        }
+        Err(e) => {
+            warn!("Failed to save media types: {}", e);
+            HttpResponse::BadRequest().json(SetDirectoryResponse {
+                success: false,
+                message: format!("{}", e),
             })
         }
     }

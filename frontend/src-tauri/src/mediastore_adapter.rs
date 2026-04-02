@@ -27,7 +27,7 @@ use std::sync::{
 #[cfg(target_os = "android")]
 use tauri_plugin_android_mediastore::{
     AndroidMediastoreExt, FileReaderCloseRequest, FileReaderOpenRequest, FileReaderReadRequest,
-    FileReaderReadToEndRequest, FileReaderSeekRequest, GetAudioFilesRequest,
+    FileReaderReadToEndRequest, FileReaderSeekRequest, GetMediaFilesRequest, MediaFile,
 };
 
 /// MediaStore-based FileReader for Android
@@ -877,9 +877,9 @@ impl MediaStoreMusicFileLister {
     ///
     /// Prefer the MediaStore display_name (real filename with extension),
     /// falling back to generating one from artist and title.
-    fn generate_filename(audio_file: &tauri_plugin_android_mediastore::AudioFile) -> String {
+    fn generate_filename(media_file: &MediaFile) -> String {
         // Use display_name if available - it contains the real filename with extension
-        if let Some(ref display_name) = audio_file.display_name {
+        if let Some(ref display_name) = media_file.display_name {
             return display_name.clone();
         }
 
@@ -896,11 +896,13 @@ impl MediaStoreMusicFileLister {
                 .collect()
         };
 
-        let safe_artist = sanitize(&audio_file.artist);
-        let safe_title = sanitize(&audio_file.title);
+        let artist = media_file.artist.as_deref().unwrap_or("");
+        let title = media_file.title.as_deref().unwrap_or("Unknown");
+        let safe_artist = sanitize(artist);
+        let safe_title = sanitize(title);
 
         if safe_artist.is_empty() {
-            format!("{}_{}.mp3", audio_file.id, safe_title)
+            format!("{}_{}.mp3", media_file.id, safe_title)
         } else {
             format!("{}_{}.mp3", safe_artist, safe_title)
         }
@@ -910,30 +912,38 @@ impl MediaStoreMusicFileLister {
 #[cfg(target_os = "android")]
 #[async_trait]
 impl MusicFileLister for MediaStoreMusicFileLister {
-    async fn list_music_files(&self, _base_path: &str) -> Result<Vec<MusicFileInfo>, io::Error> {
-        log::info!("Querying MediaStore for audio files...");
+    async fn list_music_files(
+        &self,
+        _base_path: &str,
+        media_types: &[String],
+    ) -> Result<Vec<MusicFileInfo>, io::Error> {
+        log::info!("Querying MediaStore for media files (types: {:?})...", media_types);
 
-        // Direct await - no block_on needed!
-        // Note: MediaStore already filters by MIME type audio/*
-        // We use empty request (no exclusions) since AudioFile doesn't include file extension
-        let response = self
-            .app_handle
-            .android_mediastore()
-            .get_audio_files(GetAudioFilesRequest {
-                exclude_suffixes: None,
-            })
-            .await;
+        let mut all_files = Vec::new();
 
-        match response {
-            Ok(audio_files_response) => {
-                let files: Vec<MusicFileInfo> = audio_files_response
-                    .files
-                    .into_iter()
-                    .map(|af| {
-                        let filename = Self::generate_filename(&af);
+        for media_type in media_types {
+            let android_media_type = match media_type.as_str() {
+                "audio" => "audio/*",
+                "video" => "video/*",
+                _ => continue,
+            };
 
-                        // Extract parent directory from file_path
-                        let parent_dir = af.file_path.as_ref().and_then(|path| {
+            let response = self
+                .app_handle
+                .android_mediastore()
+                .get_media_files(GetMediaFilesRequest {
+                    media_type: Some(android_media_type.to_string()),
+                    exclude_suffixes: None,
+                    mime_type_filter: None,
+                })
+                .await;
+
+            match response {
+                Ok(media_files_response) => {
+                    for mf in media_files_response.files {
+                        let filename = Self::generate_filename(&mf);
+
+                        let parent_dir = mf.file_path.as_ref().and_then(|path| {
                             std::path::Path::new(path)
                                 .parent()
                                 .and_then(|p| p.file_name())
@@ -941,36 +951,34 @@ impl MusicFileLister for MediaStoreMusicFileLister {
                         });
 
                         log::debug!(
-                            "Found audio file: {} - {} (parent_dir: {:?})",
-                            af.artist,
-                            af.title,
+                            "Found media file: {} - {} (parent_dir: {:?})",
+                            mf.artist.as_deref().unwrap_or("Unknown"),
+                            mf.title.as_deref().unwrap_or("Unknown"),
                             parent_dir
                         );
 
-                        MusicFileInfo {
-                            path: af.content_uri.clone(),
+                        all_files.push(MusicFileInfo {
+                            path: mf.content_uri.clone(),
                             filename,
-                            title: Some(af.title),
-                            artist: Some(af.artist),
-                            album: Some(af.album),
-                            duration_ms: Some(af.duration),
+                            title: mf.title.clone(),
+                            artist: mf.artist.clone(),
+                            album: mf.album.clone(),
+                            duration_ms: mf.duration,
                             parent_dir,
-                        }
-                    })
-                    .collect();
-
-                log::info!(
-                    "MediaStore query complete: {} audio files found",
-                    files.len()
-                );
-                Ok(files)
-            }
-            Err(e) => {
-                let error_msg = format!("Failed to query MediaStore: {}", e);
-                log::error!("{}", error_msg);
-                Err(io::Error::new(io::ErrorKind::Other, error_msg))
+                        });
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to query MediaStore for {}: {}", media_type, e);
+                }
             }
         }
+
+        log::info!(
+            "MediaStore query complete: {} media files found",
+            all_files.len()
+        );
+        Ok(all_files)
     }
 }
 
@@ -1084,6 +1092,7 @@ impl kaulan::MusicFileLister for MediaStoreMusicFileLister {
     async fn list_music_files(
         &self,
         _base_path: &str,
+        _media_types: &[String],
     ) -> Result<Vec<kaulan::MusicFileInfo>, std::io::Error> {
         log::warn!("MediaStoreMusicFileLister::list_music_files called on desktop (stub)");
         Err(std::io::Error::new(

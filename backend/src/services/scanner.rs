@@ -31,16 +31,17 @@ use tracing::{debug, error, info};
 pub async fn scan_directory_recursive(
     dir_path: &Path,
     _music_path: &str,
+    media_types: &[String],
 ) -> Result<Vec<MusicFileInfo>, io::Error> {
     let lister = get_music_file_lister();
     let dir_str = dir_path.to_string_lossy();
 
     debug!("Scanning directory: {}", dir_str);
 
-    match lister.list_music_files(&dir_str).await {
+    match lister.list_music_files(&dir_str, media_types).await {
         Ok(files) => {
             debug!(
-                "Directory scan complete. Found {} audio files in {}",
+                "Directory scan complete. Found {} media files in {}",
                 files.len(),
                 dir_str
             );
@@ -91,7 +92,8 @@ pub async fn initialize_database(
     db_conn: &DatabaseConnection,
 ) -> Result<(), sea_orm::DbErr> {
     info!("Initializing database with music from: {}", music_path);
-    let audio_files = match scan_directory_recursive(Path::new(music_path), music_path).await {
+    let media_types = crate::config::load_media_types();
+    let audio_files = match scan_directory_recursive(Path::new(music_path), music_path, &media_types).await {
         Ok(files) => files,
         Err(e) => {
             error!("Failed to scan directory during initialization: {}", e);
@@ -223,9 +225,10 @@ pub async fn update_database(
     info!("[DB_UPDATE] ========== STARTING DATABASE UPDATE ==========");
     info!("[DB_UPDATE] Music directory: {}", music_path);
 
-    let audio_files = scan_directory_recursive(Path::new(music_path), music_path).await?;
+    let media_types = crate::config::load_media_types();
+    let audio_files = scan_directory_recursive(Path::new(music_path), music_path, &media_types).await?;
     info!(
-        "[DB_UPDATE] Found {} audio files in directory",
+        "[DB_UPDATE] Found {} media files in directory",
         audio_files.len()
     );
 

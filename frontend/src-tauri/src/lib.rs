@@ -123,13 +123,19 @@ pub fn run() {
         .setup(move |app| {
             log::info!("======================= Start =======================");
 
-            // Read config from Tauri's app data directory for UI display purposes
+            // Read config from Tauri-managed storage for UI display purposes.
+            // Android uses app_data_dir so it matches the backend config path.
             let app_handle = app.handle().clone();
             let app_handle_for_config = app_handle.clone();
             let music_path = tauri::async_runtime::block_on(async move {
-                // Try to load from config using Tauri's path API and std::fs
                 let path_resolver = app_handle_for_config.path();
-                if let Ok(config_dir) = path_resolver.app_config_dir() {
+                let config_dir = if cfg!(target_os = "android") {
+                    path_resolver.app_data_dir()
+                } else {
+                    path_resolver.app_config_dir()
+                };
+
+                if let Ok(config_dir) = config_dir {
                     let config_path = config_dir.join("config.json");
                     if config_path.exists() {
                         if let Ok(content) = fs::read_to_string(&config_path) {
