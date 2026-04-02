@@ -171,8 +171,9 @@ async fn test_update_database_with_new_files() {
         .all(&db)
         .await
         .expect("Failed to query database");
+    assert_eq!(all_music.len(), 1);
     // Note: The file might not have valid LUFS calculated if ffmpeg is not available
-    // so we just check that the database can be queried
+    // so we only assert that the file was inserted into the database
 
     // Cleanup
     std::fs::remove_dir_all(test_music_dir).ok();

@@ -113,6 +113,18 @@ pub struct SetDirectoryResponse {
     pub message: String,
 }
 
+/// Request to set media types
+#[derive(Deserialize)]
+pub struct SetMediaTypesRequest {
+    pub media_types: Vec<String>,
+}
+
+/// Response for get media types endpoint
+#[derive(Serialize)]
+pub struct MediaTypesResponse {
+    pub media_types: Vec<String>,
+}
+
 /// Response for database update endpoint
 #[derive(Serialize)]
 pub struct UpdateResponse {

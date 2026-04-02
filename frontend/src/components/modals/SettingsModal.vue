@@ -249,6 +249,50 @@
           </label>
         </div>
 
+        <hr class="settings-divider" />
+        <div class="mode-toggle">
+          <div class="mode-label">媒体类型过滤</div>
+        </div>
+        <div class="setting-item">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              class="setting-checkbox"
+              :checked="selectedMediaTypes.includes('audio')"
+              :disabled="isMediaTypeDisabled('audio') || isSavingMediaTypes || isLoadingMediaTypes"
+              @change="toggleMediaType('audio', ($event.target as HTMLInputElement).checked)"
+            />
+            <span>扫描音频文件</span>
+          </label>
+        </div>
+        <div class="setting-item">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              class="setting-checkbox"
+              :checked="selectedMediaTypes.includes('video')"
+              :disabled="isMediaTypeDisabled('video') || isSavingMediaTypes || isLoadingMediaTypes"
+              @change="toggleMediaType('video', ($event.target as HTMLInputElement).checked)"
+            />
+            <span>扫描视频文件</span>
+          </label>
+          <p class="setting-hint warning-hint">
+            视频文件不会执行 LUFS 音量标准化，保存后需要重新扫描数据库才会生效。
+          </p>
+          <p v-if="mediaTypesMessage" class="setting-hint" :class="{ 'setting-error': mediaTypesError }">
+            {{ mediaTypesMessage }}
+          </p>
+          <div class="url-actions">
+            <button
+              @click="saveMediaTypes"
+              class="save-url-btn"
+              :disabled="isSavingMediaTypes || isLoadingMediaTypes"
+            >
+              {{ isSavingMediaTypes ? '保存中...' : '保存媒体类型' }}
+            </button>
+          </div>
+        </div>
+
         <div class="modal-actions">
           <button @click="$emit('close')" class="confirm-btn">确认</button>
         </div>
@@ -261,7 +305,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { getApiBase, normalizeApiBase, setApiBase } from '@/utils/api'
 import { validateServerUrl } from '@/utils/validation'
-import { setShowLufs } from '@/utils/storage'
+import { getMediaTypes, setMediaTypes, setShowLufs } from '@/utils/storage'
 import { useDeviceDiscovery, type DiscoveredDevice } from '@/composables/useDeviceDiscovery'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
@@ -419,6 +463,11 @@ const removeManualDevice = (url: string) => {
 
 // Local show LUFS setting (synced with prop)
 const showLufsLocal = ref<boolean>(props.showLufs)
+const selectedMediaTypes = ref<string[]>(getMediaTypes())
+const isLoadingMediaTypes = ref<boolean>(false)
+const isSavingMediaTypes = ref<boolean>(false)
+const mediaTypesMessage = ref<string>('')
+const mediaTypesError = ref<boolean>(false)
 
 // Watch for prop changes (from parent/App.vue)
 watch(() => props.showLufs, (newValue) => {
@@ -431,6 +480,83 @@ const handleShowLufsChange = (e: Event) => {
   showLufsLocal.value = checked
   setShowLufs(checked)
   emit('update:showLufs', checked)
+}
+
+const sortMediaTypes = (mediaTypes: string[]): string[] => {
+  return ['audio', 'video'].filter(type => mediaTypes.includes(type))
+}
+
+const isMediaTypeDisabled = (mediaType: string): boolean => {
+  return selectedMediaTypes.value.length === 1 && selectedMediaTypes.value.includes(mediaType)
+}
+
+const toggleMediaType = (mediaType: string, enabled: boolean) => {
+  const next = new Set(selectedMediaTypes.value)
+
+  if (enabled) {
+    next.add(mediaType)
+  } else if (!(next.size === 1 && next.has(mediaType))) {
+    next.delete(mediaType)
+  }
+
+  selectedMediaTypes.value = sortMediaTypes(Array.from(next))
+  mediaTypesMessage.value = ''
+  mediaTypesError.value = false
+}
+
+const loadMediaTypes = async () => {
+  isLoadingMediaTypes.value = true
+  mediaTypesMessage.value = ''
+  mediaTypesError.value = false
+
+  try {
+    const response = await fetch(`${getApiBase()}/settings/media-types`)
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`)
+    }
+
+    const data = await response.json()
+    const mediaTypes = Array.isArray(data.media_types) ? sortMediaTypes(data.media_types) : ['audio']
+    selectedMediaTypes.value = mediaTypes.length > 0 ? mediaTypes : ['audio']
+    setMediaTypes(selectedMediaTypes.value)
+  } catch (error) {
+    console.error('Failed to load media types:', error)
+    selectedMediaTypes.value = sortMediaTypes(getMediaTypes())
+    mediaTypesMessage.value = '读取媒体类型失败，已使用本地缓存。'
+    mediaTypesError.value = true
+  } finally {
+    isLoadingMediaTypes.value = false
+  }
+}
+
+const saveMediaTypes = async () => {
+  isSavingMediaTypes.value = true
+  mediaTypesMessage.value = ''
+  mediaTypesError.value = false
+
+  try {
+    const response = await fetch(`${getApiBase()}/settings/media-types`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ media_types: selectedMediaTypes.value }),
+    })
+    const result = await response.json()
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || `Request failed with status ${response.status}`)
+    }
+
+    setMediaTypes(selectedMediaTypes.value)
+    mediaTypesMessage.value = '媒体类型已保存，重新扫描数据库后生效。'
+  } catch (error) {
+    console.error('Failed to save media types:', error)
+    mediaTypesMessage.value = `保存媒体类型失败: ${error}`
+    mediaTypesError.value = true
+  } finally {
+    isSavingMediaTypes.value = false
+  }
 }
 
 const localhostDevice = computed<DiscoveredDevice>(() => ({
@@ -594,6 +720,8 @@ onMounted(async () => {
     console.error('Failed to get music directory:', error)
     musicDirectory.value = 'Unknown'
   }
+
+  await loadMediaTypes()
 })
 
 const selectDirectory = async () => {
@@ -853,6 +981,36 @@ const openManualAddressDialog = async () => {
   font-weight: 500;
   font-size: 15px;
   color: #555;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  color: #333;
+  cursor: pointer;
+}
+
+.setting-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: #1db954;
+}
+
+.setting-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #666;
+}
+
+.warning-hint {
+  color: #b45f06;
+}
+
+.setting-error {
+  color: #c0392b;
 }
 
 .slider-container {

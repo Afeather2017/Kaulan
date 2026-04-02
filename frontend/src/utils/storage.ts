@@ -10,7 +10,8 @@
 export const STORAGE_KEYS = {
   SERVER_URL: 'kaulan_server_url',
   VIEW_MODE: 'kaulan_view_mode',
-  SHOW_LUFS: 'kaulan_show_lufs'
+  SHOW_LUFS: 'kaulan_show_lufs',
+  MEDIA_TYPES: 'kaulan_media_types'
 } as const
 
 function getStorageValue(key: string): string {
@@ -99,4 +100,36 @@ export function getShowLufs(): boolean {
  */
 export function setShowLufs(show: boolean): void {
   setStorageValue(STORAGE_KEYS.SHOW_LUFS, show ? 'true' : 'false')
+}
+
+/**
+ * Get the stored media type filter from localStorage.
+ * @returns Enabled media types, defaulting to ['audio']
+ */
+export function getMediaTypes(): string[] {
+  const stored = getStorageValue(STORAGE_KEYS.MEDIA_TYPES)
+  if (!stored) {
+    return ['audio']
+  }
+
+  try {
+    const parsed = JSON.parse(stored)
+    if (!Array.isArray(parsed)) {
+      return ['audio']
+    }
+
+    const valid = parsed.filter((value): value is string => value === 'audio' || value === 'video')
+    return valid.length > 0 ? valid : ['audio']
+  } catch (error) {
+    console.error('Failed to parse stored media types:', error)
+    return ['audio']
+  }
+}
+
+/**
+ * Save the enabled media type filter to localStorage.
+ * @param mediaTypes - Enabled media types
+ */
+export function setMediaTypes(mediaTypes: string[]): void {
+  setStorageValue(STORAGE_KEYS.MEDIA_TYPES, JSON.stringify(mediaTypes))
 }

@@ -34,6 +34,12 @@ struct MusicQueryParams {
     /// Position in file (0.0 to 1.0) to start streaming from
     /// Example: 0.5 = 50% into the file
     position: Option<f64>,
+
+    /// Legacy timestamp-based seek in seconds.
+    t: Option<f64>,
+
+    /// Total track duration in seconds, required when `t` is used.
+    duration: Option<f64>,
 }
 
 /// Stream a music file by filename
@@ -192,66 +198,90 @@ pub async fn get_music_by_id(
             const CHUNK_SIZE: usize = 1024 * 1024;
 
             // Handle position-based seek (highest priority)
-            // Priority: Position query parameter > Range header > Full file stream
-            let (use_position_seek, start_byte_from_position) =
-                if let (Some(pos), Some(size)) = (query.position, file_size) {
-                    // Validate parameters (position must be 0.0 to 1.0)
-                    if pos >= 0.0 && pos <= 1.0 {
-                        let mut start_byte = (pos * size as f64).floor() as u64;
-                        // Clamp start_byte to valid range [0, size-1]
-                        if start_byte >= size {
-                            start_byte = size - 1;
-                        }
-                        debug!(
-                            "Position seek: position={}%, calculated start_byte={}",
-                            pos * 100.0,
-                            start_byte
-                        );
-                        (true, Some(start_byte))
-                    } else {
+            // Priority: Position query parameter > legacy timestamp query parameters > Range header > Full file stream
+            let seek_request = file_size.and_then(|size| {
+                if let Some(pos) = query.position {
+                    if !(0.0..=1.0).contains(&pos) {
                         debug!(
                             "Invalid position parameter: position={}, falling back to normal",
                             pos
                         );
-                        (false, None)
+                        return None;
                     }
-                } else {
-                    (false, None)
-                };
 
-            if use_position_seek {
-                if let Some(start) = start_byte_from_position {
-                    match file_reader
-                        .read_stream_from(&music.file_path, CHUNK_SIZE, start)
-                        .await
-                    {
-                        Ok(stream) => {
-                            let content_length = file_size.unwrap() - start;
-                            let end = file_size.unwrap() - 1;
-                            info!("[ACCESS] GET /api/music/id/{} - Status: 206, Position: {}%, bytes={}-{}", id, query.position.unwrap() * 100.0, start, end);
+                    let mut start_byte = (pos * size as f64).floor() as u64;
+                    if start_byte >= size {
+                        start_byte = size - 1;
+                    }
 
-                            return HttpResponse::PartialContent()
-                                .insert_header(("Content-Type", "audio/mpeg"))
-                                .insert_header(("Content-Length", content_length.to_string()))
-                                .insert_header((
-                                    "Content-Range",
-                                    format!("bytes {}-{}/{}", start, end, file_size.unwrap()),
-                                ))
-                                .insert_header(("Accept-Ranges", "bytes"))
-                                .insert_header((
-                                    "Cache-Control",
-                                    "public, max-age=86400, must-revalidate",
-                                ))
-                                .insert_header((
-                                    "X-Seek-Position",
-                                    query.position.unwrap().to_string(),
-                                ))
-                                .streaming(stream.map_err(actix_web::Error::from));
+                    debug!(
+                        "Position seek: position={}%, calculated start_byte={}",
+                        pos * 100.0,
+                        start_byte
+                    );
+                    return Some((start_byte, Some(("X-Seek-Position", pos.to_string()))));
+                }
+
+                if let (Some(timestamp), Some(duration)) = (query.t, query.duration) {
+                    if duration <= 0.0 || timestamp < 0.0 || timestamp > duration {
+                        debug!(
+                            "Invalid timestamp seek parameters: t={}, duration={}, falling back to normal",
+                            timestamp, duration
+                        );
+                        return None;
+                    }
+
+                    let mut start_byte = ((timestamp / duration) * size as f64).floor() as u64;
+                    if start_byte >= size {
+                        start_byte = size - 1;
+                    }
+
+                    debug!(
+                        "Timestamp seek: t={}, duration={}, calculated start_byte={}",
+                        timestamp,
+                        duration,
+                        start_byte
+                    );
+                    return Some((start_byte, Some(("X-Seek-Timestamp", timestamp.to_string()))));
+                }
+
+                None
+            });
+
+            if let Some((start, seek_header)) = seek_request {
+                match file_reader
+                    .read_stream_from(&music.file_path, CHUNK_SIZE, start)
+                    .await
+                {
+                    Ok(stream) => {
+                        let content_length = file_size.unwrap() - start;
+                        let end = file_size.unwrap() - 1;
+                        info!(
+                            "[ACCESS] GET /api/music/id/{} - Status: 206, bytes={}-{}",
+                            id, start, end
+                        );
+
+                        let mut response = HttpResponse::PartialContent();
+                        response.insert_header(("Content-Type", "audio/mpeg"));
+                        response.insert_header(("Content-Length", content_length.to_string()));
+                        response.insert_header((
+                            "Content-Range",
+                            format!("bytes {}-{}/{}", start, end, file_size.unwrap()),
+                        ));
+                        response.insert_header(("Accept-Ranges", "bytes"));
+                        response.insert_header((
+                            "Cache-Control",
+                            "public, max-age=86400, must-revalidate",
+                        ));
+                        if let Some((header_name, header_value)) = seek_header {
+                            response.insert_header((header_name, header_value));
                         }
-                        Err(e) => {
-                            warn!("Could not seek in file: {} - Error: {}", music.file_path, e);
-                            // Fall through to Range header handling
-                        }
+
+                        return response.streaming(stream.map_err(actix_web::Error::from));
+                    }
+                    Err(e) => {
+                        warn!("Could not seek in file: {} - Error: {}", music.file_path, e);
+                        // Fall through to Range header handling
                     }
                 }
             }

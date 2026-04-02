@@ -7,7 +7,7 @@
 //! Documentation: [docs/settings-and-database-management.md](../../../docs/settings-and-database-management.md)
 
 use crate::entities::music::{ActiveModel as MusicActiveModel, Entity as MusicEntity};
-use crate::file_ops::get_file_reader;
+use crate::file_ops::{get_file_reader, is_video_file};
 use crate::types::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
 use lufsgen::LufsCalculator;
@@ -65,6 +65,20 @@ pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> i
                 return HttpResponse::Ok().json(PrecacheLufsResponse {
                     success: true,
                     lufs: Some(existing_lufs),
+                    cached: Some(true),
+                    error: None,
+                });
+            }
+
+            // Reject video files - LUFS calculation hangs on them
+            if is_video_file(&music.file_path) {
+                info!(
+                    "[ACCESS] POST /api/music/{}/precache-lufs - Status: 200 (Skipped: video file)",
+                    id
+                );
+                return HttpResponse::Ok().json(PrecacheLufsResponse {
+                    success: true,
+                    lufs: None,
                     cached: Some(true),
                     error: None,
                 });

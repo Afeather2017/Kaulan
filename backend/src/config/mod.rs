@@ -27,7 +27,8 @@ const GENERIC_HOSTNAMES: &[&str] = &[
 /// {
 ///   "music_directory": "/path/to/music",
 ///   "device_id": "550e8400-e29b-41d4-a716-446655440000",
-///   "device_name": "Living Room Player"
+///   "device_name": "Living Room Player",
+///   "media_types": ["audio"]
 /// }
 /// ```
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -40,6 +41,14 @@ pub struct Config {
 
     /// Human-readable device name (user-configurable)
     pub device_name: Option<String>,
+
+    /// Enabled media types for scanning: "audio" and/or "video"
+    #[serde(default = "default_media_types")]
+    pub media_types: Option<Vec<String>>,
+}
+
+fn default_media_types() -> Option<Vec<String>> {
+    Some(vec!["audio".to_string()])
 }
 
 /// Get the config directory path
@@ -53,6 +62,10 @@ pub struct Config {
 /// - macOS: `~/Library/Application Support/kaulan/`
 /// - Windows: `%APPDATA%\kaulan\`
 pub fn get_config_dir() -> Option<PathBuf> {
+    if std::env::var("TAURI_PLATFORM").ok().as_deref() == Some("android") {
+        return std::env::var("TAURI_ANDROID_DATA_DIR").ok().map(PathBuf::from);
+    }
+
     let mut path = dirs::config_dir()?;
     path.push("kaulan");
     Some(path)
@@ -232,6 +245,43 @@ pub fn set_device_name(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Load enabled media types from config
+///
+/// # Returns
+/// `["audio"]` if not set (backward-compatible default)
+pub fn load_media_types() -> Vec<String> {
+    load_full_config()
+        .ok()
+        .and_then(|c| c.media_types)
+        .unwrap_or_else(|| vec!["audio".to_string()])
+}
+
+/// Save media types to config file
+///
+/// # Arguments
+/// * `media_types` - Slice of enabled types, e.g. `["audio", "video"]`
+///
+/// # Validation
+/// - Only "audio" and "video" are allowed values
+/// - At least one type must be selected
+pub fn save_media_types(media_types: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    for mt in media_types {
+        if mt != "audio" && mt != "video" {
+            return Err(format!("Invalid media type: {}. Must be 'audio' or 'video'.", mt).into());
+        }
+    }
+    if media_types.is_empty() {
+        return Err("At least one media type must be selected.".into());
+    }
+
+    save_config_field(|config| Config {
+        media_types: Some(media_types.to_vec()),
+        ..config
+    })?;
+    info!("Media types saved to config: {:?}", media_types);
+    Ok(())
+}
+
 /// Load the full config from file
 ///
 /// # Returns
@@ -278,4 +328,95 @@ where
     fs::write(&config_path, content)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_media_types, save_media_types};
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::TempDir;
+
+    fn config_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct ConfigEnvGuard {
+        _temp_dir: TempDir,
+        old_xdg_config_home: Option<String>,
+        old_home: Option<String>,
+    }
+
+    impl ConfigEnvGuard {
+        fn new() -> Self {
+            let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+            let root = temp_dir.path().to_string_lossy().to_string();
+
+            let old_xdg_config_home = std::env::var("XDG_CONFIG_HOME").ok();
+            let old_home = std::env::var("HOME").ok();
+
+            unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", &root);
+                std::env::set_var("HOME", &root);
+            }
+
+            Self {
+                _temp_dir: temp_dir,
+                old_xdg_config_home,
+                old_home,
+            }
+        }
+    }
+
+    impl Drop for ConfigEnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.old_xdg_config_home {
+                    Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                    None => std::env::remove_var("XDG_CONFIG_HOME"),
+                }
+                match &self.old_home {
+                    Some(value) => std::env::set_var("HOME", value),
+                    None => std::env::remove_var("HOME"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn load_media_types_defaults_to_audio() {
+        let _lock = config_env_lock().lock().expect("lock poisoned");
+        let _guard = ConfigEnvGuard::new();
+
+        assert_eq!(load_media_types(), vec!["audio".to_string()]);
+    }
+
+    #[test]
+    fn save_media_types_round_trips_valid_values() {
+        let _lock = config_env_lock().lock().expect("lock poisoned");
+        let _guard = ConfigEnvGuard::new();
+
+        let media_types = vec!["audio".to_string(), "video".to_string()];
+        save_media_types(&media_types).expect("save should succeed");
+
+        assert_eq!(load_media_types(), media_types);
+    }
+
+    #[test]
+    fn save_media_types_rejects_invalid_value() {
+        let _lock = config_env_lock().lock().expect("lock poisoned");
+        let _guard = ConfigEnvGuard::new();
+
+        let err = save_media_types(&["image".to_string()]).expect_err("save should fail");
+        assert!(err.to_string().contains("Invalid media type"));
+    }
+
+    #[test]
+    fn save_media_types_requires_at_least_one_value() {
+        let _lock = config_env_lock().lock().expect("lock poisoned");
+        let _guard = ConfigEnvGuard::new();
+
+        let err = save_media_types(&[]).expect_err("save should fail");
+        assert!(err.to_string().contains("At least one media type must be selected"));
+    }
 }

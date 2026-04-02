@@ -46,6 +46,7 @@ async fn create_test_music(
         id: ActiveValue::Set(id),
         filename: Set(filename.to_string()),
         file_path: Set(file_path.to_string()),
+        parent_dir: Set(None),
         lufs: Set(Some(-12.0)),
         created_at: Set(Utc::now()),
     };

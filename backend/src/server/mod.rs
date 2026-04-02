@@ -38,7 +38,7 @@ pub use lufs::precache_lufs;
 pub use lyrics::{get_lyrics, get_lyrics_by_id};
 pub use music::{get_all_music, get_music, get_music_by_id};
 pub use playlists::{get_all_playlists, get_playlist};
-pub use settings::{get_music_directory, set_music_directory};
+pub use settings::{get_media_types, get_music_directory, set_media_types, set_music_directory};
 pub use upload::{get_directory_tree, upload_files};
 
 /// Represents the server address information
@@ -261,6 +261,8 @@ pub async fn start_server(
                 // Settings endpoints
                 .service(get_music_directory)
                 .service(set_music_directory)
+                .service(get_media_types)
+                .service(set_media_types)
                 // Discovery endpoints (order matters - specific routes first)
                 .service(get_discovered_devices)
                 .service(get_self_device)
