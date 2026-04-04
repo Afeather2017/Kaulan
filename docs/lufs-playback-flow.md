@@ -326,6 +326,27 @@ On the next polling tick:
 3. frontend updates visible playlist state and current song state
 4. volume calculation can now use the real LUFS value
 
+## Auto Mode Minimum LUFS Cap
+
+When volume mode is `auto`, the player normalizes all songs to the quietest song in the playlist (minimum LUFS). If the playlist contains songs with very low LUFS (e.g. ASMR at -60 LUFS), the entire playlist would become nearly silent.
+
+To prevent this, auto mode uses a default minimum LUFS cap of **-29**. The effective target LUFS is:
+
+```
+targetLufs = min(minLufsInPlaylist, -29)
+```
+
+This means:
+
+- If the quietest song in the playlist is -15 LUFS, target is -15 (no change from before).
+- If the quietest song is -40 LUFS, target is capped at -29 (louder songs are not pulled down as far).
+- If all songs have `lufs = null`, the player falls back to `manualVolume` regardless.
+
+Both platforms apply the same cap:
+
+- Frontend: `DEFAULT_MIN_LUFS = -29` in [`frontend/src/composables/useVolume.ts`](../frontend/src/composables/useVolume.ts)
+- Android: `defaultMinLufs = -29.0` in [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
+
 ## Volume Mode and Slider Behavior
 
 When the user changes volume mode or moves the volume slider in settings, Kaulan updates normalization differently on the two playback backends.
