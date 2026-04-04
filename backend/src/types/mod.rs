@@ -24,6 +24,8 @@ pub struct MusicInfo {
     pub name: String,
     pub lufs: Option<f64>,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_url: Option<String>,
 }
 
 /// Playlist with songs
@@ -130,4 +132,127 @@ pub struct MediaTypesResponse {
 pub struct UpdateResponse {
     pub success: bool,
     pub message: String,
+}
+
+/// Query parameter for requesting content:// stream URLs
+#[derive(Deserialize)]
+pub struct StreamQuery {
+    /// When set to "content" on Android builds, include content:// URI in stream_url
+    pub stream: Option<String>,
+}
+
+/// Build the public HTTP stream URL for a music item.
+pub fn build_http_stream_url(req: &actix_web::HttpRequest, music_id: i32) -> String {
+    let connection = req.connection_info();
+    format!(
+        "{}://{}/api/music/id/{}",
+        connection.scheme(),
+        connection.host(),
+        music_id
+    )
+}
+
+/// Check if the request originates from localhost (loopback address).
+pub fn is_localhost_request(req: &actix_web::HttpRequest) -> bool {
+    req.peer_addr()
+        .map(|addr| addr.ip().is_loopback())
+        .unwrap_or(false)
+}
+
+/// Validate whether the requested stream mode is allowed for this request.
+#[cfg(target_os = "android")]
+pub fn validate_stream_request(
+    stream_param: &Option<String>,
+    is_localhost: bool,
+) -> Result<(), actix_web::HttpResponse> {
+    if stream_param.as_deref() == Some("content") && !is_localhost {
+        return Err(actix_web::HttpResponse::Forbidden()
+            .body("content stream is only available from localhost"));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn validate_stream_request(
+    stream_param: &Option<String>,
+    _is_localhost: bool,
+) -> Result<(), actix_web::HttpResponse> {
+    if stream_param.as_deref() == Some("content") {
+        return Err(actix_web::HttpResponse::BadRequest()
+            .body("content stream is only available on Android"));
+    }
+
+    Ok(())
+}
+
+/// Resolve stream_url for a music file path.
+/// On Android, if request is from localhost, `stream=content` is requested,
+/// and the path is a content:// URI, return it. Otherwise return None.
+#[cfg(target_os = "android")]
+pub fn resolve_stream_url(
+    file_path: &str,
+    stream_param: &Option<String>,
+    is_localhost: bool,
+) -> Option<String> {
+    if is_localhost
+        && stream_param.as_deref() == Some("content")
+        && file_path.starts_with("content://")
+    {
+        Some(file_path.to_string())
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn resolve_stream_url(
+    _file_path: &str,
+    _stream_param: &Option<String>,
+    _is_localhost: bool,
+) -> Option<String> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::test::TestRequest;
+
+    #[test]
+    fn builds_absolute_http_stream_url() {
+        let req = TestRequest::default()
+            .insert_header(("host", "192.168.136.29:2080"))
+            .to_http_request();
+
+        assert_eq!(
+            build_http_stream_url(&req, 42),
+            "http://192.168.136.29:2080/api/music/id/42"
+        );
+    }
+
+    #[test]
+    fn localhost_request_detection_works_for_loopback() {
+        let req = TestRequest::default()
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .to_http_request();
+
+        assert!(is_localhost_request(&req));
+    }
+
+    #[test]
+    fn localhost_request_detection_rejects_lan_clients() {
+        let req = TestRequest::default()
+            .peer_addr("192.168.136.10:54321".parse().unwrap())
+            .to_http_request();
+
+        assert!(!is_localhost_request(&req));
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn non_android_builds_reject_content_stream_requests() {
+        let response = validate_stream_request(&Some("content".to_string()), true);
+        assert!(response.is_err());
+    }
 }
