@@ -347,6 +347,7 @@ dependencies = [
  "jni",
  "kaulan",
  "log",
+ "ndk-context",
  "serde",
  "serde_json",
  "tauri",

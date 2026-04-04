@@ -6,6 +6,9 @@ use tauri::{Manager, State};
 
 // MediaStore adapter module
 mod mediastore_adapter;
+// Android wake lock module
+#[cfg(target_os = "android")]
+mod wakelock;
 
 // Music notification plugin
 use tauri_plugin_music_notification_api::{set_server, Server};
@@ -15,10 +18,12 @@ struct KaulanServer {
     running: std::sync::atomic::AtomicBool,
     music_dir: Mutex<Option<String>>,
     data_dir: Mutex<Option<String>>,
+    #[cfg(target_os = "android")]
+    wake_lock: Mutex<Option<wakelock::WakeLock>>,
 }
 
 impl KaulanServer {
-    fn start_backend(self: Arc<Self>, source: &str) -> Result<(), String> {
+    fn start_backend(self: &Arc<Self>, source: &str) -> Result<(), String> {
         if self
             .running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -82,10 +87,34 @@ impl Server for KaulanServer {
     }
 
     fn start(self: std::sync::Arc<Self>) -> Result<(), String> {
-        self.start_backend("foreground service")
+        self.start_backend("foreground service")?;
+
+        // Acquire a partial wake lock to keep the CPU running during playback.
+        #[cfg(target_os = "android")]
+        {
+            let mut wl = self.wake_lock.lock().unwrap();
+            if wl.is_none() {
+                match wakelock::WakeLock::new("kaulan:playback") {
+                    Ok(mut lock) => {
+                        lock.acquire()?;
+                        *wl = Some(lock);
+                    }
+                    Err(e) => log::error!("Failed to create wake lock: {}", e),
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn stop(self: std::sync::Arc<Self>) -> Result<(), String> {
+        // Release the wake lock.
+        #[cfg(target_os = "android")]
+        {
+            if let Some(mut wl) = self.wake_lock.lock().unwrap().take() {
+                wl.release()?;
+            }
+        }
         self.running.store(false, Ordering::Release);
         Ok(())
     }
@@ -111,6 +140,8 @@ pub fn run() {
             None
         }),
         data_dir: Mutex::new(None),
+        #[cfg(target_os = "android")]
+        wake_lock: Mutex::new(None),
     });
     set_server(kaulan_server.clone());
     log::info!("Registered KaulanServer with music notification plugin");
@@ -191,7 +222,7 @@ pub fn run() {
             };
             *kaulan_server.data_dir.lock().unwrap() = data_dir_for_server;
             #[cfg(not(target_os = "android"))]
-            if let Err(e) = kaulan_server.clone().start_backend("desktop app startup") {
+            if let Err(e) = kaulan_server.start_backend("desktop app startup") {
                 log::error!("Failed to start backend server during desktop startup: {}", e);
             }
 
