@@ -1,12 +1,14 @@
 import { ref, computed } from 'vue'
 import { getApiBase } from '@/utils/api'
 import { getViewMode, setViewMode } from '@/utils/storage'
+import { checkIsAndroid } from '@/utils/platform'
 
 export interface MusicInfo {
   id: number
   name: string
   lufs: number | null
   path: string
+  stream_url?: string | null
 }
 
 export interface Playlist {
@@ -25,6 +27,24 @@ export type ViewMode = 'folder' | 'collection'
 const viewModeLabels: Record<ViewMode, string> = {
   folder: '文件夹',
   collection: '收藏夹'
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+}
+
+/** Query string to request content:// stream URLs from backend */
+async function streamParam(): Promise<string> {
+  if (!(await checkIsAndroid())) {
+    return ''
+  }
+
+  try {
+    const apiBase = new URL(getApiBase())
+    return isLoopbackHostname(apiBase.hostname) ? '?stream=content' : ''
+  } catch {
+    return ''
+  }
 }
 
 export function usePlaylist() {
@@ -64,7 +84,7 @@ export function usePlaylist() {
   // Fetch playlists from backend (folder mode)
   const fetchPlaylists = async () => {
     try {
-      const response = await fetch(`${getApiBase()}/playlists`)
+      const response = await fetch(`${getApiBase()}/playlists${await streamParam()}`)
       if (response.ok) {
         playlists.value = await response.json()
       }
@@ -94,7 +114,7 @@ export function usePlaylist() {
   // Fetch playlists in collection mode
   const fetchPlaylistsCollectionMode = async () => {
     try {
-      const response = await fetch(`${getApiBase()}/playlists/collection-mode`)
+      const response = await fetch(`${getApiBase()}/playlists/collection-mode${await streamParam()}`)
       if (response.ok) {
         playlists.value = await response.json()
       }

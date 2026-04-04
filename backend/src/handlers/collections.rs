@@ -22,10 +22,11 @@ use crate::entities::collection_item::{
 };
 use crate::entities::music::Entity as MusicEntity;
 use crate::types::{
+    build_http_stream_url, is_localhost_request, resolve_stream_url, validate_stream_request,
     AddToCollectionRequest, AppState, Collection, CollectionWithSongs, CreateCollectionRequest,
-    MusicInfo, RemoveFromCollectionRequest,
+    MusicInfo, RemoveFromCollectionRequest, StreamQuery,
 };
-use actix_web::{delete, get, post, web, HttpResponse, Responder};
+use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use tracing::{debug, error, info, warn};
@@ -208,10 +209,16 @@ pub async fn get_collection(path: web::Path<i32>, data: web::Data<AppState>) -> 
 /// - `500 Internal Server Error` for database errors
 #[get("/api/collections/{id}/items")]
 pub async fn get_collection_items(
+    req: HttpRequest,
     path: web::Path<i32>,
+    query: web::Query<StreamQuery>,
     data: web::Data<AppState>,
 ) -> impl Responder {
     let collection_id = path.into_inner();
+    let localhost = is_localhost_request(&req);
+    if let Err(response) = validate_stream_request(&query.stream, localhost) {
+        return response;
+    }
 
     let collection_opt = CollectionEntity::find_by_id(collection_id)
         .one(&data.db_conn)
@@ -237,7 +244,8 @@ pub async fn get_collection_items(
                     id: music.id,
                     name: music.filename,
                     lufs: music.lufs,
-                    path: music.file_path,
+                    path: build_http_stream_url(&req, music.id),
+                    stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
                 })
                 .collect();
 

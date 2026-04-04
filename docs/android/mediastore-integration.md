@@ -238,10 +238,10 @@ When the app starts on Android:
 
 When a user plays a song:
 
-1. Frontend requests `GET /api/music/{filename}`
-2. Backend looks up the song in the database
-3. MediaStoreFileReader reads the content URI
-4. Audio is streamed to the frontend
+1. Remote clients and non-Android builds use `GET /api/music/id/{id}` over HTTP
+2. Android localhost requests may add `?stream=content` when the backend is also localhost
+3. The backend only returns `stream_url: "content://..."` for Android localhost callers
+4. Other callers receive the normal HTTP stream URL in `path`, so raw MediaStore URIs are not exposed over LAN
 
 ### LUFS Pre-caching
 

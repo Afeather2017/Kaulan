@@ -10,8 +10,11 @@ use crate::entities::collection_item::{
 };
 use crate::entities::music::Entity as MusicEntity;
 use crate::services::scanner;
-use crate::types::{AppState, MusicInfo, UpdateResponse};
-use actix_web::{get, post, web, HttpResponse, Responder};
+use crate::types::{
+    build_http_stream_url, is_localhost_request, resolve_stream_url, validate_stream_request,
+    AppState, MusicInfo, StreamQuery, UpdateResponse,
+};
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::Deserialize;
 use tracing::info;
@@ -109,9 +112,17 @@ pub async fn update_database_endpoint(
 /// # Returns
 /// JSON object with collection names as keys and arrays of `MusicInfo` as values
 #[get("/api/playlists/collection-mode")]
-pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Responder {
+pub async fn get_playlists_collection_mode(
+    req: HttpRequest,
+    query: web::Query<StreamQuery>,
+    data: web::Data<AppState>,
+) -> impl Responder {
     // Block until database scan completes
     let _lock = data.scan_lock.lock().await;
+    let localhost = is_localhost_request(&req);
+    if let Err(response) = validate_stream_request(&query.stream, localhost) {
+        return response;
+    }
 
     let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> =
         std::collections::HashMap::new();
@@ -124,7 +135,8 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
                     id: music.id,
                     name: music.filename.clone(),
                     lufs: music.lufs,
-                    path: music.file_path.clone(),
+                    path: build_http_stream_url(&req, music.id),
+                    stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
                 };
                 playlists
                     .entry("所有音乐".to_string())
@@ -150,7 +162,12 @@ pub async fn get_playlists_collection_mode(data: web::Data<AppState>) -> impl Re
                                         id: music.id,
                                         name: music.filename,
                                         lufs: music.lufs,
-                                        path: music.file_path,
+                                        path: build_http_stream_url(&req, music.id),
+                                        stream_url: resolve_stream_url(
+                                            &music.file_path,
+                                            &query.stream,
+                                            localhost,
+                                        ),
                                     })
                                     .collect();
                                 playlists.insert(collection.name, songs);

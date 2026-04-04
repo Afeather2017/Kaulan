@@ -7,8 +7,11 @@
 //! The folder-based playlist structure automatically groups music by their parent folder.
 
 use crate::entities::music::Entity as MusicEntity;
-use crate::types::{AppState, MusicInfo, Playlist};
-use actix_web::{get, web, HttpResponse, Responder};
+use crate::types::{
+    build_http_stream_url, is_localhost_request, resolve_stream_url, validate_stream_request,
+    AppState, MusicInfo, Playlist, StreamQuery,
+};
+use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use sea_orm::EntityTrait;
 
 /// Get all playlists
@@ -22,9 +25,17 @@ use sea_orm::EntityTrait;
 /// # Returns
 /// JSON object with playlist names as keys and arrays of `MusicInfo` as values
 #[get("/api/playlists")]
-pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
+pub async fn get_all_playlists(
+    req: HttpRequest,
+    query: web::Query<StreamQuery>,
+    data: web::Data<AppState>,
+) -> impl Responder {
     // Block until database scan completes
     let _lock = data.scan_lock.lock().await;
+    let localhost = is_localhost_request(&req);
+    if let Err(response) = validate_stream_request(&query.stream, localhost) {
+        return response;
+    }
 
     let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> =
         std::collections::HashMap::new();
@@ -36,7 +47,8 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
                     id: music.id,
                     name: music.filename.clone(),
                     lufs: music.lufs,
-                    path: music.file_path.clone(),
+                    path: build_http_stream_url(&req, music.id),
+                    stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
                 };
 
                 // Add to "All Music" playlist
@@ -71,9 +83,18 @@ pub async fn get_all_playlists(data: web::Data<AppState>) -> impl Responder {
 /// # Returns
 /// JSON object with `name` and `songs` array
 #[get("/api/playlists/{name}")]
-pub async fn get_playlist(path: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
+pub async fn get_playlist(
+    req: HttpRequest,
+    path: web::Path<String>,
+    query: web::Query<StreamQuery>,
+    data: web::Data<AppState>,
+) -> impl Responder {
     // Block until database scan completes
     let _lock = data.scan_lock.lock().await;
+    let localhost = is_localhost_request(&req);
+    if let Err(response) = validate_stream_request(&query.stream, localhost) {
+        return response;
+    }
 
     let playlist_name = path.into_inner();
     let mut songs: Vec<MusicInfo> = Vec::new();
@@ -85,7 +106,8 @@ pub async fn get_playlist(path: web::Path<String>, data: web::Data<AppState>) ->
                     id: music.id,
                     name: music.filename.clone(),
                     lufs: music.lufs,
-                    path: music.file_path.clone(),
+                    path: build_http_stream_url(&req, music.id),
+                    stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
                 };
 
                 let belongs_to_playlist = if playlist_name == "所有音乐" {

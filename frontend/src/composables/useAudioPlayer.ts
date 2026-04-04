@@ -13,6 +13,7 @@ export interface MusicInfo {
   name: string
   lufs: number | null
   path: string
+  stream_url?: string | null
 }
 
 export type PlayMode = 'sequential' | 'shuffle' | 'loop'
@@ -73,7 +74,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     id: song.id,
     name: song.name,
     path: song.path,
-    url: buildAudioUrl(song.id),
+    url: song.stream_url ?? buildAudioUrl(song.id),
     lufs: song.lufs
   })
 
@@ -317,7 +318,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentSong.value = targetSong
 
     await plugin.play({
-      url: buildAudioUrl(targetSong.id, seekTime),
+      url: targetSong.stream_url ?? buildAudioUrl(targetSong.id, seekTime),
       title: targetSong.name
     })
 
@@ -417,7 +418,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       const plugin = await loadPluginApi()
       if (currentSong.value) {
         await plugin.play({
-          url: buildAudioUrl(currentSong.value.id),
+          url: currentSong.value.stream_url ?? buildAudioUrl(currentSong.value.id),
           title: currentSong.value.name
         })
       } else if (activeQueue.value.length > 0) {
