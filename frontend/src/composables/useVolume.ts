@@ -35,14 +35,15 @@ export function useVolume(currentSong: Ref<MusicInfo | null>, currentSongs: Ref<
 
     if (volumeMode.value === 'auto') {
       // Find minimum LUFS in current playlist (skip null values)
-      let minLufs = 1000
+      const DEFAULT_MIN_LUFS = -29
+      let minLufs = DEFAULT_MIN_LUFS
       for (const s of currentSongs.value) {
         if (s.lufs !== null) {
           minLufs = Math.min(s.lufs, minLufs)
         }
       }
-      // If all songs have null LUFS, use default
-      if (minLufs === 1000) {
+      // If no songs have LUFS (all null), use default
+      if (minLufs === DEFAULT_MIN_LUFS && currentSongs.value.every(s => s.lufs === null)) {
         return manualVolume.value
       }
       return 10 ** ((minLufs - song.lufs) / 20)
