@@ -27,10 +27,13 @@
 
     <!-- Control Buttons -->
     <div class="control-buttons">
-      <button class="control-btn" @click="$emit('togglePlayMode')">
-        <i v-if="playMode === 'sequential'" class="fas fa-redo"></i>
-        <i v-else-if="playMode === 'shuffle'" class="fas fa-random"></i>
-        <i v-else class="fas fa-redo-alt"></i>
+      <button class="control-btn" :title="playModeLabel" @click="$emit('togglePlayMode')">
+        <i v-if="playMode === 'sequential'" class="fas fa-repeat"></i>
+        <i v-else-if="playMode === 'shuffle'" class="fas fa-shuffle"></i>
+        <span v-else class="play-mode-icon play-mode-icon-loop">
+          <i class="fas fa-repeat"></i>
+          <span class="play-mode-loop-badge">1</span>
+        </span>
       </button>
       <button class="control-btn" @click="$emit('previous')">
         <i class="fas fa-step-backward"></i>
@@ -72,6 +75,12 @@ const emit = defineEmits<{
 }>()
 
 const progressBar = ref<HTMLElement | null>(null)
+
+const playModeLabel = computed(() => {
+  if (props.playMode === 'sequential') return 'Sequential playback'
+  if (props.playMode === 'shuffle') return 'Shuffle playback'
+  return 'Single track loop'
+})
 
 // Computed progress percentage
 const progressPercent = computed(() => {
@@ -187,6 +196,27 @@ const formatTime = (seconds: number) => {
   justify-content: center;
   color: #333;
   transition: background-color 0.2s;
+}
+
+.play-mode-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-mode-icon-loop {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.play-mode-loop-badge {
+  position: absolute;
+  right: -0.15em;
+  bottom: -0.2em;
+  font-size: 0.55em;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .control-btn:hover {
