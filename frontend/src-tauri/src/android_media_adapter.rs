@@ -1,11 +1,12 @@
-//! Android MediaStore adapters for the Kaulan music player.
+//! Android media adapters for the Kaulan music player.
 //!
-//! This module provides implementations of FileReader and MusicFileLister
+//! This module provides implementations of FileReader, MusicFileLister, and LyricReader
 //! that use Android's MediaStore API via the tauri-plugin-android-mediastore.
 //!
 //! These adapters are only compiled on Android and allow the app to:
 //! - Query audio files from the device's MediaStore
 //! - Read file contents using content URIs (e.g., content://media/external/audio/media/123)
+//! - Read lyrics files by resolving content URIs to filesystem paths
 
 #[cfg(target_os = "android")]
 use async_trait::async_trait;
@@ -14,9 +15,11 @@ use bytes::Bytes;
 #[cfg(target_os = "android")]
 use futures::{stream, Stream};
 #[cfg(target_os = "android")]
-use kaulan::{FileReader, MusicFileInfo, MusicFileLister, ReadSeekSendSync};
+use kaulan::{FileReader, LyricReader, MusicFileInfo, MusicFileLister, ReadSeekSendSync};
 #[cfg(target_os = "android")]
 use std::io::{self, Read, Seek, SeekFrom};
+#[cfg(target_os = "android")]
+use std::path::Path;
 #[cfg(target_os = "android")]
 use std::pin::Pin;
 #[cfg(target_os = "android")]
@@ -28,6 +31,7 @@ use std::sync::{
 use tauri_plugin_android_mediastore::{
     AndroidMediastoreExt, FileReaderCloseRequest, FileReaderOpenRequest, FileReaderReadRequest,
     FileReaderReadToEndRequest, FileReaderSeekRequest, GetMediaFilesRequest, MediaFile,
+    ResolveMediaPathRequest,
 };
 
 /// MediaStore-based FileReader for Android
@@ -862,6 +866,8 @@ impl FileReader for MediaStoreFileReader {
 ///
 /// This implementation queries Android's MediaStore for audio files,
 /// returning metadata like title, artist, album, and content URI.
+/// It also populates a shared map of content URI to filesystem path
+/// for use by the lyric reader.
 #[cfg(target_os = "android")]
 pub struct MediaStoreMusicFileLister {
     app_handle: tauri::AppHandle,
@@ -870,7 +876,9 @@ pub struct MediaStoreMusicFileLister {
 #[cfg(target_os = "android")]
 impl MediaStoreMusicFileLister {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
-        Self { app_handle }
+        Self {
+            app_handle,
+        }
     }
 
     /// Generate a safe filename from metadata or use the display name
@@ -979,6 +987,90 @@ impl MusicFileLister for MediaStoreMusicFileLister {
             all_files.len()
         );
         Ok(all_files)
+    }
+}
+
+/// Android LyricReader for reading .lrc lyrics files
+///
+/// Resolves content URIs to real filesystem paths via MediaStore's DATA column
+/// using `resolve_media_path()`, then reads .lrc files using std::fs.
+/// Requires MANAGE_EXTERNAL_STORAGE permission.
+#[cfg(target_os = "android")]
+pub struct AndroidLyricReader {
+    app_handle: tauri::AppHandle,
+}
+
+#[cfg(target_os = "android")]
+impl AndroidLyricReader {
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        Self { app_handle }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[async_trait]
+impl LyricReader for AndroidLyricReader {
+    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
+        log::info!("AndroidLyricReader::read_lyric called: file_path={}, filename={}", file_path, filename);
+
+        if !file_path.starts_with("content://") {
+            log::warn!("file_path is not a content URI: {}", file_path);
+            return Ok(None);
+        }
+
+        // Resolve content URI to real filesystem path via MediaStore DATA column
+        let fs_path = match self
+            .app_handle
+            .android_mediastore()
+            .resolve_media_path(ResolveMediaPathRequest {
+                content_uri: file_path.to_string(),
+            })
+            .await
+        {
+            Ok(response) => match response.file_path {
+                Some(path) => {
+                    log::info!("Resolved content URI {} -> {}", file_path, path);
+                    path
+                }
+                None => {
+                    log::warn!("resolve_media_path returned null for {}", file_path);
+                    if let Some(error) = response.error {
+                        log::warn!("resolve_media_path error: {}", error);
+                    }
+                    return Ok(None);
+                }
+            },
+            Err(e) => {
+                log::error!("resolve_media_path failed for {}: {}", file_path, e);
+                return Ok(None);
+            }
+        };
+
+        // Construct .lrc path by swapping extension
+        let lrc_path = Path::new(&fs_path)
+            .with_extension("lrc")
+            .to_string_lossy()
+            .to_string();
+
+        log::info!("Attempting to read lyrics file: {}", lrc_path);
+        let lrc_path_clone = lrc_path.clone();
+        match tokio::task::spawn_blocking(move || std::fs::read(&lrc_path_clone))
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        {
+            Ok(content) => {
+                log::info!(
+                    "Successfully read lyrics file: {} ({} bytes)",
+                    lrc_path,
+                    content.len()
+                );
+                Ok(Some(content))
+            }
+            Err(e) => {
+                log::warn!("Lyrics file not found: {} - Error: {}", lrc_path, e);
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -1099,5 +1191,25 @@ impl kaulan::MusicFileLister for MediaStoreMusicFileLister {
             std::io::ErrorKind::Unsupported,
             "MediaStore is only available on Android",
         ))
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub struct AndroidLyricReader;
+
+#[cfg(not(target_os = "android"))]
+impl AndroidLyricReader {
+    pub fn new(_app_handle: tauri::AppHandle) -> Self {
+        log::warn!("AndroidLyricReader is a stub on desktop platforms");
+        Self
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+#[async_trait::async_trait]
+impl kaulan::LyricReader for AndroidLyricReader {
+    async fn read_lyric(&self, _file_path: &str, _filename: &str) -> Result<Option<Vec<u8>>, std::io::Error> {
+        log::warn!("AndroidLyricReader::read_lyric called on desktop (stub)");
+        Ok(None)
     }
 }

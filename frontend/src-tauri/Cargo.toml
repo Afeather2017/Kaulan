@@ -23,7 +23,8 @@ tauri = { version = "2.10.3", features = ["devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
-tauri-plugin-android-mediastore = "0.2.0"
+tauri-plugin-android-mediastore = "0.2.2"
+tauri-plugin-android-external-storage = "0.1"
 tauri-plugin-music-notification-api = { path = "../../tauri-plugin-music-notification" }
 kaulan = { path = "../../backend", default-features = false }
 tokio = { workspace = true }

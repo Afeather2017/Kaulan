@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "android-mediastore:default",
+    "android-external-storage:default",
     "music-notification:default"
   ]
 }

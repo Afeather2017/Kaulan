@@ -4,11 +4,10 @@
 //! - Streaming LRC (lyrics) files synchronized with music playback
 
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity};
-use crate::file_ops::get_file_reader;
+use crate::file_ops::get_lyric_reader;
 use crate::types::AppState;
 use actix_web::{get, web, HttpResponse, Responder};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use std::path::Path;
 use tracing::{debug, error, info, warn};
 
 /// Stream lyrics file (LRC format) by music filename
@@ -51,21 +50,16 @@ pub async fn get_lyrics(path: web::Path<String>, data: web::Data<AppState>) -> i
                 music.filename, music.file_path
             );
 
-            // Construct LRC file path by replacing the file extension with .lrc
-            let lrc_path = Path::new(&music.file_path)
-                .with_extension("lrc")
-                .to_string_lossy()
-                .to_string();
+            let lyric_reader = get_lyric_reader();
 
-            debug!("Attempting to read lyrics file: {}", lrc_path);
-
-            let file_reader = get_file_reader();
-
-            match file_reader.read_file(&lrc_path).await {
-                Ok(content) => {
+            match lyric_reader
+                .read_lyric(&music.file_path, &music.filename)
+                .await
+            {
+                Ok(Some(content)) => {
                     debug!(
-                        "Successfully served lyrics file: {} ({} bytes)",
-                        lrc_path,
+                        "Successfully served lyrics for {}: {} bytes",
+                        music.filename,
                         content.len()
                     );
                     info!("[ACCESS] GET /api/lyrics/{} - Status: 200", filename);
@@ -79,10 +73,18 @@ pub async fn get_lyrics(path: web::Path<String>, data: web::Data<AppState>) -> i
                     response.insert_header(("Expires", "0"));
                     response.body(content)
                 }
-                Err(e) => {
-                    debug!("Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}", lrc_path, e);
+                Ok(None) => {
+                    debug!(
+                        "Lyrics not found for {} (this is expected for songs without lyrics)",
+                        music.filename
+                    );
                     info!("[ACCESS] GET /api/lyrics/{} - Status: 404", filename);
                     HttpResponse::NotFound().body("Lyrics not found")
+                }
+                Err(e) => {
+                    error!("Error reading lyrics for {}: {}", music.filename, e);
+                    info!("[ACCESS] GET /api/lyrics/{} - Status: 500", filename);
+                    HttpResponse::InternalServerError().body("Error reading lyrics")
                 }
             }
         }
@@ -134,21 +136,16 @@ pub async fn get_lyrics_by_id(path: web::Path<i32>, data: web::Data<AppState>) -
                 music.id, music.filename, music.file_path
             );
 
-            // Construct LRC file path by replacing the file extension with .lrc
-            let lrc_path = Path::new(&music.file_path)
-                .with_extension("lrc")
-                .to_string_lossy()
-                .to_string();
+            let lyric_reader = get_lyric_reader();
 
-            debug!("Attempting to read lyrics file: {}", lrc_path);
-
-            let file_reader = get_file_reader();
-
-            match file_reader.read_file(&lrc_path).await {
-                Ok(content) => {
+            match lyric_reader
+                .read_lyric(&music.file_path, &music.filename)
+                .await
+            {
+                Ok(Some(content)) => {
                     debug!(
-                        "Successfully served lyrics file: {} ({} bytes)",
-                        lrc_path,
+                        "Successfully served lyrics for {}: {} bytes",
+                        music.filename,
                         content.len()
                     );
                     info!("[ACCESS] GET /api/lyrics/id/{} - Status: 200", id);
@@ -162,10 +159,18 @@ pub async fn get_lyrics_by_id(path: web::Path<i32>, data: web::Data<AppState>) -
                     response.insert_header(("Expires", "0"));
                     response.body(content)
                 }
-                Err(e) => {
-                    debug!("Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}", lrc_path, e);
+                Ok(None) => {
+                    debug!(
+                        "Lyrics not found for {} (this is expected for songs without lyrics)",
+                        music.filename
+                    );
                     info!("[ACCESS] GET /api/lyrics/id/{} - Status: 404", id);
                     HttpResponse::NotFound().body("Lyrics not found")
+                }
+                Err(e) => {
+                    error!("Error reading lyrics for {}: {}", music.filename, e);
+                    info!("[ACCESS] GET /api/lyrics/id/{} - Status: 500", id);
+                    HttpResponse::InternalServerError().body("Error reading lyrics")
                 }
             }
         }

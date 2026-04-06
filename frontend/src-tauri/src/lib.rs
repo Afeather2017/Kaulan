@@ -3,9 +3,10 @@ use std::fs;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, State};
+use tauri_plugin_android_external_storage::AndroidExternalStorageExt;
 
 // MediaStore adapter module
-mod mediastore_adapter;
+mod android_media_adapter;
 // Android wake lock module
 #[cfg(target_os = "android")]
 mod wakelock;
@@ -150,6 +151,7 @@ pub fn run() {
         .manage(MusicDirectory(Mutex::new(String::new())))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_android_mediastore::init())
+        .plugin(tauri_plugin_android_external_storage::init())
         .plugin(tauri_plugin_music_notification_api::init())
         .setup(move |app| {
             log::info!("======================= Start =======================");
@@ -207,8 +209,10 @@ pub fn run() {
             {
                 log::info!("Setting up MediaStore adapters for Android");
                 let app_handle_for_adapter = app.handle().clone();
-                let _ = kaulan::set_file_reader(Box::new(mediastore_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())));
-                let _ = kaulan::set_music_file_lister(Box::new(mediastore_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter)));
+
+                let _ = kaulan::set_file_reader(Box::new(android_media_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())));
+                let _ = kaulan::set_music_file_lister(Box::new(android_media_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter.clone())));
+                let _ = kaulan::set_lyric_reader(Box::new(android_media_adapter::AndroidLyricReader::new(app_handle_for_adapter.clone())));
                 log::info!("MediaStore adapters configured successfully");
             }
 
@@ -231,7 +235,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_platform,
             get_music_directory,
-            set_music_directory
+            set_music_directory,
+            request_external_storage_permission,
+            check_external_storage_permission
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -295,4 +301,67 @@ fn set_music_directory(app: tauri::AppHandle, new_path: String) -> Result<(), St
 
     log::info!("Music directory saved to config: {}", new_path);
     Ok(())
+}
+
+/// Request MANAGE_EXTERNAL_STORAGE permission for reading local lyrics files on Android
+///
+/// This command is called when the user enables the "使用本地歌词" checkbox.
+/// On Android, it requests the MANAGE_EXTERNAL_STORAGE permission via the plugin.
+/// On other platforms, it does nothing (permission not needed).
+#[tauri::command]
+fn request_external_storage_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        log::info!("Requesting MANAGE_EXTERNAL_STORAGE permission for lyrics");
+
+        match app
+            .android_external_storage()
+            .request_all_files_access()
+        {
+            Ok(response) => {
+                if response.is_granted {
+                    log::info!("MANAGE_EXTERNAL_STORAGE permission granted");
+                    Ok(true)
+                } else {
+                    log::warn!("MANAGE_EXTERNAL_STORAGE permission not granted");
+                    Ok(false)
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to request MANAGE_EXTERNAL_STORAGE permission: {}", e);
+                Err(format!("Failed to request permission: {}", e))
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(true)
+    }
+}
+
+/// Check whether MANAGE_EXTERNAL_STORAGE permission is currently granted.
+#[tauri::command]
+fn check_external_storage_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        match app
+            .android_external_storage()
+            .check_all_files_access()
+        {
+            Ok(response) => {
+                log::info!("MANAGE_EXTERNAL_STORAGE permission check: granted={}", response.is_granted);
+                Ok(response.is_granted)
+            }
+            Err(e) => {
+                log::error!("Failed to check MANAGE_EXTERNAL_STORAGE permission: {}", e);
+                Err(format!("Failed to check permission: {}", e))
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(true)
+    }
 }
