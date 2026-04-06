@@ -24,6 +24,7 @@ use crate::file_ops::get_file_reader;
 use crate::types::AppState;
 use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
+// lofty imports are used locally in cover art extraction functions below
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
@@ -429,6 +430,151 @@ pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
             info!("[ACCESS] GET /api/music - Status: 500");
             HttpResponse::InternalServerError().body("Database error")
         }
+    }
+}
+
+/// Get cover art for a music file by ID
+///
+/// Extracts embedded cover art from audio file metadata using lofty.
+/// Returns the front cover image if available, otherwise the first picture found.
+///
+/// # Path Parameters
+/// * `id` - The music ID to look up in the database
+///
+/// # Returns
+/// - Image data with appropriate `Content-Type` if cover art found
+/// - `404 Not Found` if music not in database, file missing, or no cover art
+/// - `500 Internal Server Error` for database errors
+#[get("/api/music/id/{id}/cover")]
+pub async fn get_music_cover(path: web::Path<i32>, data: web::Data<AppState>) -> impl Responder {
+    let id = path.into_inner();
+    debug!("Cover art request for music ID: {}", id);
+    info!("[ACCESS] GET /api/music/id/{}/cover - Started", id);
+
+    match MusicEntity::find_by_id(id).one(&data.db_conn).await {
+        Ok(Some(music)) => {
+            let file_path = music.file_path.clone();
+            let file_reader = get_file_reader();
+
+            // Use open_seekable_reader for both desktop and Android.
+            // lofty's Probe::new() accepts any Read + Seek type, so it works
+            // with both std::fs::File and MediaStoreSeekableReader.
+            // This avoids loading the entire file into memory (which causes OOM on Android).
+            match file_reader.open_seekable_reader(&file_path).await {
+                Ok(reader) => {
+                    let result = tokio::task::spawn_blocking(move || {
+                        extract_cover_art_from_reader(reader)
+                    })
+                    .await;
+
+                    match result {
+                        Ok(Ok(Some((content_type, data)))) => {
+                            info!(
+                                "[ACCESS] GET /api/music/id/{}/cover - Status: 200, {} bytes",
+                                id,
+                                data.len()
+                            );
+                            HttpResponse::Ok()
+                                .insert_header(("Content-Type", content_type))
+                                .insert_header((
+                                    "Cache-Control",
+                                    "public, max-age=86400, must-revalidate",
+                                ))
+                                .body(data)
+                        }
+                        Ok(Ok(None)) => {
+                            debug!("No cover art found for music ID: {}", id);
+                            info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
+                            HttpResponse::NotFound().body("No cover art")
+                        }
+                        Ok(Err(e)) => {
+                            warn!("Failed to extract cover art for ID {}: {}", id, e);
+                            info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
+                            HttpResponse::NotFound().body("Could not extract cover art")
+                        }
+                        Err(e) => {
+                            error!("Task join error for cover art ID {}: {}", id, e);
+                            HttpResponse::InternalServerError().body("Internal error")
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Could not open file for cover art ID {}: {}", id, e);
+                    info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
+                    HttpResponse::NotFound().body("File not found")
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("Music not found in database: ID {}", id);
+            info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
+            HttpResponse::NotFound().body("Music not found")
+        }
+        Err(e) => {
+            error!("Database error while fetching music ID {}: {}", id, e);
+            HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
+/// Extract cover art from a seekable reader using lofty.
+///
+/// Uses `Probe::new(BufReader::new(reader)).guess_file_type()?.read()` which works
+/// with any `Read + Seek` type — both `std::fs::File` (desktop) and
+/// `MediaStoreSeekableReader` (Android). Only reads metadata headers, does NOT
+/// load the entire file into memory.
+fn extract_cover_art_from_reader(
+    reader: Box<dyn crate::file_ops::ReadSeekSendSync>,
+) -> Result<Option<(String, Vec<u8>)>, String> {
+    use lofty::config::ParseOptions;
+    use lofty::probe::Probe;
+
+    use std::io::BufReader;
+
+    let tagged_file = Probe::new(BufReader::new(reader))
+        .guess_file_type()
+        .map_err(|e| format!("Failed to probe file type: {}", e))?
+        .options(ParseOptions::new().read_properties(false))
+        .read()
+        .map_err(|e| format!("Failed to parse audio file: {}", e))?;
+
+    extract_cover_from_tagged_file(&tagged_file)
+}
+
+/// Extract the front cover (or first picture) from a parsed TaggedFile.
+fn extract_cover_from_tagged_file(
+    tagged_file: &lofty::file::TaggedFile,
+) -> Result<Option<(String, Vec<u8>)>, String> {
+    use lofty::file::TaggedFileExt;
+    use lofty::picture::PictureType;
+    use lofty::tag::Tag;
+
+    let tag: &Tag = match tagged_file
+        .tags()
+        .iter()
+        .find(|t: &&Tag| !t.pictures().is_empty())
+    {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
+    let pictures = tag.pictures();
+
+    // Prefer front cover, fall back to first picture
+    let picture = pictures
+        .iter()
+        .find(|p| p.pic_type() == PictureType::CoverFront)
+        .or_else(|| pictures.first());
+
+    match picture {
+        Some(pic) => {
+            let mime = pic
+                .mime_type()
+                .map(|m: &lofty::picture::MimeType| m.as_str().to_string())
+                .unwrap_or_else(|| "image/jpeg".to_string());
+            Ok(Some((mime, pic.data().to_vec())))
+        }
+        None => Ok(None),
     }
 }
 
