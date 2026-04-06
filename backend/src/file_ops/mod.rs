@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::Stream;
 use std::fs;
-use std::io::{Read, Seek};
+use std::io::{self, Read, Seek};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::OnceLock;
@@ -401,6 +401,100 @@ pub fn get_music_file_lister() -> &'static dyn MusicFileLister {
         .get()
         .map(|b| b.as_ref())
         .unwrap_or(&StdMusicFileLister)
+}
+
+/// Static storage for custom lyric reader implementation
+static LYRIC_READER: OnceLock<Box<dyn LyricReader>> = OnceLock::new();
+
+/// Trait for reading lyrics files
+///
+/// This trait allows platform-specific implementations for reading LRC lyrics files:
+/// - StdLyricReader: Uses std::fs to read .lrc files (default for desktop)
+/// - AndroidLyricReader: Uses a content-URI-to-filesystem-path mapping to read .lrc files
+#[async_trait]
+pub trait LyricReader: Send + Sync {
+    /// Read lyrics for a music file.
+    ///
+    /// # Arguments
+    /// * `file_path` - The path stored in the database (filesystem path on desktop, content URI on Android)
+    /// * `filename` - The display filename (e.g., "song.mp3")
+    ///
+    /// # Returns
+    /// - `Ok(Some(bytes))` - Lyrics file content as bytes
+    /// - `Ok(None)` - Lyrics file not found (expected for songs without lyrics)
+    /// - `Err(io::Error)` - I/O error occurred
+    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error>;
+}
+
+/// Default LyricReader using std::fs
+///
+/// This implementation constructs the .lrc file path by replacing the extension
+/// of the given file_path with ".lrc" and reads it using std::fs.
+pub struct StdLyricReader;
+
+#[async_trait]
+impl LyricReader for StdLyricReader {
+    async fn read_lyric(&self, file_path: &str, _filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
+        debug!("StdLyricReader::read_lyric called with file_path: {}", file_path);
+
+        // Construct LRC file path by replacing the file extension with .lrc
+        let lrc_path = Path::new(file_path)
+            .with_extension("lrc")
+            .to_string_lossy()
+            .to_string();
+
+        debug!("Attempting to read lyrics file: {}", lrc_path);
+
+        // Use spawn_blocking for std::fs operations to avoid blocking the async runtime
+        let path = lrc_path.clone();
+        match tokio::task::spawn_blocking(move || std::fs::read(&path))
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        {
+            Ok(content) => {
+                debug!(
+                    "Successfully read lyrics file: {} ({} bytes)",
+                    lrc_path,
+                    content.len()
+                );
+                Ok(Some(content))
+            }
+            Err(e) => {
+                debug!(
+                    "Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}",
+                    lrc_path, e
+                );
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Set a custom lyric reader implementation
+///
+/// This function should be called before the server starts to inject
+/// a platform-specific lyric reader (e.g., AndroidLyricReader).
+///
+/// # Arguments
+/// * `reader` - Boxed trait object implementing LyricReader
+///
+/// # Returns
+/// - `Ok(())` - Successfully set the reader
+/// - `Err(Box<dyn LyricReader>)` - A reader was already set, returns the new one
+pub fn set_lyric_reader(reader: Box<dyn LyricReader>) -> Result<(), Box<dyn LyricReader>> {
+    debug!("set_lyric_reader: Setting custom lyric reader");
+    LYRIC_READER.set(reader)
+}
+
+/// Get the current lyric reader (custom or default)
+///
+/// Returns the custom reader if one was set, otherwise returns
+/// the default StdLyricReader.
+pub fn get_lyric_reader() -> &'static dyn LyricReader {
+    LYRIC_READER
+        .get()
+        .map(|b| b.as_ref())
+        .unwrap_or(&StdLyricReader)
 }
 
 #[cfg(test)]

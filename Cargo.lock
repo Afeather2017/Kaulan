@@ -352,6 +352,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-android-external-storage",
  "tauri-plugin-android-mediastore",
  "tauri-plugin-dialog",
  "tauri-plugin-log",
@@ -5401,10 +5402,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-android-mediastore"
-version = "0.2.0"
+name = "tauri-plugin-android-external-storage"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f4885536228f5d19c62ecc273fbd2e76e5acfc2842d59b4524f6c1f1ec352f8"
+checksum = "f2a3b1b98563a6d285e52fadd559071bc77573c0250c66a71edb3809e26179c9"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "tauri-plugin-android-mediastore"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5edd4dee8e116485273f78bf4febffaf4afcf7b8f919398ae976f47b1c212e88"
 dependencies = [
  "serde",
  "serde_json",

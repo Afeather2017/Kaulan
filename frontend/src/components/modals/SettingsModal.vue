@@ -249,6 +249,23 @@
           </label>
         </div>
 
+        <!-- Android: Local Lyrics Setting -->
+        <div v-if="isAndroid" class="setting-item">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              :checked="useLocalLyrics"
+              @change="handleUseLocalLyricsChange"
+              :disabled="isRequestingPermission"
+              class="setting-checkbox"
+            />
+            <span>使用本地歌词</span>
+          </label>
+          <p v-if="permissionStatus" class="setting-hint" :class="{ 'setting-error': !permissionGranted }">
+            {{ permissionStatus }}
+          </p>
+        </div>
+
         <hr class="settings-divider" />
         <div class="mode-toggle">
           <div class="mode-label">媒体类型过滤</div>
@@ -480,6 +497,50 @@ const handleShowLufsChange = (e: Event) => {
   showLufsLocal.value = checked
   setShowLufs(checked)
   emit('update:showLufs', checked)
+}
+
+// Local lyrics setting (Android only)
+const useLocalLyrics = ref<boolean>(false)
+const isRequestingPermission = ref<boolean>(false)
+const permissionGranted = ref<boolean>(false)
+const permissionStatus = ref<string>('')
+
+// Check if running on Android
+const isAndroid = ref<boolean>(false)
+
+// Handle use local lyrics checkbox change
+const handleUseLocalLyricsChange = async (e: Event) => {
+  const checked = (e.target as HTMLInputElement).checked
+
+  if (!checked) {
+    useLocalLyrics.value = false
+    permissionStatus.value = ''
+    return
+  }
+
+  isRequestingPermission.value = true
+  permissionStatus.value = '正在请求权限...'
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const granted = await invoke<boolean>('request_external_storage_permission')
+
+    permissionGranted.value = granted
+    useLocalLyrics.value = granted
+
+    if (granted) {
+      permissionStatus.value = '权限已授予，可以读取本地歌词文件'
+    } else {
+      permissionStatus.value = '权限未授予，无法读取本地歌词文件'
+      useLocalLyrics.value = false
+    }
+  } catch (error) {
+    console.error('Failed to request external storage permission:', error)
+    permissionStatus.value = '请求权限失败: ' + error
+    useLocalLyrics.value = false
+  } finally {
+    isRequestingPermission.value = false
+  }
 }
 
 const sortMediaTypes = (mediaTypes: string[]): string[] => {
@@ -722,6 +783,29 @@ onMounted(async () => {
   }
 
   await loadMediaTypes()
+
+  // Check if running on Android
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const platform = await invoke<string>('get_platform')
+    isAndroid.value = platform === 'android'
+  } catch {
+    isAndroid.value = false
+  }
+
+  // Load local lyrics setting (Android only) - query actual permission state
+  if (isAndroid.value) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const granted = await invoke<boolean>('check_external_storage_permission')
+      useLocalLyrics.value = granted
+      if (granted) {
+        permissionStatus.value = '本地歌词已启用'
+      }
+    } catch (e) {
+      console.error('Failed to check permission status:', e)
+    }
+  }
 })
 
 const selectDirectory = async () => {

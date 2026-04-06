@@ -9,13 +9,19 @@ On Android, lyric updates are still frontend-driven. The frontend polls the play
 ## Related Files
 
 **Backend:**
+- `backend/src/file_ops/mod.rs` - `LyricReader` trait, `StdLyricReader`, `set_lyric_reader()`/`get_lyric_reader()`
 - `backend/src/handlers/lyrics.rs` - Lyrics API endpoint handler
 - `backend/src/handlers/mod.rs` - Module exports
 - `backend/src/server/mod.rs` - Route registration
 
+**Tauri (Android adapters):**
+- `frontend/src-tauri/src/android_media_adapter.rs` - `AndroidLyricReader` implementation, `MediaStoreFileReader`, `MediaStoreMusicFileLister`
+- `frontend/src-tauri/src/lib.rs` - Plugin registration, `request_external_storage_permission`, `check_external_storage_permission` commands
+
 **Frontend:**
 - `frontend/src/composables/useLyrics.ts` - LRC parsing and sync logic
 - `frontend/src/App.vue` - Lyric panel UI and integration
+- `frontend/src/components/modals/SettingsModal.vue` - "使用本地歌词" checkbox (Android only)
 
 ## LRC Format
 
@@ -102,7 +108,20 @@ Response:
 1. Create an `.lrc` file with the same name as your audio file
 2. Place it in the same directory as the audio file
 3. Use the standard LRC timestamp format
-4. Restart the backend or trigger a database update to scan new files
+4. On desktop: lyrics are available immediately
+5. On Android: see [Local Lyrics on Android](#local-lyrics-on-android) for setup
+
+### Local Lyrics on Android (Android only)
+
+Reading `.lrc` files from the filesystem requires the `MANAGE_EXTERNAL_STORAGE` permission, which is granted through system settings.
+
+1. Open Settings
+2. Check "使用本地歌词" under display settings
+3. The app will request `MANAGE_EXTERNAL_STORAGE` permission — this opens Android system settings
+4. Grant the permission
+5. Return to the app — the checkbox reflects the actual permission state
+
+The checkbox directly reflects the system permission state. To disable local lyrics, revoke the permission in Android Settings > Apps > Kaulan > Permissions.
 
 ## Implementation Details
 
@@ -154,6 +173,29 @@ On Android:
 3. `currentSong` changes trigger lyric file reloads
 4. `currentTime` updates drive lyric highlighting
 
+#### Android Lyrics Resolution
+
+On Android, the database stores content URIs (`content://media/external/audio/media/...`) instead of filesystem paths. The `AndroidLyricReader` resolves these to real paths using `resolve_media_path()` from `tauri-plugin-android-mediastore`, then reads `.lrc` files via `std::fs` (requires `MANAGE_EXTERNAL_STORAGE` permission).
+
+```mermaid
+sequenceDiagram
+    participant Frontend
+    participant API
+    participant DB
+    participant MediaStore
+    participant FileSystem
+
+    Frontend->>API: GET /api/lyrics/id/{id}
+    API->>DB: Find music by ID
+    DB-->>API: file_path = content://...
+    API->>MediaStore: resolve_media_path(content_uri)
+    MediaStore-->>API: /storage/emulated/0/Music/song.wav
+    API->>API: Swap extension → song.lrc
+    API->>FileSystem: std::fs::read(song.lrc)
+    FileSystem-->>API: LRC content or not found
+    API-->>Frontend: 200 + content or 404
+```
+
 See [`docs/android/playback-session.md`](./android/playback-session.md) for the playback/session side of this flow.
 
 ## Testing
@@ -203,6 +245,10 @@ Tests cover:
 3. **Check frontend console for errors:**
    - Open browser DevTools
    - Look for fetch errors or parsing issues
+
+4. **Android: Check MANAGE_EXTERNAL_STORAGE permission is granted in system settings**
+
+5. **Android: Check logs** — search for `AndroidLyricReader` entries showing the resolved path and whether the `.lrc` file was found
 
 ### Sync issues
 
