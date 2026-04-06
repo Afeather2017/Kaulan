@@ -1,27 +1,40 @@
 <template>
   <div class="player-controls">
-    <button
-      v-if="currentSongName"
-      class="current-song"
-      @click="$emit('toggleLyric')"
-    >
-      {{ currentSongName }}
-    </button>
-    <div v-else class="current-song placeholder">
-      无正在播放
-    </div>
-    <!-- Progress Bar -->
-    <div class="progress-container">
-      <div
-        class="progress-bar"
-        ref="progressBar"
-        @click="handleSeek"
-      >
-        <div class="progress" :style="{ width: progressPercent + '%' }"></div>
+    <div class="player-top">
+      <div class="cover-thumb-wrapper" @click="$emit('toggleLyric')">
+        <img v-if="coverUrl && !coverFailed"
+             :src="coverUrl"
+             :key="coverUrl"
+             class="cover-thumb"
+             @error="coverFailed = true"
+             alt="" />
+        <i v-else class="fas fa-music cover-placeholder-icon"></i>
       </div>
-      <div class="play-info">
-        <span class="progress-time">{{ formatTime(currentTime) }}</span>
-        <span class="progress-time">{{ formatTime(duration) }}</span>
+      <div class="player-info">
+        <button
+          v-if="currentSongName"
+          class="current-song"
+          @click="$emit('toggleLyric')"
+        >
+          {{ currentSongName }}
+        </button>
+        <div v-else class="current-song placeholder">
+          无正在播放
+        </div>
+        <!-- Progress Bar -->
+        <div class="progress-container">
+          <div
+            class="progress-bar"
+            ref="progressBar"
+            @click="handleSeek"
+          >
+            <div class="progress" :style="{ width: progressPercent + '%' }"></div>
+          </div>
+          <div class="play-info">
+            <span class="progress-time">{{ formatTime(currentTime) }}</span>
+            <span class="progress-time">{{ formatTime(duration) }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -54,6 +67,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { getApiBase } from '@/utils/api'
 
 const props = defineProps<{
   currentTime: number
@@ -61,6 +75,7 @@ const props = defineProps<{
   isPlaying: boolean
   playMode: 'sequential' | 'shuffle' | 'loop'
   currentSongName?: string
+  songId?: number
 }>()
 
 const emit = defineEmits<{
@@ -75,6 +90,13 @@ const emit = defineEmits<{
 }>()
 
 const progressBar = ref<HTMLElement | null>(null)
+const coverFailed = ref(false)
+
+const coverUrl = computed(() => {
+  if (!props.songId) return null
+  coverFailed.value = false
+  return `${getApiBase()}/music/id/${props.songId}/cover`
+})
 
 const playModeLabel = computed(() => {
   if (props.playMode === 'sequential') return 'Sequential playback'
@@ -125,17 +147,52 @@ const formatTime = (seconds: number) => {
   z-index: 10;
 }
 
+.player-top {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.cover-thumb-wrapper {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background-color: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-right: 10px;
+}
+
+.cover-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+}
+
+.cover-placeholder-icon {
+  font-size: 20px;
+  color: #999;
+}
+
+.player-info {
+  flex: 1;
+  min-width: 0;
+}
+
 .current-song {
   width: 100%;
-  text-align: center;
+  text-align: left;
   font-size: 14px;
   font-weight: 600;
   color: #333;
   background: none;
   border: none;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   cursor: pointer;
-  padding: 4px 6px;
+  padding: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -147,7 +204,7 @@ const formatTime = (seconds: number) => {
 }
 
 .progress-container {
-  margin-bottom: 15px;
+  margin-bottom: 0;
 }
 
 .progress-bar {

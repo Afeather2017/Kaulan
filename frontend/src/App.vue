@@ -107,7 +107,15 @@
                 </div>
               </div>
             </div>
-            <div v-else class="cover-panel"></div>
+            <div v-else class="cover-panel">
+              <img v-if="currentSong?.id"
+                   :src="`${getApiBase()}/music/id/${currentSong.id}/cover`"
+                   :key="currentSong.id"
+                   class="cover-image"
+                   @error="($event.target as HTMLImageElement).style.display = 'none'"
+                   @load="(($event.target as HTMLImageElement).style.display = '')"
+                   alt="" />
+            </div>
 
             <PlayerControls
               v-if="isWideLayout && !selectMode"
@@ -116,6 +124,7 @@
               :is-playing="isPlaying"
               :play-mode="playMode"
               :current-song-name="currentSong?.name"
+              :song-id="currentSong?.id"
               @seek="seekToTime"
               @toggle-play-mode="togglePlayMode"
               @previous="previousSong"
@@ -137,6 +146,7 @@
         :is-playing="isPlaying"
         :play-mode="playMode"
         :current-song-name="currentSong?.name"
+        :song-id="currentSong?.id"
         @seek="seekToTime"
         @toggle-play-mode="togglePlayMode"
         @previous="previousSong"
@@ -1192,6 +1202,16 @@ onBeforeUnmount(() => {
   border-top: 1px solid #eee;
   border-bottom: 1px solid #eee;
   background-color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.cover-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
 .content-area {

@@ -29,9 +29,8 @@ thiserror = "1"
 async-trait = "0.1"
 bytes = "1"
 tokio-util = { version = "0.7", features = ["io"] }
+lofty = "0.23"
 lufsgen = "0.2.0"
 uuid = { version = "1.22.0", features = ["v4", "serde"] }
 gethostname = "1.1.0"
-
-[dev-dependencies]
 tempfile = "3"
