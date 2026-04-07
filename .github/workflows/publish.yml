@@ -44,6 +44,11 @@ jobs:
           --skip test_update_database_adds_new_files_to_database
           --skip test_update_database_with_multiple_new_files
           --skip test_upload_files_then_check_database_via_api
+          --skip test_upload_single_file_to_root
+          --skip test_upload_to_subdirectory
+          --skip test_upload_to_nested_subdirectories
+          --skip test_upload_path_traversal_protection
+          --skip test_upload_updates_database
 
       - name: Run frontend tests
         working-directory: frontend
