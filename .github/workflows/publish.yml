@@ -4,6 +4,11 @@ on:
   release:
     types:
       - published
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
 
 concurrency:
   group: publish-${{ github.event.release.tag_name }}
