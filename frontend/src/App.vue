@@ -487,6 +487,56 @@ interface PrecacheLufsResult {
   error?: string
 }
 
+const LUFS_POLL_DELAY_MS = 1000
+const LUFS_POLL_MAX_ATTEMPTS = 8
+const pendingLufsPolls = new Set<number>()
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+const pollSongLufs = async (songId: number, context: 'current' | 'next') => {
+  if (pendingLufsPolls.has(songId)) {
+    return
+  }
+
+  pendingLufsPolls.add(songId)
+
+  try {
+    for (let attempt = 1; attempt <= LUFS_POLL_MAX_ATTEMPTS; attempt++) {
+      await wait(LUFS_POLL_DELAY_MS)
+
+      try {
+        const response = await fetch(`${getApiBase()}/music/${songId}/precache-lufs`, {
+          method: 'POST'
+        })
+
+        if (!response.ok) {
+          console.warn(`[app] LUFS ${context} poll failed:`, response.status)
+          return
+        }
+
+        const result: PrecacheLufsResult = await response.json()
+        if (result.success && result.lufs !== null) {
+          console.log(`[app] LUFS ${context} resolved from poll attempt ${attempt}:`, result.lufs)
+          patchSongLufs(songId, result.lufs)
+          if (isAndroidPlayer.value) {
+            await syncAndroidQueueState()
+          }
+          return
+        }
+
+        if (result.cached !== false) {
+          return
+        }
+      } catch (error) {
+        console.error(`[app] LUFS ${context} poll error on attempt ${attempt}:`, error)
+        return
+      }
+    }
+  } finally {
+    pendingLufsPolls.delete(songId)
+  }
+}
+
 const requestSongLufs = async (song: SongInfo, context: 'current' | 'next'): Promise<SongInfo> => {
   if (song.lufs !== null) {
     return song
@@ -517,6 +567,7 @@ const requestSongLufs = async (song: SongInfo, context: 'current' | 'next'): Pro
 
     if (result.success && result.cached === false) {
       console.log(`[app] LUFS ${context} started in background (non-blocking)`)
+      void pollSongLufs(song.id, context)
     }
   } catch (error) {
     console.error(`[app] LUFS ${context} pre-cache error:`, error)
@@ -526,6 +577,9 @@ const requestSongLufs = async (song: SongInfo, context: 'current' | 'next'): Pro
 }
 
 const resolveSongForPlayback = async (song: SongInfo): Promise<SongInfo> => {
+  if (isAndroidPlayer.value) {
+    return song
+  }
   return await requestSongLufs(song, 'current')
 }
 
@@ -753,6 +807,10 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
 // Handle song start event - trigger LUFS pre-caching for next song
 const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { id: number } | null) => {
   console.log('[app] onSongStart called: currentSongId =', currentSongInfo.id, ', nextSongInfo =', nextSongInfo)
+  if (isAndroidPlayer.value) {
+    console.log('[app] Android playback backend handles next-track LUFS pre-cache')
+    return
+  }
   const allSongs = playbackSongs.value
 
   if (!nextSongInfo) {
