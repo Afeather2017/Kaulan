@@ -52,42 +52,51 @@ export interface SongInfo {
  */
 export function parseLrc(content: string): LyricLine[] {
   const lines: LyricLine[] = []
-  const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/g
+  const timeRegex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\]/
   let currentTime: number | null = null
   let currentTexts: string[] = []
 
-  content.split('\n').forEach((line) => {
-    timeRegex.lastIndex = 0
+  const pushCurrent = () => {
+    if (currentTime === null) {
+      return
+    }
+    lines.push({ time: currentTime, texts: [...currentTexts] })
+  }
+
+  content.split('\n').forEach((rawLine) => {
+    const line = rawLine.replace(/\r$/, '')
     const match = timeRegex.exec(line)
 
     if (match) {
-      // New timestamp found - save previous entry if exists
-      if (currentTime !== null && currentTexts.length > 0) {
-        lines.push({ time: currentTime, texts: currentTexts })
-      }
-
       const minutes = parseInt(match[1], 10)
       const seconds = parseInt(match[2], 10)
       const milliseconds = parseInt(match[3].padEnd(3, '0'), 10)
-      currentTime = minutes * 60 + seconds + milliseconds / 1000
-      currentTexts = []
+      const timestamp = minutes * 60 + seconds + milliseconds / 1000
+      const text = line.substring(match[0].length).trim()
 
-      const text = line.substring(timeRegex.lastIndex).trim()
+      if (currentTime !== null && timestamp !== currentTime) {
+        pushCurrent()
+        currentTexts = []
+      }
+
+      if (currentTime === null || timestamp !== currentTime) {
+        currentTime = timestamp
+        currentTexts = []
+      }
+
       if (text) {
         currentTexts.push(text)
       }
-    } else if (currentTime !== null && line.trim()) {
-      // Continuation of previous timestamp (bilingual second line)
+      return
+    }
+
+    if (currentTime !== null && line.trim()) {
       currentTexts.push(line.trim())
     }
   })
 
-  // Don't forget the last entry
-  if (currentTime !== null && currentTexts.length > 0) {
-    lines.push({ time: currentTime, texts: currentTexts })
-  }
+  pushCurrent()
 
-  // Sort by timestamp to handle unsorted LRC files
   lines.sort((a, b) => a.time - b.time)
 
   return lines
