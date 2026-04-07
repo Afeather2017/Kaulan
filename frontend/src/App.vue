@@ -495,6 +495,7 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 const pollSongLufs = async (songId: number, context: 'current' | 'next') => {
   if (pendingLufsPolls.has(songId)) {
+    console.log(`[app] LUFS ${context} poll already in flight for song ID:`, songId)
     return
   }
 
@@ -505,6 +506,7 @@ const pollSongLufs = async (songId: number, context: 'current' | 'next') => {
       await wait(LUFS_POLL_DELAY_MS)
 
       try {
+        console.log(`[app] LUFS ${context} poll request attempt ${attempt} for song ID:`, songId)
         const response = await fetch(`${getApiBase()}/music/${songId}/precache-lufs`, {
           method: 'POST'
         })
@@ -539,10 +541,12 @@ const pollSongLufs = async (songId: number, context: 'current' | 'next') => {
 
 const requestSongLufs = async (song: SongInfo, context: 'current' | 'next'): Promise<SongInfo> => {
   if (song.lufs !== null) {
+    console.log(`[app] LUFS ${context} already cached for song ID:`, song.id, 'value:', song.lufs)
     return song
   }
 
   try {
+    console.log(`[app] LUFS ${context} request for song ID:`, song.id)
     const response = await fetch(`${getApiBase()}/music/${song.id}/precache-lufs`, {
       method: 'POST'
     })
