@@ -20,6 +20,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
     "@vitejs/plugin-vue": "^6.0.3",
+    "happy-dom": "^20.8.9",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^0.30.0",
