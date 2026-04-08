@@ -124,6 +124,7 @@ jobs:
     name: Release Android
     needs: test
     runs-on: ubuntu-latest
+    environment: android
     permissions:
       contents: write
     env:
