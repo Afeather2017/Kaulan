@@ -146,4 +146,26 @@ describe('useAudioPlayer - duration loading', () => {
     expect(currentSong.value?.id).toBe(mockSongs[1].id)
     expect(currentSong.value?.lufs).toBe(-11.8)
   })
+
+  it('should preserve the active queue when playing from a queue override', async () => {
+    const currentQueue = [
+      { id: 1, name: 'Queue Song 1', lufs: -12, path: '/test/queue-song1.mp3' },
+      { id: 2, name: 'Queue Song 2', lufs: -10, path: '/test/queue-song2.mp3' }
+    ]
+    const visiblePlaylist = [
+      { id: 3, name: 'Visible Song 1', lufs: -8, path: '/test/visible-song1.mp3' },
+      { id: 4, name: 'Visible Song 2', lufs: -9, path: '/test/visible-song2.mp3' }
+    ]
+    let sourceSongs = visiblePlaylist
+
+    const { playSongAtIndex, activeQueue, currentSong } = useAudioPlayer({
+      songs: () => sourceSongs
+    })
+
+    sourceSongs = visiblePlaylist
+    await playSongAtIndex(currentQueue[1], 1, currentQueue)
+
+    expect(activeQueue.value.map(song => song.id)).toEqual([1, 2])
+    expect(currentSong.value?.id).toBe(2)
+  })
 })

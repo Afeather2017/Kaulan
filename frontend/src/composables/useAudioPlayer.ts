@@ -85,7 +85,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     lufs: song.lufs
   })
 
-  const getBaseQueue = (): MusicInfo[] => {
+  const getBaseQueue = (queueOverride?: MusicInfo[]): MusicInfo[] => {
+    if (queueOverride && queueOverride.length > 0) {
+      return queueOverride.slice()
+    }
     const sourceSongs = songs()
     if (sourceSongs.length > 0) {
       return sourceSongs.slice()
@@ -104,8 +107,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     return shuffled
   }
 
-  const buildQueueForMode = (selectedSong: MusicInfo, selectedIndex?: number): { queue: MusicInfo[]; index: number } => {
-    const baseQueue = getBaseQueue()
+  const buildQueueForMode = (
+    selectedSong: MusicInfo,
+    selectedIndex?: number,
+    queueOverride?: MusicInfo[]
+  ): { queue: MusicInfo[]; index: number } => {
+    const baseQueue = getBaseQueue(queueOverride)
     if (baseQueue.length === 0) {
       return { queue: [selectedSong], index: 0 }
     }
@@ -336,21 +343,26 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     await refreshAndroidSession()
   }
 
-  const playSongAtIndex = async (song: MusicInfo, index: number) => {
+  const playSongAtIndex = async (song: MusicInfo, index: number, queueOverride?: MusicInfo[]) => {
     currentIndex.value = index
     playedSongIndexes.value.add(index)
-    await playSong(song)
+    await playSong(song, undefined, queueOverride)
   }
 
-  const playSong = async (song: MusicInfo, seekTime?: number) => {
+  const playSong = async (song: MusicInfo, seekTime?: number, queueOverride?: MusicInfo[]) => {
     if (isAndroidPlayer.value) {
-      const { queue, index } = buildQueueForMode(song, currentIndex.value >= 0 ? currentIndex.value : undefined)
+      const { queue, index } = buildQueueForMode(
+        song,
+        currentIndex.value >= 0 ? currentIndex.value : undefined,
+        queueOverride
+      )
       await restartAndroidPlayback(queue, index, 'playSong', seekTime)
       return
     }
 
     const preparedSong = await prepareSongForPlayback(song)
-    activeQueue.value = songs().map(sourceSong => {
+    const sourceQueue = getBaseQueue(queueOverride)
+    activeQueue.value = sourceQueue.map(sourceSong => {
       if (sourceSong.id !== preparedSong.id) {
         return sourceSong
       }
