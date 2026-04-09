@@ -790,7 +790,7 @@ const handleChooseAction = () => {
 }
 
 const handlePlayQueueSong = async (song: MusicInfo, index: number) => {
-  await playSongAtIndex(song, index)
+  await playSongAtIndex(song, index, activeQueue.value)
 }
 
 const handlePlaySong = async (song: SongInfo, index?: number) => {

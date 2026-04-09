@@ -64,6 +64,8 @@ When the user taps a song in the Android webview:
 6. frontend polls `getPlaybackSession()`
 7. UI updates from the returned session
 
+If the tap comes from the "当前播放列表" dialog, the frontend must reuse the current active queue instead of rebuilding from the playlist currently open on screen. Otherwise browsing into a different playlist can overwrite the service queue with the wrong source while the user is trying to jump within the existing playback session.
+
 ### Next and previous from the webview
 
 The webview does not rely on plugin-side `next()` or `previous()` for queue mutation.
