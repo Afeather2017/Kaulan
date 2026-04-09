@@ -9,6 +9,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useAudioPlayer, type MusicInfo } from '../useAudioPlayer'
+import {
+  getStoredPlaybackSession,
+  removeStoredPlaybackSession,
+  setStoredPlaybackSession
+} from '@/utils/storage'
 
 // Mock the getApiBase function to avoid cookie access in tests
 vi.mock('@/utils/api', () => ({
@@ -41,6 +46,21 @@ describe('useAudioPlayer - duration loading', () => {
 
     // Mock global Audio constructor
     global.Audio = vi.fn(() => audioMock) as unknown as typeof Audio
+
+    const storage = new Map<string, string>()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: vi.fn((key: string) => storage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          storage.set(key, value)
+        }),
+        removeItem: vi.fn((key: string) => {
+          storage.delete(key)
+        })
+      },
+      configurable: true
+    })
+    removeStoredPlaybackSession()
   })
 
   it('should initialize duration to 0', () => {
@@ -167,5 +187,67 @@ describe('useAudioPlayer - duration loading', () => {
 
     expect(activeQueue.value.map(song => song.id)).toEqual([1, 2])
     expect(currentSong.value?.id).toBe(2)
+  })
+
+  it('should persist the active queue and current song when playback starts', async () => {
+    const { playSongAtIndex } = useAudioPlayer({
+      songs: () => mockSongs
+    })
+
+    await playSongAtIndex(mockSongs[1], 1, mockSongs)
+
+    expect(getStoredPlaybackSession()).toEqual({
+      currentSongId: 2,
+      queue: [
+        {
+          id: 1,
+          name: 'Test Song 1',
+          path: '/test/song1.mp3',
+          url: 'http://localhost:2080/api/music/id/1',
+          lufs: -12
+        },
+        {
+          id: 2,
+          name: 'Test Song 2',
+          path: '/test/song2.mp3',
+          url: 'http://localhost:2080/api/music/id/2',
+          lufs: null
+        }
+      ],
+      timestamp: expect.any(Number)
+    })
+  })
+
+  it('should restore queue and current song from stored playback session on init', async () => {
+    setStoredPlaybackSession({
+      currentSongId: 2,
+      queue: [
+        {
+          id: 1,
+          name: 'Test Song 1',
+          path: '/test/song1.mp3',
+          url: 'http://localhost:2080/api/music/id/1',
+          lufs: -12
+        },
+        {
+          id: 2,
+          name: 'Test Song 2',
+          path: '/test/song2.mp3',
+          url: 'http://localhost:2080/api/music/id/2',
+          lufs: null
+        }
+      ],
+      timestamp: Date.now()
+    })
+
+    const { initAudio, activeQueue, currentSong, currentIndex } = useAudioPlayer({
+      songs: () => mockSongs
+    })
+
+    await initAudio()
+
+    expect(activeQueue.value.map(song => song.id)).toEqual([1, 2])
+    expect(currentSong.value?.id).toBe(2)
+    expect(currentIndex.value).toBe(1)
   })
 })

@@ -11,8 +11,23 @@ export const STORAGE_KEYS = {
   SERVER_URL: 'kaulan_server_url',
   VIEW_MODE: 'kaulan_view_mode',
   SHOW_LUFS: 'kaulan_show_lufs',
-  MEDIA_TYPES: 'kaulan_media_types'
+  MEDIA_TYPES: 'kaulan_media_types',
+  PLAYBACK_SESSION: 'kaulan_playback_session'
 } as const
+
+export interface StoredPlaybackQueueSong {
+  id: number
+  name: string
+  path: string
+  url: string
+  lufs: number | null
+}
+
+export interface StoredPlaybackSession {
+  currentSongId: number | null
+  queue: StoredPlaybackQueueSong[]
+  timestamp: number
+}
 
 function getStorageValue(key: string): string {
   try {
@@ -132,4 +147,70 @@ export function getMediaTypes(): string[] {
  */
 export function setMediaTypes(mediaTypes: string[]): void {
   setStorageValue(STORAGE_KEYS.MEDIA_TYPES, JSON.stringify(mediaTypes))
+}
+
+function isStoredPlaybackQueueSong(value: unknown): value is StoredPlaybackQueueSong {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const song = value as Record<string, unknown>
+  return (
+    typeof song.id === 'number' &&
+    typeof song.name === 'string' &&
+    typeof song.path === 'string' &&
+    typeof song.url === 'string' &&
+    (typeof song.lufs === 'number' || song.lufs === null)
+  )
+}
+
+/**
+ * Get the stored playback session from localStorage.
+ * @returns Stored playback session or null when missing/invalid
+ */
+export function getStoredPlaybackSession(): StoredPlaybackSession | null {
+  const stored = getStorageValue(STORAGE_KEYS.PLAYBACK_SESSION)
+  if (!stored) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as Record<string, unknown>
+    if (!Array.isArray(parsed.queue) || typeof parsed.timestamp !== 'number') {
+      return null
+    }
+
+    const queue = parsed.queue.filter(isStoredPlaybackQueueSong)
+    if (queue.length !== parsed.queue.length) {
+      return null
+    }
+
+    const currentSongId = typeof parsed.currentSongId === 'number'
+      ? parsed.currentSongId
+      : null
+
+    return {
+      currentSongId,
+      queue,
+      timestamp: parsed.timestamp
+    }
+  } catch (error) {
+    console.error('Failed to parse stored playback session:', error)
+    return null
+  }
+}
+
+/**
+ * Save the current playback session to localStorage.
+ * @param session - Playback session snapshot to persist
+ */
+export function setStoredPlaybackSession(session: StoredPlaybackSession): void {
+  setStorageValue(STORAGE_KEYS.PLAYBACK_SESSION, JSON.stringify(session))
+}
+
+/**
+ * Remove the stored playback session from localStorage.
+ */
+export function removeStoredPlaybackSession(): void {
+  removeStorageValue(STORAGE_KEYS.PLAYBACK_SESSION)
 }
