@@ -990,10 +990,10 @@ impl MusicFileLister for MediaStoreMusicFileLister {
     }
 }
 
-/// Android LyricReader for reading .lrc lyrics files
+/// Android LyricReader for reading sidecar lyric files
 ///
 /// Resolves content URIs to real filesystem paths via MediaStore's DATA column
-/// using `resolve_media_path()`, then reads .lrc files using std::fs.
+/// using `resolve_media_path()`, then reads `.lrc` first and `.vtt` as fallback using std::fs.
 /// Requires MANAGE_EXTERNAL_STORAGE permission.
 #[cfg(target_os = "android")]
 pub struct AndroidLyricReader {
@@ -1046,31 +1046,34 @@ impl LyricReader for AndroidLyricReader {
             }
         };
 
-        // Construct .lrc path by swapping extension
-        let lrc_path = Path::new(&fs_path)
-            .with_extension("lrc")
-            .to_string_lossy()
-            .to_string();
+        for extension in ["lrc", "vtt"] {
+            let lyric_path = Path::new(&fs_path)
+                .with_extension(extension)
+                .to_string_lossy()
+                .to_string();
 
-        log::info!("Attempting to read lyrics file: {}", lrc_path);
-        let lrc_path_clone = lrc_path.clone();
-        match tokio::task::spawn_blocking(move || std::fs::read(&lrc_path_clone))
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-        {
-            Ok(content) => {
-                log::info!(
-                    "Successfully read lyrics file: {} ({} bytes)",
-                    lrc_path,
-                    content.len()
-                );
-                Ok(Some(content))
-            }
-            Err(e) => {
-                log::warn!("Lyrics file not found: {} - Error: {}", lrc_path, e);
-                Ok(None)
+            log::info!("Attempting to read lyrics file: {}", lyric_path);
+            let lyric_path_clone = lyric_path.clone();
+            match tokio::task::spawn_blocking(move || std::fs::read(&lyric_path_clone))
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            {
+                Ok(content) => {
+                    log::info!(
+                        "Successfully read lyrics file: {} ({} bytes)",
+                        lyric_path,
+                        content.len()
+                    );
+                    return Ok(Some(content));
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    log::warn!("Lyrics file not found: {} - Error: {}", lyric_path, e);
+                }
+                Err(e) => return Err(e),
             }
         }
+
+        Ok(None)
     }
 }
 

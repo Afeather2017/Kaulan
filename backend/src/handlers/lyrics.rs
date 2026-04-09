@@ -1,7 +1,7 @@
 //! Lyrics API handlers.
 //!
 //! This module provides endpoints for:
-//! - Streaming LRC (lyrics) files synchronized with music playback
+//! - Streaming sidecar lyric files (`.lrc` preferred, `.vtt` fallback) synchronized with music playback
 
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity};
 use crate::file_ops::get_lyric_reader;
@@ -10,21 +10,22 @@ use actix_web::{get, web, HttpResponse, Responder};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tracing::{debug, error, info, warn};
 
-/// Stream lyrics file (LRC format) by music filename
+/// Stream lyrics file by music filename.
 ///
 /// This endpoint looks up the music file in the database by filename,
-/// constructs the corresponding `.lrc` file path, and streams the lyrics content.
+/// constructs the corresponding sidecar lyric file path, and streams the lyric content.
 ///
-/// LRC files should have the same base name as the audio file:
+/// Sidecar lyric files should have the same base name as the audio file:
 /// - `song.mp3` → `song.lrc`
+/// - `song.mp3` → `song.vtt`
 /// - `album/track.flac` → `album/track.lrc`
 ///
 /// # Path Parameters
 /// * `filename` - The filename to look up in the database (e.g., `song.mp3`)
 ///
 /// # Returns
-/// - LRC file content with `text/plain; charset=utf-8` content type if found
-/// - `404 Not Found` if music not in database or LRC file missing
+/// - Sidecar lyric file content with `text/plain; charset=utf-8` content type if found
+/// - `404 Not Found` if music not in database or no supported sidecar lyric file exists
 /// - `500 Internal Server Error` for database errors
 ///
 /// # Example
@@ -100,21 +101,22 @@ pub async fn get_lyrics(path: web::Path<String>, data: web::Data<AppState>) -> i
     }
 }
 
-/// Stream lyrics file (LRC format) by music ID
+/// Stream lyrics file by music ID.
 ///
 /// This endpoint looks up the music file in the database by ID,
-/// constructs the corresponding `.lrc` file path, and streams the lyrics content.
+/// constructs the corresponding sidecar lyric file path, and streams the lyric content.
 ///
-/// LRC files should have the same base name as the audio file:
+/// Sidecar lyric files should have the same base name as the audio file:
 /// - `song.mp3` → `song.lrc`
+/// - `song.mp3` → `song.vtt`
 /// - `album/track.flac` → `album/track.lrc`
 ///
 /// # Path Parameters
 /// * `id` - The music ID to look up in the database
 ///
 /// # Returns
-/// - LRC file content with `text/plain; charset=utf-8` content type if found
-/// - `404 Not Found` if music not in database or LRC file missing
+/// - Sidecar lyric file content with `text/plain; charset=utf-8` content type if found
+/// - `404 Not Found` if music not in database or no supported sidecar lyric file exists
 /// - `500 Internal Server Error` for database errors
 ///
 /// # Example
@@ -300,6 +302,56 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status().as_u16(), 404);
+    }
+
+    #[actix_web::test]
+    async fn test_get_lyrics_falls_back_to_vtt() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let music_dir = temp_dir.path();
+
+        let audio_path = music_dir.join("with-vtt.mp3");
+        std::fs::write(&audio_path, b"fake audio content").unwrap();
+
+        let lyrics_path = music_dir.join("with-vtt.vtt");
+        std::fs::write(
+            &lyrics_path,
+            "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nthat's \"my\" line, right?\n",
+        )
+        .unwrap();
+
+        let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+            .await
+            .unwrap();
+
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
+        let app_state = web::Data::new(AppState {
+            music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            db_conn,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
+        });
+
+        let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/lyrics/with-vtt.mp3")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+
+        assert!(resp.status().is_success());
+        let body = test::read_body(resp).await;
+        let content = String::from_utf8(body.to_vec()).unwrap();
+        assert!(content.contains("WEBVTT"));
+        assert!(content.contains("that's \"my\" line, right?"));
     }
 
     #[actix_web::test]

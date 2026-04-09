@@ -1,8 +1,8 @@
 /**
  * Lyrics composable for Kaulan music player
  *
- * This composable handles parsing LRC files and synchronizing lyrics with audio playback.
- * Supports both single-language and bilingual LRC formats.
+ * This composable handles parsing timed lyric files and synchronizing lyrics with audio playback.
+ * Supports LRC and WebVTT formats, including bilingual lyric grouping.
  *
  * @module composables/useLyrics
  */
@@ -31,7 +31,24 @@ export interface SongInfo {
 }
 
 /**
- * Parse LRC content into LyricLine array
+ * Merge parsed lyric lines by timestamp while preserving text order.
+ */
+function mergeLyricLines(lines: LyricLine[]): LyricLine[] {
+  const merged = new Map<number, string[]>()
+
+  for (const line of lines) {
+    const existing = merged.get(line.time) ?? []
+    existing.push(...line.texts)
+    merged.set(line.time, existing)
+  }
+
+  return Array.from(merged.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([time, texts]) => ({ time, texts }))
+}
+
+/**
+ * Parse LRC content into LyricLine array.
  *
  * Handles both single-language format:
  * ```
@@ -53,6 +70,7 @@ export interface SongInfo {
 export function parseLrc(content: string): LyricLine[] {
   const lines: LyricLine[] = []
   const timeRegex = /^\[(\d{2}):(\d{2})\.(\d{2,3})\]/
+  const metadataRegex = /^\[(ti|ar|al|by|offset|kana):.*\]$/i
   let currentTime: number | null = null
   let currentTexts: string[] = []
 
@@ -65,6 +83,9 @@ export function parseLrc(content: string): LyricLine[] {
 
   content.split('\n').forEach((rawLine) => {
     const line = rawLine.replace(/\r$/, '')
+    if (metadataRegex.test(line.trim())) {
+      return
+    }
     const match = timeRegex.exec(line)
 
     if (match) {
@@ -97,16 +118,115 @@ export function parseLrc(content: string): LyricLine[] {
 
   pushCurrent()
 
-  lines.sort((a, b) => a.time - b.time)
+  return mergeLyricLines(lines)
+}
 
-  return lines
+function parseVttTimestamp(timestamp: string): number | null {
+  const parts = timestamp.trim().split(':')
+  if (parts.length < 2 || parts.length > 3) {
+    return null
+  }
+
+  let hours = 0
+  let minutes: number
+  let secondsPart: string
+
+  if (parts.length === 3) {
+    hours = Number.parseInt(parts[0], 10)
+    minutes = Number.parseInt(parts[1], 10)
+    secondsPart = parts[2]
+  } else {
+    minutes = Number.parseInt(parts[0], 10)
+    secondsPart = parts[1]
+  }
+
+  const [secondsText, millisecondsText = '0'] = secondsPart.split('.')
+  const seconds = Number.parseInt(secondsText, 10)
+  const milliseconds = Number.parseInt(millisecondsText.padEnd(3, '0').slice(0, 3), 10)
+
+  if ([hours, minutes, seconds, milliseconds].some(Number.isNaN)) {
+    return null
+  }
+
+  return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
+}
+
+/**
+ * Parse WEBVTT content into LyricLine array.
+ *
+ * Uses cue start times for lyric sync and preserves cue text exactly.
+ */
+export function parseVtt(content: string): LyricLine[] {
+  const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const blocks = normalizedContent
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(Boolean)
+
+  const lines: LyricLine[] = []
+
+  for (const block of blocks) {
+    const blockLines = block.split('\n')
+    if (blockLines.length === 0) {
+      continue
+    }
+
+    let timingLineIndex = 0
+    if (
+      blockLines[0] === 'WEBVTT' ||
+      blockLines[0].startsWith('NOTE') ||
+      blockLines[0].startsWith('STYLE') ||
+      blockLines[0].startsWith('REGION')
+    ) {
+      continue
+    }
+
+    if (!blockLines[0].includes('-->')) {
+      timingLineIndex = 1
+    }
+
+    const timingLine = blockLines[timingLineIndex]
+    if (!timingLine || !timingLine.includes('-->')) {
+      continue
+    }
+
+    const [startTimeText] = timingLine.split('-->')
+    const startTime = parseVttTimestamp(startTimeText)
+    if (startTime === null) {
+      continue
+    }
+
+    const texts = blockLines
+      .slice(timingLineIndex + 1)
+      .map(line => line.trim())
+      .filter(Boolean)
+
+    lines.push({
+      time: startTime,
+      texts
+    })
+  }
+
+  return mergeLyricLines(lines)
+}
+
+/**
+ * Parse timed lyric content into LyricLine array.
+ */
+export function parseLyrics(content: string): LyricLine[] {
+  const trimmed = content.trimStart()
+  if (trimmed.startsWith('WEBVTT')) {
+    return parseVtt(content)
+  }
+
+  return parseLrc(content)
 }
 
 /**
  * Load lyrics from the backend API
  *
  * @param id - Music ID
- * @returns Promise resolving to the raw LRC content, or null if not found
+ * @returns Promise resolving to the raw lyric content, or null if not found
  */
 async function loadLyrics(id: number): Promise<string | null> {
   try {
@@ -186,7 +306,7 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
     const content = await loadLyrics(currentSong.value.id)
 
     if (content) {
-      lyrics.value = parseLrc(content)
+      lyrics.value = parseLyrics(content)
       // Reset current lyric index
       currentLyricIndex.value = -1
     } else {
