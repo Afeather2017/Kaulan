@@ -97,7 +97,12 @@
               <div v-else class="lyric-container" ref="lyricContainerRef">
                 <div v-for="(line, index) in lyrics"
                      :key="index"
-                     :class="['lyric-line', { active: index === currentLyricIndex }]">
+                     :class="['lyric-line', { active: index === currentLyricIndex }]"
+                     role="button"
+                     tabindex="0"
+                     @click="handleLyricLineClick(line.time)"
+                     @keydown.enter.prevent="handleLyricLineClick(line.time)"
+                     @keydown.space.prevent="handleLyricLineClick(line.time)">
                   <!-- Display all language versions for this timestamp -->
                   <template v-for="(text, textIndex) in line.texts" :key="textIndex">
                     <div :class="['lyric-text', `lyric-lang-${textIndex}`]">
@@ -662,6 +667,22 @@ watch(showLyric, (isShown) => {
 })
 
 // Event handlers
+const handleLyricLineClick = async (time: number) => {
+  if (!currentSong.value) {
+    return
+  }
+
+  if (!audioElement.value || duration.value === 0) {
+    await playSong(currentSong.value, time)
+    return
+  }
+
+  await seekToTime(time)
+  if (!isPlaying.value) {
+    await play()
+  }
+}
+
 const handleSearch = () => {
   showSearchResults()
 }
@@ -1225,6 +1246,9 @@ onBeforeUnmount(() => {
   text-align: center;
   transition: all 0.3s ease;
   padding: 8px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  outline: none;
 }
 
 .lyric-text {

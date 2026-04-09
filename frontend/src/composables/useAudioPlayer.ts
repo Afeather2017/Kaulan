@@ -1,6 +1,12 @@
 import { ref, watch, onUnmounted } from 'vue'
 import { getApiBase } from '@/utils/api'
 import { checkIsAndroid } from '@/utils/platform'
+import {
+  getStoredPlaybackSession,
+  removeStoredPlaybackSession,
+  setStoredPlaybackSession,
+  type StoredPlaybackQueueSong
+} from '@/utils/storage'
 import type {
   PlaybackSession,
   PlayMode as AndroidPlayMode,
@@ -26,6 +32,13 @@ interface UseAudioPlayerOptions {
 }
 
 type MusicNotificationApi = typeof import('music-notification-api')
+
+interface ResolvedQueueState {
+  queue: MusicInfo[]
+  currentIndex: number
+  currentSong: MusicInfo | null
+  currentSongId: number | null
+}
 
 export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const { songs, onSongEnd, onSongStart, prepareSong } = options
@@ -78,12 +91,96 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     lufs: song.lufs
   })
 
-  const toMusicInfo = (song: { id: number; name: string; path: string; lufs: number | null }): MusicInfo => ({
+  const toMusicInfo = (song: { id: number; name: string; path: string; lufs: number | null; url?: string | null }): MusicInfo => ({
     id: song.id,
     name: song.name,
     path: song.path,
+    lufs: song.lufs,
+    stream_url: song.url ?? null
+  })
+
+  const toStoredPlaybackQueueSong = (song: MusicInfo): StoredPlaybackQueueSong => ({
+    id: song.id,
+    name: song.name,
+    path: song.path,
+    url: song.stream_url ?? buildAudioUrl(song.id),
     lufs: song.lufs
   })
+
+  const persistPlaybackSession = (queue: MusicInfo[], currentSongId: number | null) => {
+    if (queue.length === 0) {
+      removeStoredPlaybackSession()
+      return
+    }
+
+    setStoredPlaybackSession({
+      currentSongId,
+      queue: queue.map(toStoredPlaybackQueueSong),
+      timestamp: Date.now()
+    })
+  }
+
+  const resolveQueueState = (
+    queue: MusicInfo[],
+    preferredCurrentSongId: number | null,
+    preferredIndex: number | null
+  ): ResolvedQueueState => {
+    let resolvedIndex = -1
+
+    if (preferredCurrentSongId !== null) {
+      resolvedIndex = queue.findIndex(song => song.id === preferredCurrentSongId)
+    }
+
+    if (resolvedIndex < 0 && preferredIndex !== null && preferredIndex >= 0 && preferredIndex < queue.length) {
+      resolvedIndex = preferredIndex
+    }
+
+    return {
+      queue,
+      currentIndex: resolvedIndex,
+      currentSong: resolvedIndex >= 0 ? queue[resolvedIndex] ?? null : null,
+      currentSongId: resolvedIndex >= 0 ? queue[resolvedIndex].id : null
+    }
+  }
+
+  const recoverAndroidQueueState = (session: PlaybackSession): ResolvedQueueState | null => {
+    const stored = getStoredPlaybackSession()
+    if (!stored || stored.queue.length === 0) {
+      return null
+    }
+
+    const fallbackIndex = session.queue.currentIndex ?? 0
+    const fallbackSong = session.queue.songs[fallbackIndex] ?? session.queue.songs[0]
+    const fallbackUrl = fallbackSong?.url
+    if (!fallbackUrl) {
+      return null
+    }
+
+    const matchedIndexes = stored.queue
+      .map((song, index) => song.url === fallbackUrl ? index : -1)
+      .filter(index => index >= 0)
+
+    if (matchedIndexes.length !== 1) {
+      return null
+    }
+
+    const queue = stored.queue.map(toMusicInfo)
+    const matchedIndex = matchedIndexes[0]
+    return resolveQueueState(queue, queue[matchedIndex].id, matchedIndex)
+  }
+
+  const restoreWebPlaybackSession = () => {
+    const stored = getStoredPlaybackSession()
+    if (!stored || stored.queue.length === 0) {
+      return
+    }
+
+    const queue = stored.queue.map(toMusicInfo)
+    const restored = resolveQueueState(queue, stored.currentSongId, null)
+    activeQueue.value = restored.queue
+    currentIndex.value = restored.currentIndex
+    currentSong.value = restored.currentSong
+  }
 
   const getBaseQueue = (queueOverride?: MusicInfo[]): MusicInfo[] => {
     if (queueOverride && queueOverride.length > 0) {
@@ -189,23 +286,20 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   }
 
   const applyAndroidSession = (session: PlaybackSession, source = 'unknown') => {
-    activeQueue.value = session.queue.songs.map(song => toMusicInfo(song))
-    currentIndex.value = session.queue.currentIndex ?? -1
-    const nextSong = currentIndex.value >= 0 ? activeQueue.value[currentIndex.value] ?? null : null
-    if (!nextSong) {
-      currentSong.value = null
-    } else if (
-      currentSong.value?.id !== nextSong.id ||
-      currentSong.value?.lufs !== nextSong.lufs ||
-      currentSong.value?.name !== nextSong.name ||
-      currentSong.value?.path !== nextSong.path
-    ) {
-      currentSong.value = nextSong
-    }
+    const sessionQueue = session.queue.songs.map(song => toMusicInfo(song))
+    const shouldRecoverFromStorage = sessionQueue.length === 1 && sessionQueue[0]?.id <= 0
+    const resolved = shouldRecoverFromStorage
+      ? (recoverAndroidQueueState(session) ?? resolveQueueState(sessionQueue, session.currentSongId, session.queue.currentIndex))
+      : resolveQueueState(sessionQueue, session.currentSongId, session.queue.currentIndex)
+
+    activeQueue.value = resolved.queue
+    currentIndex.value = resolved.currentIndex
+    currentSong.value = resolved.currentSong
     isPlaying.value = session.runtime.isPlaying
     currentTime.value = session.runtime.positionMs / 1000
     duration.value = session.runtime.durationMs / 1000
     playMode.value = session.playMode as PlayMode
+    persistPlaybackSession(activeQueue.value, resolved.currentSongId)
     console.log('[useAudioPlayer] applyAndroidSession', {
       source,
       currentIndex: currentIndex.value,
@@ -269,6 +363,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     activeQueue.value = queue
     currentIndex.value = index
     currentSong.value = queue[index] ?? selectedSong
+    persistPlaybackSession(activeQueue.value, currentSong.value?.id ?? null)
   }
 
   const syncAndroidQueueState = async () => {
@@ -283,6 +378,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
 
     await plugin.setPlayingQueue(payload, playMode.value as AndroidPlayMode)
+    persistPlaybackSession(activeQueue.value, currentSong.value?.id ?? null)
   }
 
   const restartAndroidPlayback = async (
@@ -323,11 +419,16 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     activeQueue.value = preparedQueue
     currentIndex.value = resolvedIndex
     currentSong.value = targetSong
+    persistPlaybackSession(activeQueue.value, currentSong.value?.id ?? null)
 
-    await plugin.play({
-      url: targetSong.stream_url ?? buildAudioUrl(targetSong.id, seekTime),
-      title: targetSong.name
-    })
+    if (seekTime !== undefined) {
+      await plugin.seekAndPlay(Math.max(0, Math.floor(seekTime * 1000)))
+    } else {
+      await plugin.play({
+        url: targetSong.stream_url ?? buildAudioUrl(targetSong.id),
+        title: targetSong.name
+      })
+    }
 
     await refreshAndroidSession(source)
   }
@@ -380,6 +481,13 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
 
     newAudio.addEventListener('loadedmetadata', () => {
       duration.value = newAudio.duration || 0
+      if (seekTime === undefined) {
+        return
+      }
+
+      const clampedTime = Math.max(0, Math.min(seekTime, duration.value || seekTime))
+      newAudio.currentTime = clampedTime
+      currentTime.value = clampedTime
     })
 
     newAudio.addEventListener('timeupdate', () => {
@@ -407,7 +515,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
 
     audioElement.value = newAudio
     currentSong.value = preparedSong
+    currentIndex.value = activeQueue.value.findIndex(queueSong => queueSong.id === preparedSong.id)
     duration.value = 0
+    persistPlaybackSession(activeQueue.value, preparedSong.id)
     isPlayingInternal = true
 
     maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value)
@@ -429,10 +539,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     if (isAndroidPlayer.value) {
       const plugin = await loadPluginApi()
       if (currentSong.value) {
-        await plugin.play({
-          url: currentSong.value.stream_url ?? buildAudioUrl(currentSong.value.id),
-          title: currentSong.value.name
-        })
+        if (currentTime.value > 0) {
+          await plugin.seekAndPlay(Math.max(0, Math.floor(currentTime.value * 1000)))
+        } else {
+          await plugin.play({
+            url: currentSong.value.stream_url ?? buildAudioUrl(currentSong.value.id),
+            title: currentSong.value.name
+          })
+        }
       } else if (activeQueue.value.length > 0) {
         const index = currentIndex.value >= 0 ? currentIndex.value : 0
         await playSongAtIndex(activeQueue.value[index], index)
@@ -457,6 +571,18 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
 
     if (currentSong.value) {
+      if (!audioElement.value.src) {
+        const queue = activeQueue.value.length > 0 ? activeQueue.value : allSongs
+        const restoredIndex = currentIndex.value >= 0
+          ? currentIndex.value
+          : queue.findIndex(song => song.id === currentSong.value?.id)
+        if (restoredIndex >= 0 && queue[restoredIndex]) {
+          await playSongAtIndex(queue[restoredIndex], restoredIndex, queue)
+          return
+        }
+        await playSong(currentSong.value)
+        return
+      }
       await audioElement.value.play()
       isPlaying.value = true
     }
@@ -560,13 +686,19 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     if (isAndroidPlayer.value) {
       if (duration.value === 0) return
       const plugin = await loadPluginApi()
-      console.log('[useAudioPlayer] seekToTime(android): invoking plugin.seek()', {
+      const targetPositionMs = Math.max(0, Math.floor(time * 1000))
+      console.log('[useAudioPlayer] seekToTime(android): invoking plugin seek path', {
         targetTimeSeconds: time,
-        targetPositionMs: Math.max(0, Math.floor(time * 1000)),
+        targetPositionMs,
         currentIndex: currentIndex.value,
-        currentSongId: currentSong.value?.id ?? null
+        currentSongId: currentSong.value?.id ?? null,
+        isPlaying: isPlaying.value
       })
-      await plugin.seek(Math.max(0, Math.floor(time * 1000)))
+      if (isPlaying.value) {
+        await plugin.seek(targetPositionMs)
+      } else {
+        await plugin.seekAndPlay(targetPositionMs)
+      }
       await refreshAndroidSession('seekToTime')
       return
     }
@@ -645,6 +777,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       }
       onSongEnd?.()
     })
+
+    restoreWebPlaybackSession()
   }
 
   watch(isPlaying, (playing) => {
