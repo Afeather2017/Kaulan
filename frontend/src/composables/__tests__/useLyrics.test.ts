@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { parseLrc } from '../useLyrics'
+import { parseLrc, parseLyrics, parseVtt } from '../useLyrics'
 
 describe('parseLrc', () => {
   it('should parse single-language LRC format', () => {
@@ -158,5 +158,128 @@ Third continuation line
       'Third continuation line'
     ])
     expect(result[1].texts).toEqual(['New timestamp'])
+  })
+
+  it('should merge duplicated timestamps across separated bilingual LRC blocks', () => {
+    const content = `[ti:Sample]
+[00:01.00]I love the way you lie
+[00:03.00]I can't tell you what it really is
+[00:05.00]Right now
+[00:01.00]我喜欢你的谎言
+[00:03.00]我无法告诉你这到底是什么
+[00:05.00]现在`
+
+    const result = parseLrc(content)
+
+    expect(result).toHaveLength(3)
+    expect(result[0]).toEqual({
+      time: 1,
+      texts: ['I love the way you lie', '我喜欢你的谎言']
+    })
+    expect(result[1]).toEqual({
+      time: 3,
+      texts: ["I can't tell you what it really is", '我无法告诉你这到底是什么']
+    })
+    expect(result[2]).toEqual({
+      time: 5,
+      texts: ['Right now', '现在']
+    })
+  })
+
+  it('should ignore LRC metadata tags', () => {
+    const content = `[ti:Song Title]
+[ar:Artist]
+[offset:0]
+[00:01.00]Actual lyric`
+
+    const result = parseLrc(content)
+
+    expect(result).toEqual([
+      {
+        time: 1,
+        texts: ['Actual lyric']
+      }
+    ])
+  })
+
+  it('should preserve punctuation in LRC text', () => {
+    const content = `[00:01.00]that's "my" line, right?`
+
+    const result = parseLrc(content)
+
+    expect(result[0].texts[0]).toBe(`that's "my" line, right?`)
+  })
+})
+
+describe('parseVtt', () => {
+  it('should parse standard WEBVTT cues', () => {
+    const content = `WEBVTT
+
+1
+00:00:02.900 --> 00:00:06.700
+哥哥 哥哥
+
+2
+00:00:08.875 --> 00:00:12.100
+终于醒了呀`
+
+    const result = parseVtt(content)
+
+    expect(result).toEqual([
+      {
+        time: 2.9,
+        texts: ['哥哥 哥哥']
+      },
+      {
+        time: 8.875,
+        texts: ['终于醒了呀']
+      }
+    ])
+  })
+
+  it('should preserve punctuation in VTT text', () => {
+    const content = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+that's "my" line, right?`
+
+    const result = parseVtt(content)
+
+    expect(result[0].texts[0]).toBe(`that's "my" line, right?`)
+  })
+
+  it('should support multi-line VTT cues', () => {
+    const content = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+Hello
+你好`
+
+    const result = parseVtt(content)
+
+    expect(result).toEqual([
+      {
+        time: 1,
+        texts: ['Hello', '你好']
+      }
+    ])
+  })
+})
+
+describe('parseLyrics', () => {
+  it('should auto-detect WEBVTT content', () => {
+    const content = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+Detected automatically`
+
+    const result = parseLyrics(content)
+
+    expect(result).toEqual([
+      {
+        time: 1,
+        texts: ['Detected automatically']
+      }
+    ])
   })
 })

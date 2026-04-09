@@ -2,7 +2,7 @@
 
 ## Overview
 
-The lyrics display feature adds synchronized lyrics display to the Kaulan music player. LRC (Lyric) files stored alongside music files are served via a backend API endpoint, parsed on the frontend, and displayed with real-time highlighting and auto-scrolling.
+The lyrics display feature adds synchronized lyrics display to the Kaulan music player. Timed lyric sidecar files stored alongside music files are served via a backend API endpoint, parsed on the frontend, and displayed with real-time highlighting and auto-scrolling.
 
 On Android, lyric updates are still frontend-driven. The frontend polls the playback session from the Android plugin, updates the current song and playback position, and the lyric panel reacts to those values.
 
@@ -19,9 +19,18 @@ On Android, lyric updates are still frontend-driven. The frontend polls the play
 - `frontend/src-tauri/src/lib.rs` - Plugin registration, `request_external_storage_permission`, `check_external_storage_permission` commands
 
 **Frontend:**
-- `frontend/src/composables/useLyrics.ts` - LRC parsing and sync logic
+- `frontend/src/composables/useLyrics.ts` - LRC/WEBVTT parsing and sync logic
 - `frontend/src/App.vue` - Lyric panel UI and integration
 - `frontend/src/components/modals/SettingsModal.vue` - "使用本地歌词" checkbox (Android only)
+
+## Supported Formats
+
+The backend looks for sidecar lyric files in this order:
+
+1. `song.lrc`
+2. `song.vtt`
+
+The sidecar file name is stem-based, so `song.mp3` maps to `song.lrc` or `song.vtt`.
 
 ## LRC Format
 
@@ -40,7 +49,7 @@ Example:
 
 ### Bilingual Format
 
-The player supports bilingual lyrics where consecutive lines with the same timestamp are treated as original + translation:
+The player supports bilingual lyrics where lines with the same timestamp are treated as one lyric group with original + translation. This works whether the duplicate timestamps are consecutive or split into separate blocks.
 
 ```
 [00:00.64]Japanese original text
@@ -60,18 +69,30 @@ The player supports bilingual lyrics where consecutive lines with the same times
   - `song.mp3` → `song.lrc`
   - `album/track.flac` → `album/track.lrc`
 
+### WEBVTT Format
+
+Standard `WEBVTT` subtitle files are also supported as a fallback when no `.lrc` file exists.
+
+Example:
+```text
+WEBVTT
+
+00:00:02.900 --> 00:00:06.700
+哥哥 哥哥
+```
+
 ## API Reference
 
 ### GET /api/lyrics/{filename}
 
-Retrieve the LRC file content for a given music filename.
+Retrieve the lyric file content for a given music filename.
 
 **Path Parameters:**
 - `filename` - The music filename to look up (e.g., `song.mp3`)
 
 **Response:**
-- **200 OK** - Returns LRC file content as `text/plain; charset=utf-8`
-- **404 Not Found** - Music not in database or LRC file missing
+- **200 OK** - Returns lyric file content as `text/plain; charset=utf-8`
+- **404 Not Found** - Music not in database or no supported sidecar lyric file exists
 
 **Example:**
 ```bash
@@ -100,12 +121,12 @@ Response:
 
 - **Auto-scroll:** The current lyric line is automatically centered as the song plays
 - **Highlighting:** The active lyric line is highlighted in green with larger text
-- **Bilingual display:** Original language is shown larger, translation is shown smaller below
-- **Missing lyrics:** "暂无歌词" (No lyrics available) is displayed if no LRC file exists
+- **Bilingual display:** Original language is shown larger, translation is shown smaller below, and both lines are highlighted together when their timestamp is active
+- **Missing lyrics:** "暂无歌词" (No lyrics available) is displayed if no supported lyric file exists
 
 ### Adding Lyrics
 
-1. Create an `.lrc` file with the same name as your audio file
+1. Create a `.lrc` or `.vtt` file with the same stem as your audio file
 2. Place it in the same directory as the audio file
 3. Use the standard LRC timestamp format
 4. On desktop: lyrics are available immediately
@@ -137,18 +158,19 @@ sequenceDiagram
     Frontend->>API: GET /api/lyrics/{filename}
     API->>Database: Find music by filename
     Database-->>API: Music record (file_path)
-    API->>API: Construct LRC path (replace extension)
-    API->>FileSystem: Read LRC file
+    API->>API: Construct `.lrc` path, then `.vtt` path
+    API->>FileSystem: Read first matching lyric file
     FileSystem-->>API: File contents or error
     API-->>Frontend: 200 + content or 404
 ```
 
 ### Frontend Parsing
 
-The `parseLrc()` function handles:
-1. Line-by-line parsing of `[mm:ss.xx]` timestamps
-2. Merging consecutive lines with the same timestamp (bilingual support)
-3. Sorting lyrics by timestamp
+The lyric parser handles:
+1. Format detection for LRC vs `WEBVTT`
+2. Line-by-line parsing of timestamps
+3. Merging all lines with the same timestamp into one lyric group (bilingual support)
+4. Sorting lyrics by timestamp
 4. Returning an array of `LyricLine` objects:
    ```typescript
    interface LyricLine {
@@ -190,9 +212,9 @@ sequenceDiagram
     DB-->>API: file_path = content://...
     API->>MediaStore: resolve_media_path(content_uri)
     MediaStore-->>API: /storage/emulated/0/Music/song.wav
-    API->>API: Swap extension → song.lrc
-    API->>FileSystem: std::fs::read(song.lrc)
-    FileSystem-->>API: LRC content or not found
+    API->>API: Swap extension → song.lrc, fallback song.vtt
+    API->>FileSystem: std::fs::read(first matching lyric file)
+    FileSystem-->>API: lyric content or not found
     API-->>Frontend: 200 + content or 404
 ```
 
@@ -209,7 +231,8 @@ cargo test lyrics
 
 Tests cover:
 - LRC file present → 200 with content
-- LRC file missing → 404
+- VTT fallback present → 200 with content
+- No sidecar lyric file → 404
 - Music not in database → 404
 - UTF-8 content (Chinese/Japanese characters)
 
@@ -222,11 +245,12 @@ npm test useLyrics
 
 Tests cover:
 - Single-language LRC parsing
-- Bilingual LRC parsing
+- Bilingual LRC parsing across repeated timestamps
 - Empty lyric lines handling
 - Timestamp sorting
 - UTF-8 character support
-- Mixed bilingual/monolingual entries
+- VTT parsing
+- Punctuation preservation
 
 ## Troubleshooting
 

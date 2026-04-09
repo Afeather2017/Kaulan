@@ -406,11 +406,25 @@ pub fn get_music_file_lister() -> &'static dyn MusicFileLister {
 /// Static storage for custom lyric reader implementation
 static LYRIC_READER: OnceLock<Box<dyn LyricReader>> = OnceLock::new();
 
+fn lyric_candidate_paths(file_path: &str) -> Vec<String> {
+    let base_path = Path::new(file_path);
+
+    ["lrc", "vtt"]
+        .iter()
+        .map(|extension| {
+            base_path
+                .with_extension(extension)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect()
+}
+
 /// Trait for reading lyrics files
 ///
-/// This trait allows platform-specific implementations for reading LRC lyrics files:
-/// - StdLyricReader: Uses std::fs to read .lrc files (default for desktop)
-/// - AndroidLyricReader: Uses a content-URI-to-filesystem-path mapping to read .lrc files
+/// This trait allows platform-specific implementations for reading sidecar lyric files:
+/// - StdLyricReader: Uses std::fs to read `.lrc` or `.vtt` files (default for desktop)
+/// - AndroidLyricReader: Uses a content-URI-to-filesystem-path mapping to read `.lrc` or `.vtt` files
 #[async_trait]
 pub trait LyricReader: Send + Sync {
     /// Read lyrics for a music file.
@@ -428,45 +442,41 @@ pub trait LyricReader: Send + Sync {
 
 /// Default LyricReader using std::fs
 ///
-/// This implementation constructs the .lrc file path by replacing the extension
-/// of the given file_path with ".lrc" and reads it using std::fs.
+/// This implementation constructs sidecar lyric paths by replacing the extension
+/// of the given file path with `.lrc` first, then `.vtt`, and reads the first match.
 pub struct StdLyricReader;
 
 #[async_trait]
 impl LyricReader for StdLyricReader {
     async fn read_lyric(&self, file_path: &str, _filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
         debug!("StdLyricReader::read_lyric called with file_path: {}", file_path);
+        for lyric_path in lyric_candidate_paths(file_path) {
+            debug!("Attempting to read lyrics file: {}", lyric_path);
 
-        // Construct LRC file path by replacing the file extension with .lrc
-        let lrc_path = Path::new(file_path)
-            .with_extension("lrc")
-            .to_string_lossy()
-            .to_string();
-
-        debug!("Attempting to read lyrics file: {}", lrc_path);
-
-        // Use spawn_blocking for std::fs operations to avoid blocking the async runtime
-        let path = lrc_path.clone();
-        match tokio::task::spawn_blocking(move || std::fs::read(&path))
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-        {
-            Ok(content) => {
-                debug!(
-                    "Successfully read lyrics file: {} ({} bytes)",
-                    lrc_path,
-                    content.len()
-                );
-                Ok(Some(content))
-            }
-            Err(e) => {
-                debug!(
-                    "Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}",
-                    lrc_path, e
-                );
-                Ok(None)
+            let path = lyric_path.clone();
+            match tokio::task::spawn_blocking(move || std::fs::read(&path))
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            {
+                Ok(content) => {
+                    debug!(
+                        "Successfully read lyrics file: {} ({} bytes)",
+                        lyric_path,
+                        content.len()
+                    );
+                    return Ok(Some(content));
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    debug!(
+                        "Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}",
+                        lyric_path, e
+                    );
+                }
+                Err(e) => return Err(e),
             }
         }
+
+        Ok(None)
     }
 }
 
