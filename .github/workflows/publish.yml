@@ -10,7 +10,7 @@ on:
     branches: [ "master" ]
 
 concurrency:
-  group: publish-${{ github.event.release.tag_name }}
+  group: publish-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -66,6 +66,7 @@ jobs:
         run: npm run build
 
   release-desktop:
+    if: github.event_name == 'release'
     name: Release desktop (${{ matrix.platform }})
     needs: test
     permissions:
@@ -112,7 +113,7 @@ jobs:
         run: npm ci
 
       - name: Build and upload desktop bundles
-        uses: tauri-apps/tauri-action@action-v0.6.2
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -121,6 +122,7 @@ jobs:
           tagName: ${{ github.event.release.tag_name }}
 
   release-android:
+    if: github.event_name == 'release'
     name: Release Android
     needs: test
     runs-on: ubuntu-latest
