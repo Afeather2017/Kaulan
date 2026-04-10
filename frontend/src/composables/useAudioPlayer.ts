@@ -20,6 +20,7 @@ export interface MusicInfo {
   lufs: number | null
   path: string
   stream_url?: string | null
+  cover_url?: string | null
 }
 
 export type PlayMode = 'sequential' | 'shuffle' | 'loop'
@@ -83,20 +84,40 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     return url.toString()
   }
 
+  const buildCoverUrl = (songId: number): string | null => {
+    if (songId <= 0) {
+      return null
+    }
+    try {
+      return new URL(`${apiBase}/music/id/${songId}/cover`).toString()
+    } catch {
+      return new URL(`${apiBase}/music/id/${songId}/cover`, window.location.origin).toString()
+    }
+  }
+
   const toQueueSong = (song: MusicInfo) => ({
     id: song.id,
     name: song.name,
     path: song.path,
     url: song.stream_url ?? buildAudioUrl(song.id),
-    lufs: song.lufs
+    lufs: song.lufs,
+    coverUrl: song.cover_url ?? buildCoverUrl(song.id)
   })
 
-  const toMusicInfo = (song: { id: number; name: string; path: string; lufs: number | null; url?: string | null }): MusicInfo => ({
+  const toMusicInfo = (song: {
+    id: number
+    name: string
+    path: string
+    lufs: number | null
+    url?: string | null
+    coverUrl?: string | null
+  }): MusicInfo => ({
     id: song.id,
     name: song.name,
     path: song.path,
     lufs: song.lufs,
-    stream_url: song.url ?? null
+    stream_url: song.url ?? null,
+    cover_url: song.coverUrl ?? buildCoverUrl(song.id)
   })
 
   const toStoredPlaybackQueueSong = (song: MusicInfo): StoredPlaybackQueueSong => ({
@@ -104,7 +125,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     name: song.name,
     path: song.path,
     url: song.stream_url ?? buildAudioUrl(song.id),
-    lufs: song.lufs
+    lufs: song.lufs,
+    coverUrl: song.cover_url ?? buildCoverUrl(song.id)
   })
 
   const persistPlaybackSession = (queue: MusicInfo[], currentSongId: number | null) => {
@@ -426,7 +448,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     } else {
       await plugin.play({
         url: targetSong.stream_url ?? buildAudioUrl(targetSong.id),
-        title: targetSong.name
+        title: targetSong.name,
+        coverUrl: targetSong.cover_url ?? buildCoverUrl(targetSong.id) ?? undefined
       })
     }
 
@@ -544,7 +567,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         } else {
           await plugin.play({
             url: currentSong.value.stream_url ?? buildAudioUrl(currentSong.value.id),
-            title: currentSong.value.name
+            title: currentSong.value.name,
+            coverUrl: currentSong.value.cover_url ?? buildCoverUrl(currentSong.value.id) ?? undefined
           })
         }
       } else if (activeQueue.value.length > 0) {
