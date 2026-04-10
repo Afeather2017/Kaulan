@@ -21,6 +21,7 @@ export interface StoredPlaybackQueueSong {
   path: string
   url: string
   lufs: number | null
+  coverUrl?: string | null
 }
 
 export interface StoredPlaybackSession {
@@ -160,7 +161,8 @@ function isStoredPlaybackQueueSong(value: unknown): value is StoredPlaybackQueue
     typeof song.name === 'string' &&
     typeof song.path === 'string' &&
     typeof song.url === 'string' &&
-    (typeof song.lufs === 'number' || song.lufs === null)
+    (typeof song.lufs === 'number' || song.lufs === null) &&
+    (typeof song.coverUrl === 'string' || song.coverUrl === null || typeof song.coverUrl === 'undefined')
   )
 }
 
