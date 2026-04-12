@@ -204,14 +204,16 @@ describe('useAudioPlayer - duration loading', () => {
           name: 'Test Song 1',
           path: '/test/song1.mp3',
           url: 'http://localhost:2080/api/music/id/1',
-          lufs: -12
+          lufs: -12,
+          coverUrl: 'http://localhost:2080/api/music/id/1/cover'
         },
         {
           id: 2,
           name: 'Test Song 2',
           path: '/test/song2.mp3',
           url: 'http://localhost:2080/api/music/id/2',
-          lufs: null
+          lufs: null,
+          coverUrl: 'http://localhost:2080/api/music/id/2/cover'
         }
       ],
       timestamp: expect.any(Number)

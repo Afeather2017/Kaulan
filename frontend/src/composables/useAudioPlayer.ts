@@ -1,4 +1,4 @@
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { getApiBase } from '@/utils/api'
 import { checkIsAndroid } from '@/utils/platform'
 import {
@@ -817,13 +817,17 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
   })
 
-  onUnmounted(() => {
+  const cleanup = () => {
     stopAndroidPolling()
     if (audioElement.value) {
       audioElement.value.pause()
       audioElement.value = null
     }
-  })
+  }
+
+  if (getCurrentScope()) {
+    onScopeDispose(cleanup)
+  }
 
   return {
     audioElement,
