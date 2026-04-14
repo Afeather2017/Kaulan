@@ -258,6 +258,21 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
   }
 
+  const getQueueForPlayModeToggle = (): MusicInfo[] => {
+    const currentSongId = currentSong.value?.id ?? null
+    const sourceQueue = songs()
+
+    if (currentSongId !== null && sourceQueue.some(song => song.id === currentSongId)) {
+      return sourceQueue.slice()
+    }
+
+    if (activeQueue.value.length > 0) {
+      return activeQueue.value.slice()
+    }
+
+    return sourceQueue.slice()
+  }
+
   const prepareSongForPlayback = async (song: MusicInfo): Promise<MusicInfo> => {
     if (!prepareSong) {
       return song
@@ -633,6 +648,22 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       playMode.value = 'loop'
     } else {
       playMode.value = 'sequential'
+    }
+
+    if (currentSong.value) {
+      const queueForMode = getQueueForPlayModeToggle()
+      const selectedIndex = queueForMode.findIndex(song => song.id === currentSong.value?.id)
+      const { queue, index } = buildQueueForMode(
+        currentSong.value,
+        selectedIndex >= 0 ? selectedIndex : undefined,
+        queueForMode
+      )
+
+      activeQueue.value = queue
+      currentIndex.value = index
+      currentSong.value = queue[index] ?? currentSong.value
+      playedSongIndexes.value = currentIndex.value >= 0 ? new Set([currentIndex.value]) : new Set()
+      persistPlaybackSession(activeQueue.value, currentSong.value?.id ?? null)
     }
 
     if (isAndroidPlayer.value) {

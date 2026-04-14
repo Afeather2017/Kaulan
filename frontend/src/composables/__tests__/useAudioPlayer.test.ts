@@ -220,6 +220,24 @@ describe('useAudioPlayer - duration loading', () => {
     })
   })
 
+  it('should keep the current song stable when toggling to shuffle mode', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const { playSongAtIndex, togglePlayMode, playMode, activeQueue, currentSong, currentIndex } = useAudioPlayer({
+      songs: () => mockSongs
+    })
+
+    await playSongAtIndex(mockSongs[1], 1, mockSongs)
+    await togglePlayMode()
+
+    expect(playMode.value).toBe('shuffle')
+    expect(currentSong.value?.id).toBe(mockSongs[1].id)
+    expect(currentSong.value?.name).toBe(mockSongs[1].name)
+    expect(currentIndex.value).toBe(0)
+    expect(activeQueue.value[0]?.id).toBe(mockSongs[1].id)
+
+    randomSpy.mockRestore()
+  })
+
   it('should restore queue and current song from stored playback session on init', async () => {
     setStoredPlaybackSession({
       currentSongId: 2,
