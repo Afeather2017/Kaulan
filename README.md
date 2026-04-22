@@ -8,6 +8,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Mobile-First Design** - Responsive UI optimized for mobile devices
 - **Android Support** - Native Android app using MediaStore API for music access
 - **Android Playback Session** - Queue and current playback state survive webview recreation
+- **Android Notification Cover Art** - Android playback notifications reuse embedded cover art from the backend cover endpoint when available
 - **Audio Streaming** - Direct streaming from server to browser with position-based seeking
 - **File System Playlists** - Automatic playlist creation from folder structure
 - **Collection Management** - User-defined playlists/collections
@@ -227,6 +228,20 @@ Accept-Ranges: bytes
 Cache-Control: public, max-age=86400, must-revalidate
 X-Seek-Position: 0.1
 ```
+
+#### GET /api/music/id/{id}/cover
+
+Get embedded cover art for a music file by ID.
+
+**Parameters:**
+- `id` (path parameter) - The music ID
+
+**Response:** Embedded image binary data with the detected image content type
+
+**Behavior:**
+- Returns `200 OK` when cover art is embedded in the audio metadata
+- Returns `404 Not Found` when the file has no embedded cover art
+- Used by the Android playback notification to show album artwork when available
 
 **Example:** Stream from 10% position (saves bandwidth for large seeks)
 ```bash
