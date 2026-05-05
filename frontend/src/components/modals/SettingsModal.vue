@@ -266,6 +266,20 @@
           </p>
         </div>
 
+        <!-- Android: Disable Headset Media Button -->
+        <div v-if="isAndroid" class="setting-item">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              :checked="disableHeadsetMediaButton"
+              @change="handleDisableHeadsetMediaButtonChange"
+              class="setting-checkbox"
+            />
+            <span>禁用耳机媒体按钮</span>
+          </label>
+          <p class="setting-hint">启用后，耳机的播放/暂停/上一曲/下一曲按钮将被忽略。适用于耳机按钮故障时防止误触。</p>
+        </div>
+
         <hr class="settings-divider" />
         <div class="mode-toggle">
           <div class="mode-label">媒体类型过滤</div>
@@ -322,7 +336,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { getApiBase, normalizeApiBase, setApiBase } from '@/utils/api'
 import { validateServerUrl } from '@/utils/validation'
-import { getMediaTypes, setMediaTypes, setShowLufs } from '@/utils/storage'
+import { getMediaTypes, setMediaTypes, setShowLufs, getDisableHeadsetMediaButton, setDisableHeadsetMediaButton } from '@/utils/storage'
 import { useDeviceDiscovery, type DiscoveredDevice } from '@/composables/useDeviceDiscovery'
 
 type VolumeMode = 'auto' | 'manual' | 'fixed'
@@ -505,6 +519,9 @@ const isRequestingPermission = ref<boolean>(false)
 const permissionGranted = ref<boolean>(false)
 const permissionStatus = ref<string>('')
 
+// Disable headset media button (Android only)
+const disableHeadsetMediaButton = ref<boolean>(false)
+
 // Check if running on Android
 const isAndroid = ref<boolean>(false)
 
@@ -540,6 +557,19 @@ const handleUseLocalLyricsChange = async (e: Event) => {
     useLocalLyrics.value = false
   } finally {
     isRequestingPermission.value = false
+  }
+}
+
+const handleDisableHeadsetMediaButtonChange = async (e: Event) => {
+  const checked = (e.target as HTMLInputElement).checked
+  disableHeadsetMediaButton.value = checked
+  setDisableHeadsetMediaButton(checked)
+
+  try {
+    const plugin = await import('music-notification-api')
+    await plugin.setHeadsetMediaButtonDisabled(checked)
+  } catch (error) {
+    console.error('Failed to sync headset media button setting to native:', error)
   }
 }
 
@@ -804,6 +834,16 @@ onMounted(async () => {
       }
     } catch (e) {
       console.error('Failed to check permission status:', e)
+    }
+
+    // Sync headset media button setting to native plugin
+    const localHeadsetValue = getDisableHeadsetMediaButton()
+    disableHeadsetMediaButton.value = localHeadsetValue
+    try {
+      const plugin = await import('music-notification-api')
+      await plugin.setHeadsetMediaButtonDisabled(localHeadsetValue)
+    } catch (e) {
+      console.error('Failed to sync headset media button setting:', e)
     }
   }
 })
