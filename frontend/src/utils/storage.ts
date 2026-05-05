@@ -12,7 +12,8 @@ export const STORAGE_KEYS = {
   VIEW_MODE: 'kaulan_view_mode',
   SHOW_LUFS: 'kaulan_show_lufs',
   MEDIA_TYPES: 'kaulan_media_types',
-  PLAYBACK_SESSION: 'kaulan_playback_session'
+  PLAYBACK_SESSION: 'kaulan_playback_session',
+  DISABLE_HEADSET_MEDIA_BUTTON: 'kaulan_disable_headset_media_button'
 } as const
 
 export interface StoredPlaybackQueueSong {
@@ -116,6 +117,14 @@ export function getShowLufs(): boolean {
  */
 export function setShowLufs(show: boolean): void {
   setStorageValue(STORAGE_KEYS.SHOW_LUFS, show ? 'true' : 'false')
+}
+
+export function getDisableHeadsetMediaButton(): boolean {
+  return getStorageValue(STORAGE_KEYS.DISABLE_HEADSET_MEDIA_BUTTON) === 'true'
+}
+
+export function setDisableHeadsetMediaButton(disabled: boolean): void {
+  setStorageValue(STORAGE_KEYS.DISABLE_HEADSET_MEDIA_BUTTON, disabled ? 'true' : 'false')
 }
 
 /**
