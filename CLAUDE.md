@@ -34,6 +34,7 @@ Documentations should always in English. When feature is done, you should genera
 3. API reference, use rust-builtin reference system, this should be done in comments.
 4. CLAUDE.md, Introduce the project framework by path.
 5. In source code and test files, comment the documentation file. And documentation should contains the related source file path.
+6. External code brought in as a git submodule should live under `vendor/`.
 
 ### Log
 
