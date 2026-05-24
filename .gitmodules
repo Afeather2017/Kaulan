@@ -1,3 +1,9 @@
 [submodule "tauri-plugin-music-notification"]
 	path = vendor/tauri-plugin-music-notification
 	url = https://github.com/Afeather2017/tauri-plugin-music-notification.git
+[submodule "vendor/ncmdump-rs"]
+	path = vendor/ncmdump-rs
+	url = https://github.com/Afeather2017/ncmdump-rs
+[submodule "vendor/ytdl-audio"]
+	path = vendor/ytdl-audio
+	url = https://github.com/Afeather2017/ytdl-audio.git

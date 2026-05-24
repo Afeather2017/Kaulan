@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+-keepclassmembers class afeather.kaulan.MainActivity {
+    public java.lang.String runHiddenSolver(java.lang.String, java.lang.String);
+}

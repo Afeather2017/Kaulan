@@ -3,26 +3,60 @@
     <div class="modal-content" @click.stop>
       <h3>在线查找</h3>
 
-      <!-- Search Input -->
       <div class="search-section">
         <div class="search-input-row">
           <input
             v-model="searchInput"
             type="text"
-            placeholder="搜索YouTube音乐..."
+            placeholder="搜索歌曲、视频或歌词关键字..."
             @keyup.enter="handleSearch"
           />
           <button
             class="search-btn"
             @click="handleSearch"
-            :disabled="isSearching || !searchInput.trim()"
+            :disabled="isSearching || !searchInput.trim() || selectedSources.length === 0"
           >
             {{ isSearching ? '搜索中...' : '搜索' }}
           </button>
         </div>
+
+        <div class="source-row">
+          <label v-for="source in sourceOptions" :key="source.value" class="source-checkbox">
+            <input
+              type="checkbox"
+              :checked="selectedSources.includes(source.value)"
+              :disabled="!isSourceAvailable(source.value)"
+              @change="toggleSource(source.value)"
+            />
+            <span>{{ source.label }}</span>
+          </label>
+        </div>
       </div>
 
-      <!-- Directory Tree -->
+      <div class="provider-statuses">
+        <div
+          v-for="provider in providerOptions"
+          :key="provider.value"
+          class="provider-card"
+        >
+          <div class="provider-title">{{ provider.label }}</div>
+          <div class="provider-summary">{{ providerStatus[provider.value].summary }}</div>
+          <div class="provider-actions">
+            <template v-if="!providerStatus[provider.value].is_logged_in">
+              <button class="login-btn" @click="openLogin(provider.value)">打开登录</button>
+              <button class="login-btn" @click="captureLogin(provider.value)">读取登录</button>
+            </template>
+            <button
+              v-if="providerStatus[provider.value].is_logged_in"
+              class="secondary-btn"
+              @click="logout(provider.value)"
+            >
+              退出
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="directory-section">
         <label class="setting-label">保存到目录</label>
         <div class="directory-tree">
@@ -33,60 +67,92 @@
             @select="selectDirectory"
           />
         </div>
-        <p v-if="permissionMessage" :class="['permission-message', { error: !storagePermissionGranted }]">
-          {{ permissionMessage }}
+        <p class="permission-message">
+          Android 下载会保存到应用目录，试听文件会在下次启动时自动清理。
         </p>
-        <button
-          v-if="isAndroid && !storagePermissionGranted"
-          class="permission-btn"
-          @click="requestStoragePermission"
-          :disabled="isRequestingPermission"
-        >
-          {{ isRequestingPermission ? '请求权限中...' : '授予存储权限后允许下载' }}
-        </button>
       </div>
 
-      <!-- Search Results -->
       <div class="results-section" v-if="searchResults.length > 0">
         <div class="results-list">
           <div
             v-for="result in searchResults"
-            :key="result.id"
+            :key="result.source + ':' + result.id"
             class="result-item"
           >
             <img
+              v-if="result.thumbnail_url"
               :src="result.thumbnail_url"
               class="result-thumbnail"
               loading="lazy"
             />
-            <div class="result-info" @click="handleDownload(result)">
-              <div class="result-title">{{ result.title }}</div>
+            <div v-else class="result-thumbnail placeholder"></div>
+
+            <div class="result-info">
+              <div class="result-header">
+                <div class="result-title">{{ result.title }}</div>
+                <span class="source-badge">{{ sourceLabel(result.source) }}</span>
+              </div>
               <div class="result-meta">
-                {{ result.channel }}
-                <span v-if="result.duration" class="result-duration">
-                  {{ result.duration }}
-                </span>
+                {{ result.artist }}
+                <span v-if="result.duration" class="result-duration">{{ result.duration }}</span>
+              </div>
+              <div v-if="selectedLyrics[resultKey(result)]" class="selected-lyric">
+                歌词: {{ selectedLyrics[resultKey(result)]?.title }} / {{ selectedLyrics[resultKey(result)]?.artist }}
               </div>
             </div>
-            <button
-              class="download-btn"
-              @click.stop="handleDownload(result)"
-              :disabled="downloadingId === result.id || (isAndroid && !storagePermissionGranted)"
+
+            <div class="result-actions">
+              <button
+                class="action-btn preview-btn"
+                @click="handlePreview(result)"
+                :disabled="previewingKey === resultKey(result)"
+              >
+                {{ previewingKey === resultKey(result) ? '准备中' : '试听' }}
+              </button>
+              <button
+                class="action-btn lyric-btn"
+                @click="toggleLyrics(result)"
+                :disabled="loadingLyricsKey === resultKey(result)"
+              >
+                {{ loadingLyricsKey === resultKey(result) ? '读取中' : '歌词' }}
+              </button>
+              <button
+                class="action-btn download-btn"
+                @click="handleDownload(result)"
+                :disabled="downloadingKey === resultKey(result)"
+              >
+                {{ downloadingKey === resultKey(result) ? '下载中' : '下载' }}
+              </button>
+            </div>
+
+            <div
+              v-if="expandedLyricsKey === resultKey(result)"
+              class="lyrics-candidates"
             >
-              <i
-                :class="downloadingId === result.id ? 'fas fa-spinner fa-spin' : 'fas fa-download'"
-              ></i>
-            </button>
+              <div
+                v-for="candidate in lyricCandidates[resultKey(result)] || []"
+                :key="candidate.id"
+                :class="['lyric-candidate', { selected: selectedLyrics[resultKey(result)]?.id === candidate.id }]"
+                @click="selectLyric(result, candidate)"
+              >
+                <div class="candidate-title">{{ candidate.title }}</div>
+                <div class="candidate-meta">{{ candidate.artist }}</div>
+              </div>
+              <div
+                v-if="(lyricCandidates[resultKey(result)] || []).length === 0"
+                class="empty-candidate"
+              >
+                未找到可选歌词
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Status Message -->
       <div v-if="statusMessage" :class="['status-message', statusType]">
         {{ statusMessage }}
       </div>
 
-      <!-- Close Button -->
       <div class="modal-actions">
         <button @click="$emit('close')" class="close-btn">关闭</button>
       </div>
@@ -95,16 +161,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { getApiBase } from '@/utils/api'
 import { checkIsAndroid } from '@/utils/platform'
 
+type DownloadSource = 'youtube' | 'netease' | 'bilibili'
+type OnlineProvider = DownloadSource
+
 interface SearchResult {
+  source: DownloadSource
   id: string
   title: string
-  channel: string
+  artist: string
   duration: string | null
-  thumbnail_url: string
+  thumbnail_url: string | null
+  can_preview: boolean
+  can_download: boolean
+  requires_login: boolean
 }
 
 interface DirectoryNode {
@@ -114,44 +187,128 @@ interface DirectoryNode {
   children?: DirectoryNode[]
 }
 
+interface ProviderStatus {
+  provider: string
+  is_logged_in: boolean
+  session_path: string
+  summary: string
+}
+
+interface LyricCandidate {
+  source: DownloadSource
+  id: string
+  title: string
+  artist: string
+  album?: string | null
+}
+
+interface PreviewSong {
+  id: number
+  name: string
+  path: string
+  stream_url: string
+  lufs: number | null
+  cover_url?: string | null
+  source: DownloadSource
+  is_temporary: boolean
+}
+
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'downloadComplete'): void
+  (e: 'previewTrack', song: PreviewSong): void
 }>()
+
+const sourceOptions: Array<{ value: DownloadSource; label: string }> = [
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'netease', label: '网易云' },
+  { value: 'bilibili', label: 'Bilibili' }
+]
+
+const providerOptions: Array<{ value: OnlineProvider; label: string }> = [
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'netease', label: '网易云' },
+  { value: 'bilibili', label: 'Bilibili' }
+]
 
 const searchInput = ref('')
 const isSearching = ref(false)
 const searchResults = ref<SearchResult[]>([])
-const downloadingId = ref<string | null>(null)
+const downloadingKey = ref<string | null>(null)
+const previewingKey = ref<string | null>(null)
+const loadingLyricsKey = ref<string | null>(null)
+const expandedLyricsKey = ref<string | null>(null)
 const statusMessage = ref('')
-const statusType = ref('')
+const statusType = ref<'info' | 'success' | 'error'>('info')
 const directoryTree = ref<DirectoryNode | null>(null)
 const selectedPath = ref('')
-const isAndroid = ref(false)
-const storagePermissionGranted = ref(true)
-const isRequestingPermission = ref(false)
-const permissionMessage = ref('')
-
-onMounted(async () => {
-  isAndroid.value = await checkIsAndroid()
-  if (isAndroid.value) {
-    await loadPermissionState()
+const selectedSources = ref<DownloadSource[]>(['youtube', 'netease', 'bilibili'])
+const lyricCandidates = reactive<Record<string, LyricCandidate[]>>({})
+const selectedLyrics = reactive<Record<string, LyricCandidate | null>>({})
+const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
+  youtube: {
+    provider: 'youtube',
+    is_logged_in: false,
+    session_path: '',
+    summary: '未读取登录状态'
+  },
+  netease: {
+    provider: 'netease',
+    is_logged_in: false,
+    session_path: '',
+    summary: '未读取登录状态'
+  },
+  bilibili: {
+    provider: 'bilibili',
+    is_logged_in: false,
+    session_path: '',
+    summary: '未读取登录状态'
   }
-  await loadDirectoryTree()
 })
 
-const loadPermissionState = async () => {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    storagePermissionGranted.value = await invoke<boolean>('check_external_storage_permission')
-    permissionMessage.value = storagePermissionGranted.value
-      ? '已获得外部存储权限，下载会保存到 /sdcard/Music'
-      : '下载到 /sdcard/Music 需要外部存储权限'
-  } catch (error) {
-    console.error('Failed to check external storage permission:', error)
-    storagePermissionGranted.value = false
-    permissionMessage.value = '无法检查外部存储权限'
+onMounted(async () => {
+  await Promise.all([
+    loadDirectoryTree(),
+    loadProviderStatus('youtube'),
+    loadProviderStatus('netease'),
+    loadProviderStatus('bilibili'),
+    checkIsAndroid()
+  ])
+  syncSelectedSources()
+})
+
+const resultKey = (result: SearchResult): string => `${result.source}:${result.id}`
+
+const sourceLabel = (source: DownloadSource): string => {
+  switch (source) {
+    case 'youtube':
+      return 'YouTube'
+    case 'netease':
+      return '网易云'
+    case 'bilibili':
+      return 'Bilibili'
   }
+}
+
+const isSourceAvailable = (source: DownloadSource): boolean => providerStatus[source].is_logged_in
+
+const syncSelectedSources = () => {
+  selectedSources.value = selectedSources.value.filter(source => isSourceAvailable(source))
+}
+
+const toggleSource = (source: DownloadSource) => {
+  if (!isSourceAvailable(source)) {
+    return
+  }
+  if (selectedSources.value.includes(source)) {
+    selectedSources.value = selectedSources.value.filter(item => item !== source)
+    return
+  }
+  selectedSources.value = [...selectedSources.value, source]
+}
+
+const selectDirectory = (path: string) => {
+  selectedPath.value = path
 }
 
 const loadDirectoryTree = async () => {
@@ -159,48 +316,85 @@ const loadDirectoryTree = async () => {
     const response = await fetch(getApiBase() + '/download/directory-tree')
     if (response.ok) {
       directoryTree.value = await response.json()
-      return
-    }
-    if (response.status === 403 && isAndroid.value) {
-      directoryTree.value = null
-      permissionMessage.value = '下载目录需要外部存储权限后才能浏览'
     }
   } catch (error) {
-    console.error('Failed to load directory tree:', error)
+    console.error('Failed to load download directory tree:', error)
   }
 }
 
-const requestStoragePermission = async () => {
-  if (!isAndroid.value) {
-    storagePermissionGranted.value = true
-    return
+const providerLabel = (provider: OnlineProvider): string => {
+  switch (provider) {
+    case 'youtube':
+      return 'YouTube'
+    case 'netease':
+      return '网易云'
+    case 'bilibili':
+      return 'Bilibili'
   }
+}
 
-  isRequestingPermission.value = true
+const loadProviderStatus = async (provider: OnlineProvider) => {
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    storagePermissionGranted.value = await invoke<boolean>('request_external_storage_permission')
-    permissionMessage.value = storagePermissionGranted.value
-      ? '已获得外部存储权限，下载会保存到 /sdcard/Music'
-      : '权限未授予，无法下载到 /sdcard/Music'
-    if (storagePermissionGranted.value) {
-      await loadDirectoryTree()
-    }
+    const status = await invoke<ProviderStatus>('online_login_status', { provider })
+    providerStatus[provider] = status
+    syncSelectedSources()
   } catch (error) {
-    console.error('Failed to request external storage permission:', error)
-    storagePermissionGranted.value = false
-    permissionMessage.value = '请求外部存储权限失败'
-  } finally {
-    isRequestingPermission.value = false
+    providerStatus[provider].summary = '当前环境不支持读取登录状态'
+    console.warn('Failed to load provider status:', provider, error)
   }
 }
 
-const selectDirectory = (path: string) => {
-  selectedPath.value = path
+const openLogin = async (provider: OnlineProvider) => {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('online_open_login', { provider })
+    statusType.value = 'info'
+    statusMessage.value = `已打开 ${providerLabel(provider)} 登录页面`
+  } catch (error) {
+    statusType.value = 'error'
+    statusMessage.value = `打开登录失败: ${error}`
+  }
+}
+
+const captureLogin = async (provider: OnlineProvider) => {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const status = await invoke<ProviderStatus>('online_capture_login', { provider })
+    providerStatus[provider] = status
+    if (!selectedSources.value.includes(provider)) {
+      selectedSources.value = [...selectedSources.value, provider]
+    }
+    statusType.value = 'success'
+    statusMessage.value = `${providerLabel(provider)} 登录信息已保存`
+  } catch (error) {
+    statusType.value = 'error'
+    statusMessage.value = `读取登录信息失败: ${error}`
+  }
+}
+
+const logout = async (provider: OnlineProvider) => {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const status = await invoke<ProviderStatus>('online_logout', { provider })
+    providerStatus[provider] = status
+    syncSelectedSources()
+    statusType.value = 'success'
+    statusMessage.value = `${providerLabel(provider)} 已退出`
+  } catch (error) {
+    statusType.value = 'error'
+    statusMessage.value = `退出失败: ${error}`
+  }
 }
 
 const handleSearch = async () => {
-  if (!searchInput.value.trim()) return
+  const enabledSources = selectedSources.value.filter(source => isSourceAvailable(source))
+  if (!searchInput.value.trim() || enabledSources.length === 0) {
+    statusType.value = 'error'
+    statusMessage.value = '请先登录至少一个可用来源'
+    return
+  }
+
   isSearching.value = true
   statusMessage.value = ''
   try {
@@ -209,55 +403,140 @@ const handleSearch = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query: searchInput.value.trim(),
-        max_results: 10,
-      }),
+        max_results: 8,
+        sources: enabledSources
+      })
     })
     if (!response.ok) {
-      const err = await response.json()
-      throw new Error(err.message || '搜索失败')
+      const errorText = await response.text()
+      throw new Error(errorText || '搜索失败')
     }
+
     searchResults.value = await response.json()
   } catch (error) {
     statusType.value = 'error'
-    statusMessage.value = '搜索失败: ' + error
+    statusMessage.value = `搜索失败: ${error}`
   } finally {
     isSearching.value = false
   }
 }
 
-const handleDownload = async (result: SearchResult) => {
-  if (isAndroid.value && !storagePermissionGranted.value) {
+const handlePreview = async (result: SearchResult) => {
+  previewingKey.value = resultKey(result)
+  statusType.value = 'info'
+  statusMessage.value = `正在准备试听: ${result.title}`
+
+  try {
+    const response = await fetch(getApiBase() + '/download/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: result.source,
+        id: result.id,
+        title: result.title,
+        artist: result.artist
+      })
+    })
+    const payload = await response.json()
+    if (!response.ok || !payload.success || !payload.song) {
+      throw new Error(payload.message || '试听准备失败')
+    }
+
+    emit('previewTrack', {
+      ...payload.song,
+      lufs: null
+    })
+    statusType.value = 'success'
+    statusMessage.value = `已开始试听: ${result.title}`
+  } catch (error) {
     statusType.value = 'error'
-    statusMessage.value = '请先授予外部存储权限'
+    statusMessage.value = `试听失败: ${error}`
+  } finally {
+    previewingKey.value = null
+  }
+}
+
+const fetchLyrics = async (result: SearchResult) => {
+  loadingLyricsKey.value = resultKey(result)
+  try {
+    const response = await fetch(getApiBase() + '/download/lyrics/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `${result.title} ${result.artist}`.trim()
+      })
+    })
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(text || '歌词搜索失败')
+    }
+    lyricCandidates[resultKey(result)] = await response.json()
+  } finally {
+    loadingLyricsKey.value = null
+  }
+}
+
+const toggleLyrics = async (result: SearchResult) => {
+  const key = resultKey(result)
+  if (expandedLyricsKey.value === key) {
+    expandedLyricsKey.value = null
     return
   }
-  downloadingId.value = result.id
+  expandedLyricsKey.value = key
+  if (lyricCandidates[key] === undefined) {
+    try {
+      await fetchLyrics(result)
+    } catch (error) {
+      statusType.value = 'error'
+      statusMessage.value = `歌词搜索失败: ${error}`
+    }
+  }
+}
+
+const selectLyric = (result: SearchResult, candidate: LyricCandidate) => {
+  selectedLyrics[resultKey(result)] = candidate
+}
+
+const handleDownload = async (result: SearchResult) => {
+  downloadingKey.value = resultKey(result)
   statusType.value = 'info'
-  statusMessage.value = '正在下载: ' + result.title + '...'
+  statusMessage.value = `正在下载: ${result.title}`
   try {
+    const selectedLyric = selectedLyrics[resultKey(result)]
     const response = await fetch(getApiBase() + '/download/track', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        video_id: result.id,
+        source: result.source,
+        id: result.id,
         title: result.title,
+        artist: result.artist,
         target_subdir: selectedPath.value || '',
-      }),
+        lyric_selection: selectedLyric?.id ?? null
+      })
     })
     const data = await response.json()
-    if (data.success) {
-      statusType.value = 'success'
-      statusMessage.value = '下载完成: ' + data.filename
-      emit('downloadComplete')
-    } else {
-      statusType.value = 'error'
-      statusMessage.value = data.message || '下载失败'
+    console.log('[online-search] download response:', {
+      status: response.status,
+      ok: response.ok,
+      source: result.source,
+      id: result.id,
+      target_subdir: selectedPath.value || '',
+      payload: data
+    })
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || '下载失败')
     }
+    statusType.value = data.warning ? 'info' : 'success'
+    statusMessage.value = data.warning
+      ? `下载完成: ${data.filename}，${data.warning}`
+      : `下载完成: ${data.filename}`
+    emit('downloadComplete')
   } catch (error) {
     statusType.value = 'error'
-    statusMessage.value = '下载失败: ' + error
+    statusMessage.value = `下载失败: ${error}`
   } finally {
-    downloadingId.value = null
+    downloadingKey.value = null
   }
 }
 </script>
@@ -277,12 +556,12 @@ export const DirectoryTreeNode = defineComponent({
   props: {
     node: {
       type: Object as PropType<DirectoryNode>,
-      required: true,
+      required: true
     },
     selectedPath: {
       type: String,
-      default: '',
-    },
+      default: ''
+    }
   },
   emits: ['select'],
   template: `
@@ -304,7 +583,7 @@ export const DirectoryTreeNode = defineComponent({
         />
       </div>
     </div>
-  `,
+  `
 })
 </script>
 
@@ -324,27 +603,22 @@ export const DirectoryTreeNode = defineComponent({
 
 .modal-content {
   background-color: #fff;
-  padding: 25px;
-  border-radius: 10px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 85vh;
+  padding: 20px;
+  border-radius: 12px;
+  width: min(92vw, 760px);
+  max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
 .modal-content h3 {
+  margin: 0 0 18px;
   text-align: center;
-  margin-bottom: 20px;
-  font-size: 22px;
-  font-weight: bold;
-  color: #333;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #eee;
 }
 
-.search-section {
-  margin-bottom: 20px;
+.search-section,
+.directory-section,
+.results-section {
+  margin-bottom: 18px;
 }
 
 .search-input-row {
@@ -354,85 +628,107 @@ export const DirectoryTreeNode = defineComponent({
 
 .search-input-row input {
   flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+}
+
+.search-btn,
+.action-btn,
+.login-btn,
+.secondary-btn,
+.close-btn {
+  border: none;
+  border-radius: 8px;
   padding: 10px 14px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  font-size: 15px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.search-input-row input:focus {
-  border-color: #1db954;
-}
-
-.search-btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  background-color: #1db954;
-  color: white;
-  font-size: 15px;
-  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s;
-  white-space: nowrap;
 }
 
-.search-btn:hover:not(:disabled) {
-  background-color: #1ed760;
-}
-
-.search-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.permission-message {
-  margin-top: 10px;
-  font-size: 13px;
-  color: #2f6f3e;
-}
-
-.permission-message.error {
-  color: #b42318;
-}
-
-.permission-btn {
-  margin-top: 10px;
-  padding: 8px 14px;
-  border: none;
-  border-radius: 5px;
-  background-color: #1db954;
+.search-btn,
+.download-btn,
+.preview-btn,
+.login-btn {
+  background: #1db954;
   color: #fff;
-  font-size: 14px;
-  cursor: pointer;
 }
 
-.permission-btn:disabled {
-  opacity: 0.6;
+.lyric-btn,
+.secondary-btn,
+.close-btn {
+  background: #eceff3;
+  color: #223;
+}
+
+.search-btn:disabled,
+.action-btn:disabled {
+  opacity: 0.65;
   cursor: not-allowed;
 }
 
-.directory-section {
-  margin-bottom: 20px;
+.source-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.source-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-statuses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.provider-card {
+  border: 1px solid #e4e8ee;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f9fbfc;
+}
+
+.provider-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.provider-summary {
+  font-size: 13px;
+  color: #4a5565;
+  min-height: 34px;
+}
+
+.provider-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }
 
 .setting-label {
   display: block;
-  margin-bottom: 10px;
-  font-weight: 500;
-  font-size: 15px;
-  color: #555;
+  margin-bottom: 8px;
+  font-weight: 600;
 }
 
 .directory-tree {
-  background-color: #f9f9f9;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  padding: 15px;
-  max-height: 150px;
+  border: 1px solid #e4e8ee;
+  border-radius: 8px;
+  padding: 10px;
+  max-height: 180px;
   overflow-y: auto;
+  background: #fbfcfd;
+}
+
+.permission-message {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #556372;
 }
 
 .directory-node {
@@ -447,159 +743,151 @@ export const DirectoryTreeNode = defineComponent({
   display: flex;
   align-items: center;
   padding: 6px 10px;
+  border-radius: 6px;
   cursor: pointer;
-  border-radius: 5px;
-  transition: background-color 0.2s;
-}
-
-.directory-name:hover {
-  background-color: #e8f5e9;
 }
 
 .directory-name.selected {
-  background-color: #1db954;
-  color: white;
+  background: #1db954;
+  color: #fff;
 }
 
 .folder-icon {
   margin-right: 8px;
-  font-size: 14px;
-}
-
-.node-text {
-  font-size: 14px;
-}
-
-.results-section {
-  margin-bottom: 15px;
 }
 
 .results-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .result-item {
-  display: flex;
-  align-items: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
   gap: 12px;
-  padding: 10px;
-  border-radius: 8px;
-  background-color: #f9f9f9;
-  transition: background-color 0.2s;
-}
-
-.result-item:hover {
-  background-color: #f0f0f0;
+  align-items: start;
 }
 
 .result-thumbnail {
-  width: 64px;
-  height: 48px;
-  border-radius: 4px;
+  width: 72px;
+  height: 72px;
   object-fit: cover;
-  flex-shrink: 0;
-  background-color: #e0e0e0;
+  border-radius: 8px;
+  background: #e5e7eb;
 }
 
-.result-info {
-  flex: 1;
-  min-width: 0;
-  cursor: pointer;
+.result-thumbnail.placeholder {
+  background: linear-gradient(135deg, #dae3e8, #eef3f6);
+}
+
+.result-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .result-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 700;
+  color: #1f2937;
 }
 
-.result-meta {
-  font-size: 12px;
-  color: #888;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.source-badge {
+  font-size: 11px;
+  background: #d8f4e1;
+  color: #126b37;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.result-meta,
+.selected-lyric,
+.candidate-meta,
+.empty-candidate {
+  font-size: 13px;
+  color: #576475;
+  margin-top: 4px;
 }
 
 .result-duration {
   margin-left: 8px;
-  color: #aaa;
 }
 
-.download-btn {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 50%;
-  background-color: #1db954;
-  color: white;
-  font-size: 14px;
-  cursor: pointer;
+.result-actions {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.download-btn:hover:not(:disabled) {
-  background-color: #1ed760;
+.lyrics-candidates {
+  grid-column: 2 / 4;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.download-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.lyric-candidate {
+  border: 1px solid #dde3ea;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.lyric-candidate.selected {
+  border-color: #1db954;
+  background: #eefaf2;
+}
+
+.candidate-title {
+  font-weight: 600;
 }
 
 .status-message {
-  padding: 10px;
-  border-radius: 5px;
-  font-weight: 500;
-  text-align: center;
+  border-radius: 8px;
+  padding: 10px 12px;
   font-size: 14px;
-  margin-bottom: 10px;
+  margin-top: 12px;
 }
 
 .status-message.info {
-  background-color: #d1ecf1;
-  color: #0c5460;
+  background: #e8f3ff;
+  color: #0e4f96;
 }
 
 .status-message.success {
-  background-color: #d4edda;
-  color: #155724;
+  background: #eaf8ef;
+  color: #1b6a39;
 }
 
 .status-message.error {
-  background-color: #f8d7da;
-  color: #721c24;
+  background: #fdecec;
+  color: #a12626;
 }
 
 .modal-actions {
   display: flex;
   justify-content: center;
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
-.close-btn {
-  padding: 10px 30px;
-  border: none;
-  border-radius: 5px;
-  background-color: #6c757d;
-  color: white;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
+@media (max-width: 640px) {
+  .result-item {
+    grid-template-columns: 56px 1fr;
+  }
 
-.close-btn:hover {
-  background-color: #5a6268;
+  .result-actions {
+    grid-column: 1 / 3;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .lyrics-candidates {
+    grid-column: 1 / 3;
+  }
 }
 </style>

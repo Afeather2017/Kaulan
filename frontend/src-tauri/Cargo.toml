@@ -33,6 +33,10 @@ async-trait = "0.1"
 bytes = "1"
 futures = "0.3"
 jni = "0.21"
+netease-api = { path = "../../vendor/ncmdump-rs/netease-api" }
+bilibili-api = { path = "../../vendor/ncmdump-rs/bilibili-api" }
+ytdl-audio = { path = "../../vendor/ytdl-audio" }
+url = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1"

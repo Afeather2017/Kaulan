@@ -16,6 +16,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Real-time Search** - Search across all songs instantly
 - **Remote Log Streaming** - View real-time logs via TCP on port 2081
 - **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
+- **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
 
 ## Quick Start
 
@@ -198,6 +199,22 @@ Stream an audio file by filename.
 #### GET /api/music/id/{id}
 
 Stream an audio file by ID with optional position-based seeking.
+
+#### POST /api/download/search
+
+Search online providers with a merged result list.
+
+#### POST /api/download/preview
+
+Download a temporary preview track and play it as a one-track queue.
+
+#### POST /api/download/lyrics/search
+
+Search Netease lyric candidates for any selected result.
+
+#### POST /api/download/track
+
+Download the selected provider track into the configured online download root and optionally save a matching `.lrc` file beside it.
 
 **Parameters:**
 - `id` (path parameter) - The music ID to stream
@@ -588,6 +605,12 @@ npm run tauri android dev
 
 See [`docs/android/mediastore-integration.md`](docs/android/mediastore-integration.md) for detailed technical documentation.
 See [`docs/android/playback-session.md`](docs/android/playback-session.md) for Android playback/session behavior.
+
+### Desktop Webview Cookies
+
+The desktop Tauri build can export the live webview cookie jar for YouTube/Google into a Netscape cookie file. This is useful for browser-login flows that need `HttpOnly` cookies.
+
+The export command is implemented in the Rust backend and writes a temporary jar file under the system temp directory.
 
 ### Android Permissions
 
