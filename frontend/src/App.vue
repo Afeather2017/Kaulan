@@ -195,6 +195,7 @@
       @database-updated="handleDatabaseUpdated"
       @database-update-start="handleDatabaseUpdateStart"
       @database-update-end="handleDatabaseUpdateEnd"
+      @open-online-search-modal="showOnlineSearchModal = true"
       @open-upload-modal="showUploadModal = true"
       @update:show-lufs="showLufs = $event"
     />
@@ -224,6 +225,13 @@
       @upload-complete="handleUploadComplete"
     />
 
+    <OnlineSearchModal
+      v-if="showOnlineSearchModal"
+      @close="showOnlineSearchModal = false"
+      @download-complete="handleOnlineDownloadComplete"
+      @preview-track="handlePreviewTrack"
+    />
+
     <!-- Active Queue Modal -->
     <ActiveQueueModal
       v-if="showActiveQueueModal"
@@ -245,6 +253,7 @@ import SettingsModal from '@/components/modals/SettingsModal.vue'
 import ActiveQueueModal from '@/components/modals/ActiveQueueModal.vue'
 import AddToCollectionModal from '@/components/modals/AddToCollectionModal.vue'
 import CreateCollectionModal from '@/components/modals/CreateCollectionModal.vue'
+import OnlineSearchModal from '@/components/modals/OnlineSearchModal.vue'
 import UploadModal from '@/components/modals/UploadModal.vue'
 import { useAudioPlayer, type MusicInfo } from '@/composables/useAudioPlayer'
 import { usePlaylist } from '@/composables/usePlaylist'
@@ -373,6 +382,7 @@ const selectedCollections = ref<number[]>([])
 const newCollectionName = ref('')
 const showCreateCollection = ref(false)
 const showUploadModal = ref(false)
+const showOnlineSearchModal = ref(false)
 const showActiveQueueModal = ref(false)
 const showLyric = ref(false)
 const lyricContainerRef = ref<HTMLElement | null>(null)
@@ -722,6 +732,11 @@ const closeTopOverlay = () => {
     return true
   }
 
+  if (showOnlineSearchModal.value) {
+    showOnlineSearchModal.value = false
+    return true
+  }
+
   if (showCreateCollection.value) {
     hideCreateCollectionModal()
     return true
@@ -946,6 +961,17 @@ const handleUploadComplete = async () => {
     const playlistName = selectedPlaylist.value.name
     selectPlaylist(playlistName)
   }
+}
+
+const handleOnlineDownloadComplete = async () => {
+  await refreshData()
+  await refreshAndroidSession()
+}
+
+const handlePreviewTrack = async (song: MusicInfo) => {
+  playbackSource.value = 'search'
+  searchPlaybackSongs.value = [song]
+  await playSongAtIndex(song, 0, [song])
 }
 
 // Collection management handlers

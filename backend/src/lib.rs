@@ -6,6 +6,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
+use ytdl_audio::JsRunner;
 
 // Re-export public API for main.rs and external use
 pub use config::load_config;
@@ -36,6 +37,9 @@ pub use server::{
 
 /// Global broadcaster for log streaming (initialized once)
 static GLOBAL_BROADCASTER: OnceLock<Arc<LogBroadcaster>> = OnceLock::new();
+type YoutubeJsRunnerFactory =
+    dyn Fn() -> Result<Box<dyn JsRunner>, String> + Send + Sync + 'static;
+static YOUTUBE_JS_RUNNER_FACTORY: OnceLock<Arc<YoutubeJsRunnerFactory>> = OnceLock::new();
 
 /// Static flag to ensure tracing is initialized only once
 static TRACING_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -96,6 +100,24 @@ pub fn init_tracing() -> Arc<LogBroadcaster> {
         .clone()
 }
 
+/// Register a factory that creates the YouTube JavaScript runner used by downloads.
+pub fn set_youtube_js_runner_factory<F>(factory: F) -> Result<(), String>
+where
+    F: Fn() -> Result<Box<dyn JsRunner>, String> + Send + Sync + 'static,
+{
+    YOUTUBE_JS_RUNNER_FACTORY
+        .set(Arc::new(factory))
+        .map_err(|_| "YouTube JS runner factory is already initialized".to_string())
+}
+
+/// Build a YouTube JavaScript runner if the frontend layer registered one.
+pub fn create_youtube_js_runner() -> Result<Option<Box<dyn JsRunner>>, String> {
+    match YOUTUBE_JS_RUNNER_FACTORY.get() {
+        Some(factory) => factory().map(Some),
+        None => Ok(None),
+    }
+}
+
 // Declare modules
 pub mod config;
 pub mod handlers;
@@ -144,6 +166,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(temp_dir.path().to_str().unwrap().to_string()),
+            download_root: Arc::new(temp_dir.path().to_str().unwrap().to_string()),
+            preview_root: Arc::new(temp_dir.path().join(".preview").to_string_lossy().to_string()),
             db_conn: establish_connection(temp_dir.path().to_str().unwrap())
                 .await
                 .unwrap(),
@@ -182,6 +206,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
+            download_root: Arc::new(music_path.clone()),
+            preview_root: Arc::new(std::path::PathBuf::from(&music_path).join(".preview").to_string_lossy().to_string()),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -222,6 +248,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
+            download_root: Arc::new(music_path.clone()),
+            preview_root: Arc::new(std::path::PathBuf::from(&music_path).join(".preview").to_string_lossy().to_string()),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -252,6 +280,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
+            download_root: Arc::new(music_path.clone()),
+            preview_root: Arc::new(std::path::PathBuf::from(&music_path).join(".preview").to_string_lossy().to_string()),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,

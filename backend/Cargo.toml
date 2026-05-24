@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = { workspace = true }
+actix-files = "0.6"
 actix-multipart = "0.7"
 futures = "0.3"
 serde = { workspace = true }
@@ -34,3 +35,6 @@ lufsgen = "0.2.0"
 uuid = { version = "1.22.0", features = ["v4", "serde"] }
 gethostname = "1.1.0"
 tempfile = "3"
+ytdl-audio = { path = "../vendor/ytdl-audio" }
+netease-api = { path = "../vendor/ncmdump-rs/netease-api" }
+bilibili-api = { path = "../vendor/ncmdump-rs/bilibili-api" }

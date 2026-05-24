@@ -16,6 +16,7 @@ use crate::database::establish_connection;
 use crate::handlers::collections;
 use crate::handlers::database;
 use crate::handlers::discovery;
+use crate::handlers::download;
 use crate::handlers::lufs;
 use crate::handlers::lyrics;
 use crate::handlers::music;
@@ -33,6 +34,10 @@ pub use database::{get_playlists_collection_mode, update_database_endpoint};
 pub use discovery::{
     finish_discovery_scan, get_discovered_devices, get_self_device, request_discovery_once,
     set_device_name, start_discovery_scan,
+};
+pub use download::{
+    download_preview, download_track, get_download_directory_tree, get_preview_track,
+    search_lyrics, search_online,
 };
 pub use lufs::precache_lufs;
 pub use lyrics::{get_lyrics, get_lyrics_by_id};
@@ -211,6 +216,17 @@ pub async fn start_server(
 
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(
+            env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone())
+        ),
+        preview_root: Arc::new(
+            env::var("KAULAN_PREVIEW_ROOT").unwrap_or_else(|_| {
+                std::env::temp_dir()
+                    .join("kaulan-preview")
+                    .to_string_lossy()
+                    .to_string()
+            })
+        ),
         db_conn,
         scan_lock,
         discovery: discovery_state.clone(),
@@ -273,6 +289,13 @@ pub async fn start_server(
                 .service(set_device_name)
                 // Database endpoints
                 .service(update_database_endpoint)
+                // Online download endpoints
+                .service(search_online)
+                .service(search_lyrics)
+                .service(get_download_directory_tree)
+                .service(download_preview)
+                .service(get_preview_track)
+                .service(download_track)
                 // File upload endpoints
                 .service(get_directory_tree)
                 .service(upload_files)

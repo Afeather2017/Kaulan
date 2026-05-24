@@ -220,6 +220,11 @@
           </button>
         </div>
         <div class="setting-item">
+          <button @click="$emit('openOnlineSearchModal')" class="upload-music-btn">
+            在线查找与下载
+          </button>
+        </div>
+        <div class="setting-item">
           <button @click="$emit('openUploadModal')" class="upload-music-btn">
             上传音乐文件
           </button>
@@ -375,6 +380,7 @@ const emit = defineEmits<{
   (e: 'databaseUpdated'): void
   (e: 'databaseUpdateStart'): void
   (e: 'databaseUpdateEnd'): void
+  (e: 'openOnlineSearchModal'): void
   (e: 'openUploadModal'): void
   (e: 'update:showLufs', value: boolean): void
 }>()

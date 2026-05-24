@@ -21,6 +21,8 @@ export interface MusicInfo {
   path: string
   stream_url?: string | null
   cover_url?: string | null
+  source?: 'youtube' | 'netease' | 'bilibili'
+  is_temporary?: boolean
 }
 
 export type PlayMode = 'sequential' | 'shuffle' | 'loop'
@@ -513,7 +515,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
 
     const newAudio = new Audio()
-    const sourceUrl = buildAudioUrl(preparedSong.id, seekTime)
+    const sourceUrl = preparedSong.stream_url ?? buildAudioUrl(preparedSong.id, seekTime)
     newAudio.src = sourceUrl
     newAudio.preload = 'auto'
 

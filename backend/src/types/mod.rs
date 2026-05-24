@@ -72,6 +72,8 @@ pub struct RemoveFromCollectionRequest {
 /// Application state shared across all handlers
 pub struct AppState {
     pub music_path: Arc<String>,
+    pub download_root: Arc<String>,
+    pub preview_root: Arc<String>,
     pub db_conn: DatabaseConnection,
     pub scan_lock: Arc<TokioMutex<()>>,
     pub discovery: Arc<crate::discovery::types::DiscoveryState>,
@@ -85,6 +87,94 @@ pub struct DirectoryNode {
     #[serde(rename = "type")]
     pub node_type: String,
     pub children: Option<Vec<DirectoryNode>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DownloadSource {
+    Youtube,
+    Netease,
+    Bilibili,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineSearchRequest {
+    pub query: String,
+    pub max_results: usize,
+    #[serde(default)]
+    pub sources: Vec<DownloadSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineSearchResult {
+    pub source: DownloadSource,
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub duration: Option<String>,
+    pub thumbnail_url: Option<String>,
+    pub can_preview: bool,
+    pub can_download: bool,
+    pub requires_login: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadPreviewRequest {
+    pub source: DownloadSource,
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadPreviewResponse {
+    pub success: bool,
+    pub message: String,
+    pub song: Option<PreviewSong>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewSong {
+    pub id: i32,
+    pub name: String,
+    pub path: String,
+    pub stream_url: String,
+    pub cover_url: Option<String>,
+    pub source: DownloadSource,
+    pub is_temporary: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricsSearchRequest {
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricCandidate {
+    pub source: DownloadSource,
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadTrackRequest {
+    pub source: DownloadSource,
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub target_subdir: Option<String>,
+    pub lyric_selection: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadTrackResponse {
+    pub success: bool,
+    pub message: String,
+    pub filename: Option<String>,
+    pub lyric_filename: Option<String>,
+    pub warning: Option<String>,
 }
 
 /// Response for file upload operation

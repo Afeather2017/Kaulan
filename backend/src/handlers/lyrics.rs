@@ -228,6 +228,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            download_root: Arc::new(music_dir.to_str().unwrap().to_string()),
+            preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -288,6 +290,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            download_root: Arc::new(music_dir.to_str().unwrap().to_string()),
+            preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -334,6 +338,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            download_root: Arc::new(music_dir.to_str().unwrap().to_string()),
+            preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -370,6 +376,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            download_root: Arc::new(music_dir.to_str().unwrap().to_string()),
+            preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -420,6 +428,8 @@ mod tests {
         ));
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            download_root: Arc::new(music_dir.to_str().unwrap().to_string()),
+            preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
