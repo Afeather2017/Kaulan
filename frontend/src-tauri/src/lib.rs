@@ -1,8 +1,10 @@
 use serde_json::json;
 use std::fs;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, State};
+#[cfg(target_os = "android")]
 use tauri_plugin_android_external_storage::AndroidExternalStorageExt;
 
 // MediaStore adapter module
@@ -128,6 +130,17 @@ impl Server for KaulanServer {
 // State to hold the current music directory
 struct MusicDirectory(Mutex<String>);
 
+#[derive(Debug, Clone, serde::Serialize)]
+struct ExportedCookie {
+    name: String,
+    value: String,
+    domain: String,
+    path: String,
+    secure: bool,
+    http_only: bool,
+    expires: Option<i64>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize tracing first (must happen before Tauri setup to avoid conflicts)
@@ -237,7 +250,8 @@ pub fn run() {
             get_music_directory,
             set_music_directory,
             request_external_storage_permission,
-            check_external_storage_permission
+            check_external_storage_permission,
+            export_webview_cookies
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -309,9 +323,10 @@ fn set_music_directory(app: tauri::AppHandle, new_path: String) -> Result<(), St
 /// On Android, it requests the MANAGE_EXTERNAL_STORAGE permission via the plugin.
 /// On other platforms, it does nothing (permission not needed).
 #[tauri::command]
-fn request_external_storage_permission(app: tauri::AppHandle) -> Result<bool, String> {
+fn request_external_storage_permission(_app: tauri::AppHandle) -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
+        let app = _app;
         log::info!("Requesting MANAGE_EXTERNAL_STORAGE permission for lyrics");
 
         match app
@@ -342,9 +357,10 @@ fn request_external_storage_permission(app: tauri::AppHandle) -> Result<bool, St
 
 /// Check whether MANAGE_EXTERNAL_STORAGE permission is currently granted.
 #[tauri::command]
-fn check_external_storage_permission(app: tauri::AppHandle) -> Result<bool, String> {
+fn check_external_storage_permission(_app: tauri::AppHandle) -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
+        let app = _app;
         match app
             .android_external_storage()
             .check_all_files_access()
@@ -363,5 +379,98 @@ fn check_external_storage_permission(app: tauri::AppHandle) -> Result<bool, Stri
     #[cfg(not(target_os = "android"))]
     {
         Ok(true)
+    }
+}
+
+#[tauri::command]
+async fn export_webview_cookies(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
+        return Err("Webview cookie export is only supported on desktop".to_string());
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let webview = app
+            .get_webview_window("main")
+            .ok_or_else(|| "main webview window not found".to_string())?;
+
+        let cookies = webview
+            .cookies()
+            .map_err(|e| format!("failed to read webview cookies: {}", e))?;
+
+        let mut exported = Vec::new();
+        let mut seen = HashSet::new();
+
+        for cookie in cookies {
+            let name = cookie.name().to_string();
+            let value = cookie.value().to_string();
+            let domain = cookie
+                .domain_raw()
+                .or_else(|| cookie.domain())
+                .unwrap_or("")
+                .to_string();
+            let path = cookie.path().unwrap_or("/").to_string();
+
+            let domain_filter = domain.to_ascii_lowercase();
+            if name.is_empty()
+                || value.is_empty()
+                || domain.is_empty()
+                || (!domain_filter.contains("youtube.com") && !domain_filter.contains("google.com"))
+            {
+                continue;
+            }
+
+            let key = (name.clone(), domain.clone(), path.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+
+            let expires = cookie.expires_datetime().map(|dt| dt.unix_timestamp());
+
+            exported.push(ExportedCookie {
+                name,
+                value,
+                domain,
+                path,
+                secure: cookie.secure().unwrap_or(false),
+                http_only: cookie.http_only().unwrap_or(false),
+                expires,
+            });
+        }
+
+        if exported.is_empty() {
+            return Err("no webview cookies found".to_string());
+        }
+
+        let mut out = String::from("# Netscape HTTP Cookie File\n");
+        out.push_str("# Exported from Tauri webview cookie store\n");
+        for cookie in &exported {
+            let include_subdomains = if cookie.domain.starts_with('.') { "TRUE" } else { "FALSE" };
+            let secure = if cookie.secure { "TRUE" } else { "FALSE" };
+            let expires = cookie.expires.unwrap_or(0);
+            out.push_str(&format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                cookie.domain,
+                include_subdomains,
+                cookie.path,
+                secure,
+                expires,
+                cookie.name,
+                cookie.value,
+            ));
+        }
+
+        let mut output_path = std::env::temp_dir();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        output_path.push(format!("kaulan-webview-cookies-{}.txt", nanos));
+        fs::write(&output_path, out)
+            .map_err(|e| format!("failed to write cookie jar: {}", e))?;
+
+        Ok(output_path.to_string_lossy().to_string())
     }
 }
