@@ -25,7 +25,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
 tauri-plugin-android-mediastore = "0.2.2"
 tauri-plugin-android-external-storage = "0.1"
-tauri-plugin-music-notification-api = { path = "../../tauri-plugin-music-notification" }
+tauri-plugin-music-notification-api = { path = "../../vendor/tauri-plugin-music-notification" }
 kaulan = { path = "../../backend", default-features = false }
 tokio = { workspace = true }
 base64 = "0.22"
