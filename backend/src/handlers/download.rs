@@ -402,7 +402,7 @@ async fn build_preview(
         DownloadSource::Youtube => {
             ensure_ytdl_solver_dependencies()?;
             let client = youtube_client().map_err(|e| e.to_string())?;
-            let temp_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+            let temp_dir = create_download_staging_dir(&preview_root)?;
             let result = client
                 .download(
                     &format!("https://www.youtube.com/watch?v={}", request.id),
@@ -414,12 +414,8 @@ async fn build_preview(
                 )
                 .await
                 .map_err(|e| e.to_string())?;
-            setup_ffmpeg_path();
-
-            let final_name = format!("{token}.ogg");
-            let final_path = preview_root.join(&final_name);
-            ytdl_audio::convert_audio(&result.audio_path, &final_path, None, &StdFileWriter)
-                .map_err(|e| e.to_string())?;
+            let (final_name, final_path) =
+                finalize_youtube_audio(&result.audio_path, &preview_root, &token, Some("ogg"))?;
 
             Ok(PreviewBuildResult {
                 source: DownloadSource::Youtube,
@@ -495,7 +491,7 @@ async fn download_full_track(request: &DownloadTrackRequest, target_dir: &Path) 
 async fn download_youtube_full(request: &DownloadTrackRequest, target_dir: &Path) -> Result<FullDownloadResult, String> {
     ensure_ytdl_solver_dependencies()?;
     let client = youtube_client().map_err(|e| e.to_string())?;
-    let temp_dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let temp_dir = create_download_staging_dir(target_dir)?;
     let result = client
         .download(
             &format!("https://www.youtube.com/watch?v={}", request.id),
@@ -508,11 +504,9 @@ async fn download_youtube_full(request: &DownloadTrackRequest, target_dir: &Path
         .await
         .map_err(|e| e.to_string())?;
 
-    let final_filename = format!("{}.ogg", sanitize_filename(&request.title));
-    let final_path = target_dir.join(final_filename);
-    setup_ffmpeg_path();
-    ytdl_audio::convert_audio(&result.audio_path, &final_path, None, &StdFileWriter)
-        .map_err(|e| e.to_string())?;
+    let title = sanitize_filename(&request.title);
+    let (_final_filename, final_path) =
+        finalize_youtube_audio(&result.audio_path, target_dir, &title, Some("ogg"))?;
 
     Ok(FullDownloadResult { final_path })
 }
@@ -683,6 +677,53 @@ fn resolve_target_dir(base_dir: &Path, target_subdir: Option<&str>) -> Result<Pa
     }
 
     Ok(requested_path)
+}
+
+fn create_download_staging_dir(base_dir: &Path) -> Result<tempfile::TempDir, String> {
+    fs::create_dir_all(base_dir).map_err(|e| format!("无法创建下载缓存目录: {e}"))?;
+
+    let staging_root = base_dir.join(".staging");
+    fs::create_dir_all(&staging_root).map_err(|e| format!("无法创建下载缓存目录: {e}"))?;
+
+    tempfile::Builder::new()
+        .prefix(".tmp")
+        .tempdir_in(&staging_root)
+        .map_err(|e| format!("无法创建下载缓存目录: {e}"))
+}
+
+fn finalize_youtube_audio(
+    source_audio: &Path,
+    output_dir: &Path,
+    output_stem: &str,
+    preferred_extension: Option<&str>,
+) -> Result<(String, PathBuf), String> {
+    let preferred_extension = preferred_extension.unwrap_or("ogg");
+    let converted_name = format!("{output_stem}.{preferred_extension}");
+    let converted_path = output_dir.join(&converted_name);
+
+    setup_ffmpeg_path();
+    match ytdl_audio::convert_audio(source_audio, &converted_path, None, &StdFileWriter) {
+        Ok(()) => Ok((converted_name, converted_path)),
+        Err(err) => {
+            warn!(
+                "[DOWNLOAD] FFmpeg conversion unavailable, keeping original audio container: source={}, target={}, error={}",
+                source_audio.display(),
+                converted_path.display(),
+                err
+            );
+
+            let source_extension = source_audio
+                .extension()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or("webm");
+            let fallback_name = format!("{output_stem}.{source_extension}");
+            let fallback_path = output_dir.join(&fallback_name);
+            fs::copy(source_audio, &fallback_path)
+                .map_err(|copy_err| format!("无法保存原始音频文件: {copy_err}"))?;
+            Ok((fallback_name, fallback_path))
+        }
+    }
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -930,7 +971,10 @@ impl DownloadSource {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_lyric_content, resolve_target_dir, sanitize_filename};
+    use super::{
+        create_download_staging_dir, finalize_youtube_audio, merge_lyric_content, resolve_target_dir,
+        sanitize_filename,
+    };
     use std::fs;
 
     #[test]
@@ -962,5 +1006,26 @@ mod tests {
         fs::create_dir_all(temp_dir.path().join("Album")).unwrap();
         let resolved = resolve_target_dir(temp_dir.path(), Some("Album/Live")).unwrap();
         assert_eq!(resolved, temp_dir.path().join("Album/Live"));
+    }
+
+    #[test]
+    fn staging_dir_is_created_under_requested_base() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let staging = create_download_staging_dir(temp_dir.path()).unwrap();
+        assert!(staging.path().starts_with(temp_dir.path().join(".staging")));
+    }
+
+    #[test]
+    fn youtube_finalize_falls_back_to_original_container_without_ffmpeg() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_audio = temp_dir.path().join("source.webm");
+        fs::write(&source_audio, b"webm").unwrap();
+
+        let (file_name, final_path) =
+            finalize_youtube_audio(&source_audio, temp_dir.path(), "preview-token", Some("ogg")).unwrap();
+
+        assert_eq!(file_name, "preview-token.webm");
+        assert_eq!(final_path, temp_dir.path().join("preview-token.webm"));
+        assert_eq!(fs::read(final_path).unwrap(), b"webm");
     }
 }
