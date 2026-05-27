@@ -10,7 +10,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.activity.enableEdgeToEdge
 import org.json.JSONObject
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -93,9 +92,18 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     nativeInitAndroidContext()
+  }
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    webView.settings.userAgentString = HIDDEN_SOLVER_USER_AGENT
+    webView.settings.setSupportZoom(true)
+    webView.settings.builtInZoomControls = true
+    webView.settings.displayZoomControls = false
+    webView.settings.useWideViewPort = true
+    webView.settings.loadWithOverviewMode = true
   }
 
   override fun onDestroy() {
