@@ -42,6 +42,7 @@ Current provider availability checks:
   - `试听` for temporary playback
   - `歌词` for Netease lyric candidates
   - `下载` for a full download
+- The lyric list is for selection only. After selecting a lyric candidate, the user still uses the song row's `下载` button to save both the audio file and the selected `.lrc`.
 
 ### Preview behavior
 
