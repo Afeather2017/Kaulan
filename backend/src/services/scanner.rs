@@ -16,6 +16,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
     Set,
 };
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 use tracing::{debug, error, info};
@@ -74,6 +75,33 @@ fn normalize_path(path: &str) -> String {
     }
 }
 
+async fn scan_library_roots(
+    roots: &[&str],
+    media_types: &[String],
+) -> Result<Vec<MusicFileInfo>, DbErr> {
+    let mut seen_paths = HashSet::new();
+    let mut audio_files = Vec::new();
+
+    for root in roots {
+        info!("Scanning library root: {}", root);
+        let files = scan_directory_recursive(Path::new(root), root, media_types)
+            .await
+            .map_err(|e| {
+                error!("Failed to scan directory {}: {}", root, e);
+                DbErr::Custom(format!("Scan failed for {}: {}", root, e))
+            })?;
+
+        for file in files {
+            let normalized_path = normalize_path(&file.path);
+            if seen_paths.insert(normalized_path) {
+                audio_files.push(file);
+            }
+        }
+    }
+
+    Ok(audio_files)
+}
+
 /// Initialize database with music files (only insert if path not exists)
 ///
 /// This function scans the music directory and adds any new files to the database.
@@ -91,16 +119,22 @@ pub async fn initialize_database(
     music_path: &str,
     db_conn: &DatabaseConnection,
 ) -> Result<(), sea_orm::DbErr> {
-    info!("Initializing database with music from: {}", music_path);
+    initialize_database_with_roots(&[music_path], db_conn).await
+}
+
+/// Initialize database using multiple library roots.
+///
+/// This is used when local uploads and online downloads can land in different
+/// directories but should both appear in the same music library database.
+pub async fn initialize_database_with_roots(
+    library_roots: &[&str],
+    db_conn: &DatabaseConnection,
+) -> Result<(), sea_orm::DbErr> {
+    let root_list = library_roots.join(", ");
+    info!("Initializing database with music from: {}", root_list);
     let media_types = crate::config::load_media_types();
-    let audio_files = match scan_directory_recursive(Path::new(music_path), music_path, &media_types).await {
-        Ok(files) => files,
-        Err(e) => {
-            error!("Failed to scan directory during initialization: {}", e);
-            return Err(DbErr::Custom(format!("Scan failed: {}", e)));
-        }
-    };
-    info!("Found {} audio files in directory", audio_files.len());
+    let audio_files = scan_library_roots(library_roots, &media_types).await?;
+    info!("Found {} audio files in library roots", audio_files.len());
 
     let mut new_files = 0;
     let mut existing_files = 0;
@@ -222,11 +256,21 @@ pub async fn update_database(
     music_path: &str,
     db_conn: &DatabaseConnection,
 ) -> Result<(), std::io::Error> {
+    update_database_with_roots(&[music_path], db_conn).await
+}
+
+/// Update database using multiple library roots.
+pub async fn update_database_with_roots(
+    library_roots: &[&str],
+    db_conn: &DatabaseConnection,
+) -> Result<(), std::io::Error> {
     info!("[DB_UPDATE] ========== STARTING DATABASE UPDATE ==========");
-    info!("[DB_UPDATE] Music directory: {}", music_path);
+    info!("[DB_UPDATE] Library roots: {}", library_roots.join(", "));
 
     let media_types = crate::config::load_media_types();
-    let audio_files = scan_directory_recursive(Path::new(music_path), music_path, &media_types).await?;
+    let audio_files = scan_library_roots(library_roots, &media_types)
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
     info!(
         "[DB_UPDATE] Found {} media files in directory",
         audio_files.len()
@@ -337,4 +381,49 @@ pub async fn update_database(
         new_files, skipped_files, deleted_files
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::update_database_with_roots;
+    use crate::database::establish_connection;
+    use crate::entities::music::Entity as MusicEntity;
+    use sea_orm::EntityTrait;
+    use std::collections::HashSet;
+
+    #[tokio::test]
+    async fn update_database_scans_download_root_when_it_differs_from_music_root() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let music_root = temp_dir.path().join("music");
+        let download_root = temp_dir.path().join("downloads");
+        std::fs::create_dir_all(&music_root).unwrap();
+        std::fs::create_dir_all(&download_root).unwrap();
+
+        std::fs::write(music_root.join("local.mp3"), b"local").unwrap();
+        std::fs::write(download_root.join("online.mp3"), b"downloaded").unwrap();
+
+        let db_conn = establish_connection(music_root.to_str().unwrap())
+            .await
+            .unwrap();
+
+        update_database_with_roots(
+            &[
+                music_root.to_str().unwrap(),
+                download_root.to_str().unwrap(),
+            ],
+            &db_conn,
+        )
+        .await
+        .unwrap();
+
+        let music_rows = MusicEntity::find().all(&db_conn).await.unwrap();
+        let filenames = music_rows
+            .iter()
+            .map(|row| row.filename.as_str())
+            .collect::<HashSet<_>>();
+
+        assert_eq!(music_rows.len(), 2);
+        assert!(filenames.contains("local.mp3"));
+        assert!(filenames.contains("online.mp3"));
+    }
 }

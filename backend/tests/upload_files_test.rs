@@ -1,7 +1,6 @@
 //! Integration tests for the file upload API endpoint `/api/files/upload`
 //!
-//! This test module verifies the single-file multipart upload functionality
-//! using real music files from the `test-music/` directory.
+//! This test module verifies the single-file multipart upload functionality.
 //!
 //! Related documentation: docs/file-upload-feature.md
 //! Related source: backend/src/lib.rs (upload_files function)
@@ -13,40 +12,11 @@ use sea_orm::{
     sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr, Schema,
 };
 use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
-fn find_test_mp3_path() -> PathBuf {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("test_music");
-    let mut stack = vec![base];
-
-    while let Some(dir) = stack.pop() {
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("mp3"))
-                    .unwrap_or(false)
-                {
-                    return path;
-                }
-            }
-        }
-    }
-
-    panic!("No .mp3 files found under test_music");
-}
-
 fn read_test_mp3() -> Vec<u8> {
-    let path = find_test_mp3_path();
-    fs::read(&path).expect("Failed to read test MP3 file")
+    b"fake mp3 upload content".to_vec()
 }
 
 /// Creates an in-memory SQLite database for testing
@@ -117,6 +87,8 @@ async fn test_upload_single_file_to_root() {
     ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -167,6 +139,8 @@ async fn test_upload_to_subdirectory() {
     ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -216,6 +190,8 @@ async fn test_upload_unsupported_file_type_rejected() {
     ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -263,6 +239,8 @@ async fn test_upload_path_traversal_protection() {
     ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -318,6 +296,8 @@ async fn test_upload_updates_database() {
     ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -386,6 +366,8 @@ async fn test_upload_empty_request() {
     ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -430,6 +412,8 @@ async fn test_upload_to_nested_subdirectories() {
     ));
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
+        download_root: Arc::new(music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,

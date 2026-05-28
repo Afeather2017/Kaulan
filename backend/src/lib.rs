@@ -12,7 +12,10 @@ use ytdl_audio::JsRunner;
 pub use config::load_config;
 pub use database::establish_connection;
 pub use server::{start_server, ServerInfo};
-pub use services::scanner::{initialize_database, update_database};
+pub use services::scanner::{
+    initialize_database, initialize_database_with_roots, update_database,
+    update_database_with_roots,
+};
 
 // Re-export types for external use
 pub use types::AppState;
@@ -20,7 +23,7 @@ pub use types::AppState;
 // Re-export file operations for Android MediaStore integration
 pub mod file_ops;
 pub use file_ops::{
-    set_file_reader, set_music_file_lister, set_lyric_reader, FileReader, LyricReader,
+    set_file_reader, set_lyric_reader, set_music_file_lister, FileReader, LyricReader,
     MusicFileInfo, MusicFileLister, ReadSeekSendSync, StdLyricReader, SUPPORTED_EXTENSIONS,
 };
 
@@ -37,8 +40,7 @@ pub use server::{
 
 /// Global broadcaster for log streaming (initialized once)
 static GLOBAL_BROADCASTER: OnceLock<Arc<LogBroadcaster>> = OnceLock::new();
-type YoutubeJsRunnerFactory =
-    dyn Fn() -> Result<Box<dyn JsRunner>, String> + Send + Sync + 'static;
+type YoutubeJsRunnerFactory = dyn Fn() -> Result<Box<dyn JsRunner>, String> + Send + Sync + 'static;
 static YOUTUBE_JS_RUNNER_FACTORY: OnceLock<Arc<YoutubeJsRunnerFactory>> = OnceLock::new();
 
 /// Static flag to ensure tracing is initialized only once
@@ -167,7 +169,13 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(temp_dir.path().to_str().unwrap().to_string()),
             download_root: Arc::new(temp_dir.path().to_str().unwrap().to_string()),
-            preview_root: Arc::new(temp_dir.path().join(".preview").to_string_lossy().to_string()),
+            preview_root: Arc::new(
+                temp_dir
+                    .path()
+                    .join(".preview")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
             db_conn: establish_connection(temp_dir.path().to_str().unwrap())
                 .await
                 .unwrap(),
@@ -207,7 +215,12 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             download_root: Arc::new(music_path.clone()),
-            preview_root: Arc::new(std::path::PathBuf::from(&music_path).join(".preview").to_string_lossy().to_string()),
+            preview_root: Arc::new(
+                std::path::PathBuf::from(&music_path)
+                    .join(".preview")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -249,7 +262,12 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             download_root: Arc::new(music_path.clone()),
-            preview_root: Arc::new(std::path::PathBuf::from(&music_path).join(".preview").to_string_lossy().to_string()),
+            preview_root: Arc::new(
+                std::path::PathBuf::from(&music_path)
+                    .join(".preview")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,
@@ -281,7 +299,12 @@ mod tests {
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_path.clone()),
             download_root: Arc::new(music_path.clone()),
-            preview_root: Arc::new(std::path::PathBuf::from(&music_path).join(".preview").to_string_lossy().to_string()),
+            preview_root: Arc::new(
+                std::path::PathBuf::from(&music_path)
+                    .join(".preview")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             discovery: discovery_state,

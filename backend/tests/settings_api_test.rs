@@ -50,6 +50,8 @@ async fn test_get_music_directory() {
     ));
     let app_state = AppState {
         music_path: Arc::new(test_music_path.clone()),
+        download_root: Arc::new(test_music_path.clone()),
+        preview_root: Arc::new(format!("{}/.preview", test_music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -92,6 +94,13 @@ async fn test_update_database_empty() {
     ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        preview_root: Arc::new(
+            test_music_dir
+                .join(".preview")
+                .to_string_lossy()
+                .to_string(),
+        ),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -142,6 +151,13 @@ async fn test_update_database_with_new_files() {
     ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        preview_root: Arc::new(
+            test_music_dir
+                .join(".preview")
+                .to_string_lossy()
+                .to_string(),
+        ),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -206,6 +222,13 @@ async fn test_startup_update_skips_when_done() {
     ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        preview_root: Arc::new(
+            test_music_dir
+                .join(".preview")
+                .to_string_lossy()
+                .to_string(),
+        ),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -257,6 +280,13 @@ async fn test_startup_update_runs_and_sets_flag() {
     ));
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
+        preview_root: Arc::new(
+            test_music_dir
+                .join(".preview")
+                .to_string_lossy()
+                .to_string(),
+        ),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
