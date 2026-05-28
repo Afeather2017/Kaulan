@@ -57,7 +57,9 @@ Current provider availability checks:
 - On Android, Kaulan uses the app external files music directory:
   - `/sdcard/Android/data/afeather.kaulan/files/Music`
 - If the user selected a lyric candidate, Kaulan tries to save a matching `.lrc` file beside the audio file.
-- After a successful full download, Kaulan refreshes the music database.
+- After a successful full download, Kaulan refreshes the music database across both library roots:
+  - the configured music directory
+  - the configured online download root
 
 ## API
 
@@ -283,6 +285,7 @@ sequenceDiagram
         BE->>FS: Save .lrc beside audio file
     end
     BE->>DB: Refresh music database
+    Note over DB: Scan music directory and download root
     DB-->>BE: Updated scan result
     BE-->>FE: success / warning / failure response
     FE-->>User: Show final status message

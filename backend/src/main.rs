@@ -1,7 +1,9 @@
 use std::env;
 
 // Import from the library (init_tracing is now in the library)
-use kaulan::{establish_connection, init_tracing, start_log_server, start_server, update_database};
+use kaulan::{
+    establish_connection, init_tracing, start_log_server, start_server, update_database_with_roots,
+};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -87,7 +89,10 @@ async fn main() -> std::io::Result<()> {
                     ));
                 }
             };
-            match update_database(&music_path, &db_conn).await {
+            let download_root =
+                env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone());
+            let library_roots = [music_path.as_str(), download_root.as_str()];
+            match update_database_with_roots(&library_roots, &db_conn).await {
                 Ok(_) => {
                     tracing::info!("Database update completed successfully");
                 }

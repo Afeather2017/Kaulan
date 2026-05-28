@@ -24,7 +24,8 @@ use crate::types::{
 };
 
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
-const NETEASE_QUALITY_FALLBACKS: [Quality; 3] = [Quality::Exhigh, Quality::Higher, Quality::Standard];
+const NETEASE_QUALITY_FALLBACKS: [Quality; 3] =
+    [Quality::Exhigh, Quality::Higher, Quality::Standard];
 
 #[post("/api/download/search")]
 pub async fn search_online(body: web::Json<OnlineSearchRequest>) -> HttpResponse {
@@ -122,7 +123,10 @@ pub async fn search_lyrics(body: web::Json<crate::types::LyricsSearchRequest>) -
 pub async fn get_download_directory_tree(data: web::Data<AppState>) -> HttpResponse {
     let base = Path::new(data.download_root.as_ref());
     if let Err(err) = fs::create_dir_all(base) {
-        error!("[DOWNLOAD] Failed to create download directory tree root: {}", err);
+        error!(
+            "[DOWNLOAD] Failed to create download directory tree root: {}",
+            err
+        );
         return HttpResponse::InternalServerError().body("Failed to create download directory");
     }
 
@@ -192,7 +196,10 @@ pub async fn download_preview(
 }
 
 #[get("/api/download/preview/{filename}")]
-pub async fn get_preview_track(path: web::Path<String>, data: web::Data<AppState>) -> actix_web::Result<NamedFile> {
+pub async fn get_preview_track(
+    path: web::Path<String>,
+    data: web::Data<AppState>,
+) -> actix_web::Result<NamedFile> {
     let requested = path.into_inner();
     if requested.contains('/') || requested.contains('\\') {
         return Err(actix_web::error::ErrorBadRequest("Invalid preview file"));
@@ -214,7 +221,10 @@ pub async fn download_track(
     data: web::Data<AppState>,
 ) -> HttpResponse {
     let body = body.into_inner();
-    let target_dir = match resolve_target_dir(Path::new(data.download_root.as_ref()), body.target_subdir.as_deref()) {
+    let target_dir = match resolve_target_dir(
+        Path::new(data.download_root.as_ref()),
+        body.target_subdir.as_deref(),
+    ) {
         Ok(path) => path,
         Err(message) => {
             warn!(
@@ -276,8 +286,15 @@ pub async fn download_track(
         None
     };
 
-    if let Err(err) = scanner::update_database(data.music_path.as_ref(), &data.db_conn).await {
-        warn!("[DOWNLOAD] Database update after online download failed: {}", err);
+    let library_roots = [
+        data.music_path.as_ref().as_str(),
+        data.download_root.as_ref().as_str(),
+    ];
+    if let Err(err) = scanner::update_database_with_roots(&library_roots, &data.db_conn).await {
+        warn!(
+            "[DOWNLOAD] Database update after online download failed: {}",
+            err
+        );
     }
 
     HttpResponse::Ok().json(DownloadTrackResponse {
@@ -304,7 +321,10 @@ struct FullDownloadResult {
     final_path: PathBuf,
 }
 
-async fn search_youtube(query: &str, max_results: usize) -> Result<Vec<OnlineSearchResult>, String> {
+async fn search_youtube(
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<OnlineSearchResult>, String> {
     ensure_ytdl_solver_dependencies()?;
     let client = youtube_client().map_err(|e| e.to_string())?;
     let videos = client
@@ -328,10 +348,15 @@ async fn search_youtube(query: &str, max_results: usize) -> Result<Vec<OnlineSea
         .collect())
 }
 
-async fn search_netease(query: &str, max_results: usize) -> Result<Vec<OnlineSearchResult>, String> {
+async fn search_netease(
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<OnlineSearchResult>, String> {
     let query = query.to_string();
     task::spawn_blocking(move || -> Result<Vec<OnlineSearchResult>, String> {
-        let requires_login = !NeteaseSession::load().map_err(|e| e.to_string())?.is_logged_in();
+        let requires_login = !NeteaseSession::load()
+            .map_err(|e| e.to_string())?
+            .is_logged_in();
         let client = NeteaseClient::new().map_err(|e| e.to_string())?;
         let result = client
             .search(&query, SearchType::Track, max_results as u64, 0)
@@ -358,10 +383,15 @@ async fn search_netease(query: &str, max_results: usize) -> Result<Vec<OnlineSea
     .map_err(|e| e.to_string())?
 }
 
-async fn search_bilibili(query: &str, max_results: usize) -> Result<Vec<OnlineSearchResult>, String> {
+async fn search_bilibili(
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<OnlineSearchResult>, String> {
     let query = query.to_string();
     task::spawn_blocking(move || -> Result<Vec<OnlineSearchResult>, String> {
-        let requires_login = !BiliSession::load().map_err(|e| e.to_string())?.is_logged_in();
+        let requires_login = !BiliSession::load()
+            .map_err(|e| e.to_string())?
+            .is_logged_in();
         let client = BilibiliClient::new().map_err(|e| e.to_string())?;
         let result = client
             .search_video(&query, 1, max_results as u64)
@@ -396,7 +426,11 @@ async fn build_preview(
     preview_root: PathBuf,
 ) -> Result<PreviewBuildResult, String> {
     let synthetic_id = -((simple_hash(&request.id) as i32).abs());
-    let token = format!("preview-{}-{}", request.source.as_str(), uuid::Uuid::new_v4());
+    let token = format!(
+        "preview-{}-{}",
+        request.source.as_str(),
+        uuid::Uuid::new_v4()
+    );
 
     match request.source {
         DownloadSource::Youtube => {
@@ -421,12 +455,18 @@ async fn build_preview(
                 source: DownloadSource::Youtube,
                 file_name: final_name,
                 absolute_path: final_path,
-                cover_url: Some(format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", request.id)),
+                cover_url: Some(format!(
+                    "https://i.ytimg.com/vi/{}/hqdefault.jpg",
+                    request.id
+                )),
                 synthetic_id,
             })
         }
         DownloadSource::Netease => {
-            let track_id = request.id.parse::<u64>().map_err(|_| "无效的网易云歌曲 ID".to_string())?;
+            let track_id = request
+                .id
+                .parse::<u64>()
+                .map_err(|_| "无效的网易云歌曲 ID".to_string())?;
             let preview_root_clone = preview_root.clone();
             let request_title = request.title.clone();
             task::spawn_blocking(move || -> Result<PreviewBuildResult, String> {
@@ -480,7 +520,10 @@ async fn build_preview(
     }
 }
 
-async fn download_full_track(request: &DownloadTrackRequest, target_dir: &Path) -> Result<FullDownloadResult, String> {
+async fn download_full_track(
+    request: &DownloadTrackRequest,
+    target_dir: &Path,
+) -> Result<FullDownloadResult, String> {
     match request.source {
         DownloadSource::Youtube => download_youtube_full(request, target_dir).await,
         DownloadSource::Netease => download_netease_full(request, target_dir).await,
@@ -488,7 +531,10 @@ async fn download_full_track(request: &DownloadTrackRequest, target_dir: &Path) 
     }
 }
 
-async fn download_youtube_full(request: &DownloadTrackRequest, target_dir: &Path) -> Result<FullDownloadResult, String> {
+async fn download_youtube_full(
+    request: &DownloadTrackRequest,
+    target_dir: &Path,
+) -> Result<FullDownloadResult, String> {
     ensure_ytdl_solver_dependencies()?;
     let client = youtube_client().map_err(|e| e.to_string())?;
     let temp_dir = create_download_staging_dir(target_dir)?;
@@ -511,8 +557,14 @@ async fn download_youtube_full(request: &DownloadTrackRequest, target_dir: &Path
     Ok(FullDownloadResult { final_path })
 }
 
-async fn download_netease_full(request: &DownloadTrackRequest, target_dir: &Path) -> Result<FullDownloadResult, String> {
-    let track_id = request.id.parse::<u64>().map_err(|_| "无效的网易云歌曲 ID".to_string())?;
+async fn download_netease_full(
+    request: &DownloadTrackRequest,
+    target_dir: &Path,
+) -> Result<FullDownloadResult, String> {
+    let track_id = request
+        .id
+        .parse::<u64>()
+        .map_err(|_| "无效的网易云歌曲 ID".to_string())?;
     let target_dir = target_dir.to_path_buf();
     let title = request.title.clone();
     task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
@@ -526,7 +578,10 @@ async fn download_netease_full(request: &DownloadTrackRequest, target_dir: &Path
     .map_err(|e| e.to_string())?
 }
 
-async fn download_bilibili_full(request: &DownloadTrackRequest, target_dir: &Path) -> Result<FullDownloadResult, String> {
+async fn download_bilibili_full(
+    request: &DownloadTrackRequest,
+    target_dir: &Path,
+) -> Result<FullDownloadResult, String> {
     let bvid = request.id.clone();
     let title = request.title.clone();
     let target_dir = target_dir.to_path_buf();
@@ -547,8 +602,13 @@ async fn download_bilibili_full(request: &DownloadTrackRequest, target_dir: &Pat
     .map_err(|e| e.to_string())?
 }
 
-async fn write_selected_lyric(lyric_id: &str, audio_path: &Path) -> Result<Option<PathBuf>, String> {
-    let track_id = lyric_id.parse::<u64>().map_err(|_| "无效的歌词歌曲 ID".to_string())?;
+async fn write_selected_lyric(
+    lyric_id: &str,
+    audio_path: &Path,
+) -> Result<Option<PathBuf>, String> {
+    let track_id = lyric_id
+        .parse::<u64>()
+        .map_err(|_| "无效的歌词歌曲 ID".to_string())?;
     let audio_path = audio_path.to_path_buf();
 
     task::spawn_blocking(move || -> Result<Option<PathBuf>, String> {
@@ -646,7 +706,11 @@ fn build_directory_tree(dir_path: &Path, base_path: &Path) -> Option<DirectoryNo
         name,
         path: relative_path,
         node_type: "directory".to_string(),
-        children: if children.is_empty() { None } else { Some(children) },
+        children: if children.is_empty() {
+            None
+        } else {
+            Some(children)
+        },
     })
 }
 
@@ -839,11 +903,17 @@ fn explain_netease_failure(logged_in: bool, failures: Vec<String>) -> String {
         return format!("当前网易云未登录，部分歌曲需要登录后才能下载。详情: {details}");
     }
 
-    if failures.iter().any(|entry| entry.contains("API error (code 403)")) {
+    if failures
+        .iter()
+        .any(|entry| entry.contains("API error (code 403)"))
+    {
         return format!("网易云拒绝提供该歌曲，可能需要 VIP 或受地区限制。详情: {details}");
     }
 
-    if failures.iter().any(|entry| entry.contains("track unavailable")) {
+    if failures
+        .iter()
+        .any(|entry| entry.contains("track unavailable"))
+    {
         return format!("网易云未返回可用音频地址，可能是 VIP、版权或地区限制。详情: {details}");
     }
 
@@ -851,15 +921,20 @@ fn explain_netease_failure(logged_in: bool, failures: Vec<String>) -> String {
 }
 
 fn simple_hash(value: &str) -> u64 {
-    value.bytes()
-        .fold(5381_u64, |acc, byte| acc.wrapping_mul(33).wrapping_add(u64::from(byte)))
+    value.bytes().fold(5381_u64, |acc, byte| {
+        acc.wrapping_mul(33).wrapping_add(u64::from(byte))
+    })
 }
 
 fn is_source_enabled(source: DownloadSource) -> bool {
     match source {
         DownloadSource::Youtube => load_youtube_cookie_header().is_some(),
-        DownloadSource::Netease => NeteaseSession::load().map(|session| session.is_logged_in()).unwrap_or(false),
-        DownloadSource::Bilibili => BiliSession::load().map(|session| session.is_logged_in()).unwrap_or(false),
+        DownloadSource::Netease => NeteaseSession::load()
+            .map(|session| session.is_logged_in())
+            .unwrap_or(false),
+        DownloadSource::Bilibili => BiliSession::load()
+            .map(|session| session.is_logged_in())
+            .unwrap_or(false),
     }
 }
 
@@ -972,8 +1047,8 @@ impl DownloadSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_download_staging_dir, finalize_youtube_audio, merge_lyric_content, resolve_target_dir,
-        sanitize_filename,
+        create_download_staging_dir, finalize_youtube_audio, merge_lyric_content,
+        resolve_target_dir, sanitize_filename,
     };
     use std::fs;
 
@@ -1022,7 +1097,8 @@ mod tests {
         fs::write(&source_audio, b"webm").unwrap();
 
         let (file_name, final_path) =
-            finalize_youtube_audio(&source_audio, temp_dir.path(), "preview-token", Some("ogg")).unwrap();
+            finalize_youtube_audio(&source_audio, temp_dir.path(), "preview-token", Some("ogg"))
+                .unwrap();
 
         assert_eq!(file_name, "preview-token.webm");
         assert_eq!(final_path, temp_dir.path().join("preview-token.webm"));

@@ -189,7 +189,8 @@ sequenceDiagram
 
     Note over BE: Start database update process
 
-    Note over BE: Scan music directory for audio files
+    Note over BE: Scan configured library roots for audio files
+    Note over BE: music directory + online download root
 
     loop For each audio file
         BE->>BE: Check if file exists in database

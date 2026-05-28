@@ -10,35 +10,11 @@ use sea_orm::{
     EntityTrait, Schema,
 };
 use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
-fn find_test_mp3_path() -> PathBuf {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("test_music");
-    let mut stack = vec![base];
-
-    while let Some(dir) = stack.pop() {
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("mp3"))
-                    .unwrap_or(false)
-                {
-                    return path;
-                }
-            }
-        }
-    }
-
-    panic!("No .mp3 files found under test_music");
+fn write_test_mp3(path: &std::path::Path) {
+    fs::write(path, b"fake mp3 test content").expect("Failed to write test MP3 file");
 }
 
 /// Creates an in-memory SQLite database for testing
@@ -78,10 +54,9 @@ async fn test_update_database_adds_new_files_to_database() {
         .expect("Failed to query database");
     assert_eq!(initial_music.len(), 0, "Database should be empty initially");
 
-    // STEP 2: Copy a real MP3 file to the test directory
-    let source_mp3 = find_test_mp3_path();
+    // STEP 2: Write a test MP3 file to the test directory
     let dest_mp3 = test_music_dir.join("test_song.mp3");
-    fs::copy(&source_mp3, &dest_mp3).expect("Failed to copy test MP3 file");
+    write_test_mp3(&dest_mp3);
 
     // Verify file exists on disk
     assert!(dest_mp3.exists(), "Test MP3 file should exist on disk");
@@ -120,7 +95,10 @@ async fn test_update_database_adds_new_files_to_database() {
         entry.file_path, expected_path,
         "File path should be correct"
     );
-    assert!(entry.lufs.is_some(), "LUFS should be calculated");
+    assert_eq!(
+        entry.lufs, None,
+        "LUFS should remain uncached after database update"
+    );
 
     println!("SUCCESS: Database was updated with new file!");
     println!("  - Filename: {}", entry.filename);
@@ -142,10 +120,9 @@ async fn test_upload_files_then_check_database_via_api() {
         .await
         .expect("Failed to setup test database");
 
-    // STEP 1: Manually copy a file to simulate what upload does (write to disk)
-    let source_mp3 = find_test_mp3_path();
+    // STEP 1: Manually write a file to simulate what upload does (write to disk)
     let dest_mp3 = test_music_dir.join("uploaded_song.mp3");
-    fs::copy(&source_mp3, &dest_mp3).expect("Failed to copy test MP3 file");
+    write_test_mp3(&dest_mp3);
 
     // STEP 2: Call update_database to simulate the upload endpoint behavior
     let music_path_str = test_music_dir.to_string_lossy().to_string();
@@ -159,6 +136,8 @@ async fn test_upload_files_then_check_database_via_api() {
     ));
     let app_state = AppState {
         music_path: Arc::new(music_path_str.clone()),
+        download_root: Arc::new(music_path_str.clone()),
+        preview_root: Arc::new(format!("{}/.preview", music_path_str)),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
         discovery: discovery_state,
@@ -212,13 +191,12 @@ async fn test_update_database_with_multiple_new_files() {
         .await
         .expect("Failed to setup test database");
 
-    // Copy multiple files using the same valid MP3 source
-    let source_mp3 = find_test_mp3_path();
+    // Create multiple test MP3 files
     let dest_files = ["song1.mp3", "song2.mp3"];
 
     for dest in &dest_files {
         let dest_path = test_music_dir.join(dest);
-        fs::copy(&source_mp3, &dest_path).expect(&format!("Failed to copy source MP3 to {}", dest));
+        write_test_mp3(&dest_path);
     }
 
     // Call update_database

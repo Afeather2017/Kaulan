@@ -19,7 +19,7 @@ use kaulan::{FileReader, LyricReader, MusicFileInfo, MusicFileLister, ReadSeekSe
 #[cfg(target_os = "android")]
 use std::io::{self, Read, Seek, SeekFrom};
 #[cfg(target_os = "android")]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[cfg(target_os = "android")]
 use std::pin::Pin;
 #[cfg(target_os = "android")]
@@ -876,9 +876,130 @@ pub struct MediaStoreMusicFileLister {
 #[cfg(target_os = "android")]
 impl MediaStoreMusicFileLister {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
-        Self {
-            app_handle,
+        Self { app_handle }
+    }
+
+    fn should_scan_with_filesystem(base_path: &str) -> bool {
+        base_path.starts_with("/storage/emulated/0/Android/data/")
+            || base_path.starts_with("/storage/self/primary/Android/data/")
+    }
+
+    fn path_is_within_root(candidate: &Path, root: &Path) -> bool {
+        let candidate_components: Vec<_> = candidate.components().collect();
+        let root_components: Vec<_> = root.components().collect();
+        candidate_components.starts_with(&root_components)
+    }
+
+    fn scan_directory_recursive_sync(
+        dir_path: &Path,
+        root_path: &Path,
+        files: &mut Vec<MusicFileInfo>,
+        media_types: &[String],
+    ) {
+        let entries = match std::fs::read_dir(dir_path) {
+            Ok(entries) => entries,
+            Err(err) => {
+                log::warn!(
+                    "Failed to read Android app directory {}: {}",
+                    dir_path.display(),
+                    err
+                );
+                return;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(err) => {
+                    log::warn!("Failed to read file type for {}: {}", path.display(), err);
+                    continue;
+                }
+            };
+
+            if file_type.is_dir() {
+                Self::scan_directory_recursive_sync(&path, root_path, files, media_types);
+                continue;
+            }
+
+            if !file_type.is_file() {
+                continue;
+            }
+
+            let extension = match path.extension().and_then(|ext| ext.to_str()) {
+                Some(extension) => extension,
+                None => continue,
+            };
+
+            if !kaulan::file_ops::is_supported_extension(extension, media_types) {
+                continue;
+            }
+
+            let parent_dir = path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .map(|name| name.to_string_lossy().to_string());
+
+            let filename = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let stored_path = path
+                .canonicalize()
+                .unwrap_or_else(|_| path.clone())
+                .to_string_lossy()
+                .to_string();
+
+            if Self::path_is_within_root(Path::new(&stored_path), root_path) {
+                files.push(MusicFileInfo {
+                    path: stored_path,
+                    filename,
+                    title: None,
+                    artist: None,
+                    album: None,
+                    duration_ms: None,
+                    parent_dir,
+                });
+            }
         }
+    }
+
+    fn scan_app_directory(
+        &self,
+        base_path: &str,
+        media_types: &[String],
+    ) -> Result<Vec<MusicFileInfo>, io::Error> {
+        let root_path = PathBuf::from(base_path);
+        log::info!(
+            "Scanning Android app-specific directory via std::fs: {} (types: {:?})",
+            root_path.display(),
+            media_types
+        );
+
+        if !root_path.exists() {
+            log::info!(
+                "Android app-specific directory does not exist yet: {}",
+                root_path.display()
+            );
+            return Ok(Vec::new());
+        }
+
+        let canonical_root = root_path.canonicalize().unwrap_or(root_path);
+        let mut files = Vec::new();
+        Self::scan_directory_recursive_sync(
+            &canonical_root,
+            &canonical_root,
+            &mut files,
+            media_types,
+        );
+        log::info!(
+            "Android app-specific directory scan complete: {} media files found under {}",
+            files.len(),
+            canonical_root.display()
+        );
+        Ok(files)
     }
 
     /// Generate a safe filename from metadata or use the display name
@@ -922,10 +1043,20 @@ impl MediaStoreMusicFileLister {
 impl MusicFileLister for MediaStoreMusicFileLister {
     async fn list_music_files(
         &self,
-        _base_path: &str,
+        base_path: &str,
         media_types: &[String],
     ) -> Result<Vec<MusicFileInfo>, io::Error> {
-        log::info!("Querying MediaStore for media files (types: {:?})...", media_types);
+        if Self::should_scan_with_filesystem(base_path) {
+            return self.scan_app_directory(base_path, media_types);
+        }
+
+        log::info!(
+            "Querying MediaStore for media files (types: {:?})...",
+            media_types
+        );
+        let filter_root = Path::new(base_path)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(base_path));
 
         let mut all_files = Vec::new();
 
@@ -949,20 +1080,35 @@ impl MusicFileLister for MediaStoreMusicFileLister {
             match response {
                 Ok(media_files_response) => {
                     for mf in media_files_response.files {
+                        let Some(real_path) = mf.file_path.as_ref() else {
+                            continue;
+                        };
+                        let real_path_buf = PathBuf::from(real_path);
+                        let canonical_real_path = real_path_buf
+                            .canonicalize()
+                            .unwrap_or(real_path_buf.clone());
+
+                        if !Self::path_is_within_root(&canonical_real_path, &filter_root) {
+                            continue;
+                        }
+
                         let filename = Self::generate_filename(&mf);
 
-                        let parent_dir = mf.file_path.as_ref().and_then(|path| {
-                            std::path::Path::new(path)
+                        let parent_dir = Some(
+                            canonical_real_path
                                 .parent()
                                 .and_then(|p| p.file_name())
                                 .map(|name| name.to_string_lossy().to_string())
-                        });
+                                .unwrap_or_else(|| "所有音乐".to_string()),
+                        );
 
                         log::debug!(
-                            "Found media file: {} - {} (parent_dir: {:?})",
+                            "Found MediaStore file within root {}: {} - {} (parent_dir: {:?}, file_path: {})",
+                            filter_root.display(),
                             mf.artist.as_deref().unwrap_or("Unknown"),
                             mf.title.as_deref().unwrap_or("Unknown"),
-                            parent_dir
+                            parent_dir,
+                            canonical_real_path.display()
                         );
 
                         all_files.push(MusicFileInfo {
@@ -1010,40 +1156,51 @@ impl AndroidLyricReader {
 #[cfg(target_os = "android")]
 #[async_trait]
 impl LyricReader for AndroidLyricReader {
-    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
-        log::info!("AndroidLyricReader::read_lyric called: file_path={}, filename={}", file_path, filename);
+    async fn read_lyric(
+        &self,
+        file_path: &str,
+        filename: &str,
+    ) -> Result<Option<Vec<u8>>, io::Error> {
+        log::info!(
+            "AndroidLyricReader::read_lyric called: file_path={}, filename={}",
+            file_path,
+            filename
+        );
 
-        if !file_path.starts_with("content://") {
-            log::warn!("file_path is not a content URI: {}", file_path);
-            return Ok(None);
-        }
-
-        // Resolve content URI to real filesystem path via MediaStore DATA column
-        let fs_path = match self
-            .app_handle
-            .android_mediastore()
-            .resolve_media_path(ResolveMediaPathRequest {
-                content_uri: file_path.to_string(),
-            })
-            .await
-        {
-            Ok(response) => match response.file_path {
-                Some(path) => {
-                    log::info!("Resolved content URI {} -> {}", file_path, path);
-                    path
-                }
-                None => {
-                    log::warn!("resolve_media_path returned null for {}", file_path);
-                    if let Some(error) = response.error {
-                        log::warn!("resolve_media_path error: {}", error);
+        let fs_path = if file_path.starts_with("content://") {
+            // Resolve content URI to real filesystem path via MediaStore DATA column
+            match self
+                .app_handle
+                .android_mediastore()
+                .resolve_media_path(ResolveMediaPathRequest {
+                    content_uri: file_path.to_string(),
+                })
+                .await
+            {
+                Ok(response) => match response.file_path {
+                    Some(path) => {
+                        log::info!("Resolved content URI {} -> {}", file_path, path);
+                        path
                     }
+                    None => {
+                        log::warn!("resolve_media_path returned null for {}", file_path);
+                        if let Some(error) = response.error {
+                            log::warn!("resolve_media_path error: {}", error);
+                        }
+                        return Ok(None);
+                    }
+                },
+                Err(e) => {
+                    log::error!("resolve_media_path failed for {}: {}", file_path, e);
                     return Ok(None);
                 }
-            },
-            Err(e) => {
-                log::error!("resolve_media_path failed for {}: {}", file_path, e);
-                return Ok(None);
             }
+        } else {
+            log::info!(
+                "Using direct filesystem path for Android lyrics lookup: {}",
+                file_path
+            );
+            file_path.to_string()
         };
 
         for extension in ["lrc", "vtt"] {
@@ -1211,7 +1368,11 @@ impl AndroidLyricReader {
 #[cfg(not(target_os = "android"))]
 #[async_trait::async_trait]
 impl kaulan::LyricReader for AndroidLyricReader {
-    async fn read_lyric(&self, _file_path: &str, _filename: &str) -> Result<Option<Vec<u8>>, std::io::Error> {
+    async fn read_lyric(
+        &self,
+        _file_path: &str,
+        _filename: &str,
+    ) -> Result<Option<Vec<u8>>, std::io::Error> {
         log::warn!("AndroidLyricReader::read_lyric called on desktop (stub)");
         Ok(None)
     }
