@@ -129,6 +129,9 @@
               v-if="expandedLyricsKey === resultKey(result)"
               class="lyrics-candidates"
             >
+              <div class="lyric-tip">
+                选择歌词后，点击这一行的“下载”会同时保存歌曲和歌词。
+              </div>
               <div
                 v-for="candidate in lyricCandidates[resultKey(result)] || []"
                 :key="candidate.id"
@@ -829,6 +832,11 @@ export const DirectoryTreeNode = defineComponent({
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.lyric-tip {
+  font-size: 13px;
+  color: #576475;
 }
 
 .lyric-candidate {
