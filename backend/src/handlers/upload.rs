@@ -4,14 +4,17 @@
 //! - Getting the directory tree structure
 //! - Uploading music files to the music directory
 
-use crate::file_ops::SUPPORTED_EXTENSIONS;
+use crate::file_ops::{
+    is_std_fs_path, source_create_dir_all, source_remove_file, source_write_stream,
+    SUPPORTED_EXTENSIONS,
+};
 use crate::services::scanner;
 use crate::types::{AppState, DirectoryNode, UploadResponse};
 use actix_multipart::Multipart;
 use actix_web::{get, post, web, HttpResponse, Responder};
+use bytes::Bytes;
 use futures::TryStreamExt;
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
 
@@ -207,7 +210,20 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
 
                 // Create target directory if it doesn't exist
                 if !target_dir.exists() {
-                    if let Err(e) = fs::create_dir_all(&target_dir) {
+                    if !is_std_fs_path(target_dir.to_string_lossy().as_ref()) {
+                        error!(
+                            "[UPLOAD] Unsupported target directory source: {}",
+                            target_dir.display()
+                        );
+                        return HttpResponse::InternalServerError().json(UploadResponse {
+                            success: false,
+                            message: "Unsupported upload target".to_string(),
+                            uploaded: vec![],
+                            failed: vec![],
+                        });
+                    }
+                    if let Err(e) = source_create_dir_all(target_dir.to_string_lossy().as_ref()).await
+                    {
                         error!(
                             "[UPLOAD] Failed to create target directory {}: {}",
                             target_dir.display(),
@@ -275,36 +291,27 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
                     continue;
                 }
 
-                // Write the file
-                match File::create(&full_target_path) {
-                    Ok(mut file) => {
-                        let mut file_size = 0u64;
-                        let mut write_error = false;
+                let mut file_size = 0u64;
+                let mut chunks = Vec::<Bytes>::new();
+                while let Ok(Some(chunk)) = field.try_next().await {
+                    file_size += chunk.len() as u64;
+                    chunks.push(chunk);
+                }
 
-                        while let Ok(Some(chunk)) = field.try_next().await {
-                            file_size += chunk.len() as u64;
-                            if file.write_all(&chunk).is_err() {
-                                write_error = true;
-                                break;
-                            }
-                        }
-
-                        if write_error {
-                            error!("[UPLOAD] Failed to write file: {}", filename);
-                            let _ = fs::remove_file(&full_target_path);
-                            failed_filename = Some(filename);
-                        } else {
-                            info!(
-                                "[UPLOAD] Successfully uploaded file: {} ({} bytes) -> {}",
-                                filename,
-                                file_size,
-                                full_target_path.display()
-                            );
-                            uploaded_filename = Some(filename);
-                        }
+                let full_target_str = full_target_path.to_string_lossy().to_string();
+                match source_write_stream(&full_target_str, chunks).await {
+                    Ok(()) => {
+                        info!(
+                            "[UPLOAD] Successfully uploaded file: {} ({} bytes) -> {}",
+                            filename,
+                            file_size,
+                            full_target_path.display()
+                        );
+                        uploaded_filename = Some(filename);
                     }
                     Err(e) => {
-                        error!("[UPLOAD] Failed to create file {}: {}", filename, e);
+                        error!("[UPLOAD] Failed to write file {}: {}", filename, e);
+                        let _ = source_remove_file(&full_target_str).await;
                         failed_filename = Some(filename);
                     }
                 }

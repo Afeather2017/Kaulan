@@ -224,10 +224,11 @@ pub struct UpdateResponse {
     pub message: String,
 }
 
-/// Query parameter for requesting content:// stream URLs
+/// Query parameter for requesting direct raw-path playback URLs on Android localhost.
 #[derive(Deserialize)]
 pub struct StreamQuery {
-    /// When set to "content" on Android builds, include content:// URI in stream_url
+    /// When set to `content` on Android localhost requests, expose the raw path
+    /// in `stream_url` for direct player access.
     pub stream: Option<String>,
 }
 
@@ -249,8 +250,6 @@ pub fn is_localhost_request(req: &actix_web::HttpRequest) -> bool {
         .unwrap_or(false)
 }
 
-/// Validate whether the requested stream mode is allowed for this request.
-#[cfg(target_os = "android")]
 pub fn validate_stream_request(
     stream_param: &Option<String>,
     is_localhost: bool,
@@ -260,14 +259,7 @@ pub fn validate_stream_request(
             .body("content stream is only available from localhost"));
     }
 
-    Ok(())
-}
-
-#[cfg(not(target_os = "android"))]
-pub fn validate_stream_request(
-    stream_param: &Option<String>,
-    _is_localhost: bool,
-) -> Result<(), actix_web::HttpResponse> {
+    #[cfg(not(target_os = "android"))]
     if stream_param.as_deref() == Some("content") {
         return Err(actix_web::HttpResponse::BadRequest()
             .body("content stream is only available on Android"));
@@ -276,31 +268,31 @@ pub fn validate_stream_request(
     Ok(())
 }
 
-/// Resolve stream_url for a music file path.
-/// On Android, if request is from localhost, `stream=content` is requested,
-/// and the path is a content:// URI, return it. Otherwise return None.
-#[cfg(target_os = "android")]
+/// Resolve the playback path to expose in list responses.
+pub fn resolve_playback_path(
+    file_path: &str,
+    is_localhost: bool,
+) -> String {
+    if is_localhost {
+        file_path.to_string()
+    } else {
+        String::new()
+    }
+}
+
 pub fn resolve_stream_url(
     file_path: &str,
     stream_param: &Option<String>,
     is_localhost: bool,
 ) -> Option<String> {
-    if is_localhost
-        && stream_param.as_deref() == Some("content")
-        && file_path.starts_with("content://")
-    {
-        Some(file_path.to_string())
-    } else {
-        None
+    #[cfg(target_os = "android")]
+    if is_localhost && stream_param.as_deref() == Some("content") {
+        return Some(file_path.to_string());
     }
-}
 
-#[cfg(not(target_os = "android"))]
-pub fn resolve_stream_url(
-    _file_path: &str,
-    _stream_param: &Option<String>,
-    _is_localhost: bool,
-) -> Option<String> {
+    #[cfg(not(target_os = "android"))]
+    let _ = (file_path, stream_param, is_localhost);
+
     None
 }
 

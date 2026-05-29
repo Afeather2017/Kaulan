@@ -1,127 +1,26 @@
-//! Pluggable file operations for desktop and Android platforms.
+//! Source-resolved file operations for desktop and Android platforms.
 //!
-//! This module provides traits for file reading and music file listing,
-//! allowing platform-specific implementations (std::fs for desktop,
-//! MediaStore API for Android).
+//! The database stores raw paths. Backend-side file access resolves each raw path
+//! to a registered source and delegates read/list/write/existence operations there.
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::Stream;
 use std::fs;
-use std::io::{self, Read, Seek};
-use std::path::Path;
+use std::io::{self, Read, Seek, Write};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 use tracing::debug;
-
-/// Static storage for custom file reader implementation
-static FILE_READER: OnceLock<Box<dyn FileReader>> = OnceLock::new();
-
-/// Static storage for custom music file lister implementation
-static MUSIC_FILE_LISTER: OnceLock<Box<dyn MusicFileLister>> = OnceLock::new();
 
 /// Trait object bound for seekable readers used by LUFS calculation.
 pub trait ReadSeekSendSync: Read + Seek + Send + Sync {}
 
 impl<T> ReadSeekSendSync for T where T: Read + Seek + Send + Sync {}
 
-/// Trait for reading file content
-///
-/// This trait allows different implementations for file reading:
-/// - StdFileReader: Uses std::fs::read (default for desktop)
-/// - MediaStoreFileReader: Uses Android MediaStore content URIs
-#[async_trait]
-pub trait FileReader: Send + Sync {
-    /// Read the entire contents of a file into a bytes vector
-    ///
-    /// # Arguments
-    /// * `path` - File path or content URI to read
-    ///
-    /// # Returns
-    /// - `Ok(Vec<u8>)` - File contents as bytes
-    /// - `Err(std::io::Error)` - I/O error occurred
-    async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
+pub type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>;
 
-    /// Read a file as a stream of byte chunks
-    ///
-    /// # Arguments
-    /// * `path` - File path or content URI to read
-    /// * `chunk_size` - Size of each chunk in bytes
-    ///
-    /// # Returns
-    /// - `Ok(Stream)` - Stream of file chunks
-    /// - `Err(std::io::Error)` - I/O error occurred
-    async fn read_stream(
-        &self,
-        path: &str,
-        chunk_size: usize,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>;
-
-    /// Read a file as a stream starting from a specific byte position (for Range requests)
-    ///
-    /// # Arguments
-    /// * `path` - File path or content URI to read
-    /// * `chunk_size` - Size of each chunk in bytes
-    /// * `start_pos` - Starting byte position
-    ///
-    /// # Returns
-    /// - `Ok(Stream)` - Stream of file chunks from start_pos to end
-    /// - `Err(std::io::Error)` - I/O error occurred
-    async fn read_stream_from(
-        &self,
-        path: &str,
-        chunk_size: usize,
-        start_pos: u64,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>;
-
-    /// Get the file size for a given path
-    ///
-    /// # Arguments
-    /// * `path` - File path or content URI
-    ///
-    /// # Returns
-    /// - `Ok(u64)` - File size in bytes
-    /// - `Err(std::io::Error)` - I/O error occurred
-    async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error>;
-
-    /// Open a file as a seekable reader (used by reader-based LUFS calculation).
-    ///
-    /// # Arguments
-    /// * `path` - File path or content URI
-    ///
-    /// # Returns
-    /// - `Ok(Box<dyn ReadSeekSendSync>)` - Seekable reader
-    /// - `Err(std::io::Error)` - I/O error occurred
-    async fn open_seekable_reader(
-        &self,
-        path: &str,
-    ) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
-}
-
-/// Trait for listing music files in a directory
-///
-/// This trait allows different implementations for scanning music files:
-/// - StdMusicFileLister: Uses std::fs recursive directory scan (default for desktop)
-/// - MediaStoreMusicFileLister: Uses Android MediaStore API
-#[async_trait]
-pub trait MusicFileLister: Send + Sync {
-    /// List all music files in the given base path
-    ///
-    /// # Arguments
-    /// * `base_path` - Base directory path to scan (may be ignored on Android)
-    /// * `media_types` - Enabled media types (e.g. `["audio"]` or `["audio", "video"]`)
-    ///
-    /// # Returns
-    /// - `Ok(Vec<MusicFileInfo>)` - List of music files with metadata
-    /// - `Err(std::io::Error)` - I/O error occurred
-    async fn list_music_files(
-        &self,
-        base_path: &str,
-        media_types: &[String],
-    ) -> Result<Vec<MusicFileInfo>, std::io::Error>;
-}
-
-/// Information about a music file
+/// Information about a music file discovered during a source scan.
 #[derive(Clone, Debug)]
 pub struct MusicFileInfo {
     /// File path or content URI
@@ -140,50 +39,165 @@ pub struct MusicFileInfo {
     pub parent_dir: Option<String>,
 }
 
-/// Default FileReader using std::fs
-///
-/// This implementation uses the standard library's file reading
-/// capabilities, suitable for desktop platforms.
-pub struct StdFileReader;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathKind {
+    StdFs,
+    AndroidMediaStoreContent,
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedPath {
+    pub source_id: &'static str,
+    pub raw_path: String,
+    pub normalized_path: String,
+    pub path_kind: PathKind,
+}
 
 #[async_trait]
-impl FileReader for StdFileReader {
-    async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
-        debug!("StdFileReader::read_file called with path: {}", path);
-        // Use tokio::task::spawn_blocking for std::fs operations
-        // to avoid blocking the async runtime
-        let path = path.to_string();
-        let path_clone = path.clone();
-        tokio::task::spawn_blocking(move || {
-            debug!("StdFileReader: Attempting to read file: {}", path_clone);
-            let result = std::fs::read(&path_clone);
-            match &result {
-                Ok(bytes) => debug!(
-                    "StdFileReader: Successfully read {} bytes from {}",
-                    bytes.len(),
-                    path_clone
-                ),
-                Err(e) => debug!("StdFileReader: Failed to read file {}: {}", path_clone, e),
-            }
-            result
-        })
-        .await
-        .map_err(|e| {
-            debug!("StdFileReader: Task join error for path {}: {}", path, e);
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        })?
-    }
+pub trait Source: Send + Sync {
+    fn id(&self) -> &'static str;
 
-    async fn read_stream(
+    fn path_kind(&self) -> PathKind;
+
+    fn matches(&self, raw_path: &str) -> bool;
+
+    fn normalize_path(&self, raw_path: &str) -> String;
+
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, io::Error>;
+
+    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, io::Error>;
+
+    async fn read_stream_from(
         &self,
         path: &str,
         chunk_size: usize,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>
-    {
-        debug!("StdFileReader::read_stream called with path: {}", path);
-        let file = tokio::fs::File::open(path).await?;
-        let stream = tokio_util::io::ReaderStream::with_capacity(file, chunk_size);
-        Ok(Box::pin(stream))
+        start_pos: u64,
+    ) -> Result<ByteStream, io::Error>;
+
+    async fn get_file_size(&self, path: &str) -> Result<u64, io::Error>;
+
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, io::Error>;
+
+    async fn list_music_files(
+        &self,
+        base_path: &str,
+        media_types: &[String],
+    ) -> Result<Vec<MusicFileInfo>, io::Error>;
+
+    async fn exists(&self, path: &str) -> Result<bool, io::Error>;
+
+    async fn create_dir_all(&self, path: &str) -> Result<(), io::Error>;
+
+    async fn remove_file(&self, path: &str) -> Result<(), io::Error>;
+
+    async fn write_file(&self, path: &str, bytes: &[u8]) -> Result<(), io::Error>;
+
+    async fn write_stream(
+        &self,
+        path: &str,
+        chunks: Vec<Bytes>,
+    ) -> Result<(), io::Error>;
+
+    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error>;
+}
+
+#[derive(Default)]
+pub struct SourceRegistry {
+    sources: Vec<Arc<dyn Source>>,
+}
+
+impl SourceRegistry {
+    pub fn register(&mut self, source: Arc<dyn Source>) {
+        self.sources.push(source);
+    }
+
+    pub fn resolve(&self, raw_path: &str) -> io::Result<ResolvedSource> {
+        for source in &self.sources {
+            if source.matches(raw_path) {
+                return Ok(ResolvedSource {
+                    source: Arc::clone(source),
+                    resolved: ResolvedPath {
+                        source_id: source.id(),
+                        raw_path: raw_path.to_string(),
+                        normalized_path: source.normalize_path(raw_path),
+                        path_kind: source.path_kind(),
+                    },
+                });
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("No source registered for path: {raw_path}"),
+        ))
+    }
+}
+
+pub struct ResolvedSource {
+    pub source: Arc<dyn Source>,
+    pub resolved: ResolvedPath,
+}
+
+static SOURCE_REGISTRY: OnceLock<RwLock<SourceRegistry>> = OnceLock::new();
+
+fn source_registry() -> &'static RwLock<SourceRegistry> {
+    SOURCE_REGISTRY.get_or_init(|| {
+        let mut registry = SourceRegistry::default();
+        registry.register(Arc::new(StdFsSource));
+        RwLock::new(registry)
+    })
+}
+
+pub fn register_source(source: Arc<dyn Source>) {
+    let registry = source_registry();
+    registry.write().expect("source registry poisoned").register(source);
+}
+
+pub fn resolve_path(raw_path: &str) -> io::Result<ResolvedPath> {
+    source_registry()
+        .read()
+        .expect("source registry poisoned")
+        .resolve(raw_path)
+        .map(|resolved| resolved.resolved)
+}
+
+fn resolve_source(raw_path: &str) -> io::Result<ResolvedSource> {
+    source_registry()
+        .read()
+        .expect("source registry poisoned")
+        .resolve(raw_path)
+}
+
+pub fn normalize_path(raw_path: &str) -> String {
+    resolve_source(raw_path)
+        .map(|resolved| resolved.resolved.normalized_path)
+        .unwrap_or_else(|_| raw_path.to_string())
+}
+
+pub struct SourceBackedFileReader;
+
+#[async_trait]
+pub trait FileReader: Send + Sync {
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
+    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, std::io::Error>;
+    async fn read_stream_from(
+        &self,
+        path: &str,
+        chunk_size: usize,
+        start_pos: u64,
+    ) -> Result<ByteStream, std::io::Error>;
+    async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error>;
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
+}
+
+#[async_trait]
+impl FileReader for SourceBackedFileReader {
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
+        resolve_source(path)?.source.read_file(path).await
+    }
+
+    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, std::io::Error> {
+        resolve_source(path)?.source.read_stream(path, chunk_size).await
     }
 
     async fn read_stream_from(
@@ -191,40 +205,126 @@ impl FileReader for StdFileReader {
         path: &str,
         chunk_size: usize,
         start_pos: u64,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>, std::io::Error>
-    {
-        debug!(
-            "StdFileReader::read_stream_from called with path: {}, start_pos: {}",
-            path, start_pos
-        );
-        let mut file = tokio::fs::File::open(path).await?;
-        // Seek to the starting position
-        use tokio::io::{AsyncSeekExt, SeekFrom};
-        file.seek(SeekFrom::Start(start_pos)).await?;
-        let stream = tokio_util::io::ReaderStream::with_capacity(file, chunk_size);
-        Ok(Box::pin(stream))
+    ) -> Result<ByteStream, std::io::Error> {
+        resolve_source(path)?
+            .source
+            .read_stream_from(path, chunk_size, start_pos)
+            .await
     }
 
     async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error> {
-        debug!("StdFileReader::get_file_size called with path: {}", path);
-        let metadata = tokio::fs::metadata(path).await?;
-        Ok(metadata.len())
+        resolve_source(path)?.source.get_file_size(path).await
     }
 
-    async fn open_seekable_reader(
-        &self,
-        path: &str,
-    ) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error> {
-        debug!(
-            "StdFileReader::open_seekable_reader called with path: {}",
-            path
-        );
-        let path = path.to_string();
-        let file = tokio::task::spawn_blocking(move || std::fs::File::open(path))
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))??;
-        Ok(Box::new(file))
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error> {
+        resolve_source(path)?.source.open_seekable_reader(path).await
     }
+}
+
+pub struct SourceBackedMusicFileLister;
+
+#[async_trait]
+pub trait MusicFileLister: Send + Sync {
+    async fn list_music_files(
+        &self,
+        base_path: &str,
+        media_types: &[String],
+    ) -> Result<Vec<MusicFileInfo>, std::io::Error>;
+}
+
+#[async_trait]
+impl MusicFileLister for SourceBackedMusicFileLister {
+    async fn list_music_files(
+        &self,
+        base_path: &str,
+        media_types: &[String],
+    ) -> Result<Vec<MusicFileInfo>, std::io::Error> {
+        resolve_source(base_path)?
+            .source
+            .list_music_files(base_path, media_types)
+            .await
+    }
+}
+
+pub struct SourceBackedLyricReader;
+
+#[async_trait]
+pub trait LyricReader: Send + Sync {
+    async fn read_lyric(
+        &self,
+        file_path: &str,
+        filename: &str,
+    ) -> Result<Option<Vec<u8>>, io::Error>;
+}
+
+#[async_trait]
+impl LyricReader for SourceBackedLyricReader {
+    async fn read_lyric(
+        &self,
+        file_path: &str,
+        filename: &str,
+    ) -> Result<Option<Vec<u8>>, io::Error> {
+        resolve_source(file_path)?
+            .source
+            .read_lyric(file_path, filename)
+            .await
+    }
+}
+
+static SOURCE_BACKED_FILE_READER: SourceBackedFileReader = SourceBackedFileReader;
+static SOURCE_BACKED_MUSIC_FILE_LISTER: SourceBackedMusicFileLister = SourceBackedMusicFileLister;
+static SOURCE_BACKED_LYRIC_READER: SourceBackedLyricReader = SourceBackedLyricReader;
+
+pub fn get_file_reader() -> &'static dyn FileReader {
+    &SOURCE_BACKED_FILE_READER
+}
+
+pub fn get_music_file_lister() -> &'static dyn MusicFileLister {
+    &SOURCE_BACKED_MUSIC_FILE_LISTER
+}
+
+pub fn get_lyric_reader() -> &'static dyn LyricReader {
+    &SOURCE_BACKED_LYRIC_READER
+}
+
+/// Compatibility hook: wraps a custom reader as a source with content URI matching.
+pub fn set_file_reader(reader: Box<dyn FileReader>) -> Result<(), Box<dyn FileReader>> {
+    register_source(Arc::new(CompatContentSource::new(Some(reader), None, None)));
+    Ok(())
+}
+
+/// Compatibility hook: wraps a custom lister as a source with content URI matching.
+pub fn set_music_file_lister(
+    lister: Box<dyn MusicFileLister>,
+) -> Result<(), Box<dyn MusicFileLister>> {
+    register_source(Arc::new(CompatContentSource::new(None, Some(lister), None)));
+    Ok(())
+}
+
+/// Compatibility hook: wraps a custom lyric reader as a source with content URI matching.
+pub fn set_lyric_reader(reader: Box<dyn LyricReader>) -> Result<(), Box<dyn LyricReader>> {
+    register_source(Arc::new(CompatContentSource::new(None, None, Some(reader))));
+    Ok(())
+}
+
+pub async fn source_exists(path: &str) -> Result<bool, io::Error> {
+    resolve_source(path)?.source.exists(path).await
+}
+
+pub async fn source_create_dir_all(path: &str) -> Result<(), io::Error> {
+    resolve_source(path)?.source.create_dir_all(path).await
+}
+
+pub async fn source_remove_file(path: &str) -> Result<(), io::Error> {
+    resolve_source(path)?.source.remove_file(path).await
+}
+
+pub async fn source_write_file(path: &str, bytes: &[u8]) -> Result<(), io::Error> {
+    resolve_source(path)?.source.write_file(path, bytes).await
+}
+
+pub async fn source_write_stream(path: &str, chunks: Vec<Bytes>) -> Result<(), io::Error> {
+    resolve_source(path)?.source.write_stream(path, chunks).await
 }
 
 /// Supported audio file extensions
@@ -245,15 +345,10 @@ pub fn is_supported_extension(ext: &str, media_types: &[String]) -> bool {
 
 /// Check if a file path points to a video file
 pub fn is_video_file(file_path: &str) -> bool {
-    // Check file extension for regular paths
-    if let Some(ext) = Path::new(file_path)
-        .extension()
-        .and_then(|e| e.to_str())
-    {
+    if let Some(ext) = Path::new(file_path).extension().and_then(|e| e.to_str()) {
         return VIDEO_EXTENSIONS.contains(&ext.to_lowercase().as_str());
     }
 
-    // For Android content URIs, check if the URI path contains "/video/"
     if file_path.starts_with("content://") && file_path.contains("/video/") {
         return true;
     }
@@ -261,43 +356,136 @@ pub fn is_video_file(file_path: &str) -> bool {
     false
 }
 
-/// Default MusicFileLister using std::fs
-///
-/// This implementation performs a recursive directory scan
-/// using the standard library, suitable for desktop platforms.
-pub struct StdMusicFileLister;
+pub struct StdFsSource;
 
 #[async_trait]
-impl MusicFileLister for StdMusicFileLister {
+impl Source for StdFsSource {
+    fn id(&self) -> &'static str {
+        "std-fs"
+    }
+
+    fn path_kind(&self) -> PathKind {
+        PathKind::StdFs
+    }
+
+    fn matches(&self, raw_path: &str) -> bool {
+        !raw_path.starts_with("content://")
+    }
+
+    fn normalize_path(&self, raw_path: &str) -> String {
+        Path::new(raw_path)
+            .canonicalize()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| raw_path.to_string())
+    }
+
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, io::Error> {
+        debug!("StdFsSource::read_file called with path: {}", path);
+        let path = path.to_string();
+        tokio::task::spawn_blocking(move || fs::read(path))
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+    }
+
+    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, io::Error> {
+        let file = tokio::fs::File::open(path).await?;
+        Ok(Box::pin(tokio_util::io::ReaderStream::with_capacity(
+            file, chunk_size,
+        )))
+    }
+
+    async fn read_stream_from(
+        &self,
+        path: &str,
+        chunk_size: usize,
+        start_pos: u64,
+    ) -> Result<ByteStream, io::Error> {
+        let mut file = tokio::fs::File::open(path).await?;
+        use tokio::io::{AsyncSeekExt, SeekFrom};
+        file.seek(SeekFrom::Start(start_pos)).await?;
+        Ok(Box::pin(tokio_util::io::ReaderStream::with_capacity(
+            file, chunk_size,
+        )))
+    }
+
+    async fn get_file_size(&self, path: &str) -> Result<u64, io::Error> {
+        Ok(tokio::fs::metadata(path).await?.len())
+    }
+
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, io::Error> {
+        let path = path.to_string();
+        let file = tokio::task::spawn_blocking(move || std::fs::File::open(path))
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))??;
+        Ok(Box::new(file))
+    }
+
     async fn list_music_files(
         &self,
         base_path: &str,
         media_types: &[String],
-    ) -> Result<Vec<MusicFileInfo>, std::io::Error> {
-        // Use spawn_blocking for synchronous directory scanning
+    ) -> Result<Vec<MusicFileInfo>, io::Error> {
         let base_path = base_path.to_string();
         let media_types = media_types.to_vec();
         tokio::task::spawn_blocking(move || {
             let mut audio_files = Vec::new();
-            let dir_path = Path::new(&base_path);
-
-            debug!("Scanning directory with StdMusicFileLister: {}", base_path);
-            scan_directory_recursive_sync(dir_path, &mut audio_files, &media_types);
-            debug!(
-                "StdMusicFileLister scan complete. Found {} files",
-                audio_files.len()
-            );
+            scan_directory_recursive_sync(Path::new(&base_path), &mut audio_files, &media_types);
             Ok(audio_files)
         })
         .await
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+    }
+
+    async fn exists(&self, path: &str) -> Result<bool, io::Error> {
+        Ok(tokio::fs::metadata(path).await.is_ok())
+    }
+
+    async fn create_dir_all(&self, path: &str) -> Result<(), io::Error> {
+        tokio::fs::create_dir_all(path).await
+    }
+
+    async fn remove_file(&self, path: &str) -> Result<(), io::Error> {
+        tokio::fs::remove_file(path).await
+    }
+
+    async fn write_file(&self, path: &str, bytes: &[u8]) -> Result<(), io::Error> {
+        tokio::fs::write(path, bytes).await
+    }
+
+    async fn write_stream(
+        &self,
+        path: &str,
+        chunks: Vec<Bytes>,
+    ) -> Result<(), io::Error> {
+        let path = path.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), io::Error> {
+            let mut file = std::fs::File::create(path)?;
+            for chunk in chunks {
+                file.write_all(&chunk)?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+    }
+
+    async fn read_lyric(&self, file_path: &str, _filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
+        for lyric_path in lyric_candidate_paths(file_path) {
+            let candidate = lyric_path.clone();
+            match tokio::task::spawn_blocking(move || std::fs::read(candidate))
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            {
+                Ok(content) => return Ok(Some(content)),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+                Err(err) => return Err(err),
+            }
+        }
+
+        Ok(None)
     }
 }
 
-/// Recursively scan directory for media files (synchronous helper)
-///
-/// This is a helper function for StdMusicFileLister that performs
-/// the actual recursive directory traversal synchronously.
 fn scan_directory_recursive_sync(
     dir_path: &Path,
     files: &mut Vec<MusicFileInfo>,
@@ -311,15 +499,12 @@ fn scan_directory_recursive_sync(
                     if let Some(extension) = path.extension() {
                         let ext_str = extension.to_string_lossy().to_lowercase();
                         if is_supported_extension(&ext_str, media_types) {
-                            let filename =
-                                path.file_name().unwrap().to_string_lossy().to_string();
+                            let filename = path.file_name().unwrap().to_string_lossy().to_string();
                             let absolute_path = path
                                 .canonicalize()
                                 .unwrap_or_else(|_| path.clone())
                                 .to_string_lossy()
                                 .to_string();
-
-                            debug!("Found media file: {}", absolute_path);
 
                             files.push(MusicFileInfo {
                                 path: absolute_path,
@@ -342,70 +527,6 @@ fn scan_directory_recursive_sync(
     }
 }
 
-/// Set a custom file reader implementation
-///
-/// This function should be called before the server starts to inject
-/// a platform-specific file reader (e.g., MediaStore on Android).
-///
-/// # Arguments
-/// * `reader` - Boxed trait object implementing FileReader
-///
-/// # Returns
-/// - `Ok(())` - Successfully set the reader
-/// - `Err(Box<dyn FileReader>)` - A reader was already set, returns the new one
-pub fn set_file_reader(reader: Box<dyn FileReader>) -> Result<(), Box<dyn FileReader>> {
-    debug!("set_file_reader: Setting custom file reader");
-    FILE_READER.set(reader)
-}
-
-/// Set a custom music file lister implementation
-///
-/// This function should be called before the server starts to inject
-/// a platform-specific file lister (e.g., MediaStore on Android).
-///
-/// # Arguments
-/// * `lister` - Boxed trait object implementing MusicFileLister
-///
-/// # Returns
-/// - `Ok(())` - Successfully set the lister
-/// - `Err(Box<dyn MusicFileLister>)` - A lister was already set, returns the new one
-pub fn set_music_file_lister(
-    lister: Box<dyn MusicFileLister>,
-) -> Result<(), Box<dyn MusicFileLister>> {
-    MUSIC_FILE_LISTER.set(lister)
-}
-
-/// Get the current file reader (custom or default)
-///
-/// Returns the custom reader if one was set, otherwise returns
-/// the default StdFileReader.
-pub fn get_file_reader() -> &'static dyn FileReader {
-    let reader = FILE_READER
-        .get()
-        .map(|b| b.as_ref())
-        .unwrap_or(&StdFileReader);
-    if FILE_READER.get().is_some() {
-        debug!("get_file_reader: Returning custom file reader");
-    } else {
-        debug!("get_file_reader: Returning default StdFileReader");
-    }
-    reader
-}
-
-/// Get the current music file lister (custom or default)
-///
-/// Returns the custom lister if one was set, otherwise returns
-/// the default StdMusicFileLister.
-pub fn get_music_file_lister() -> &'static dyn MusicFileLister {
-    MUSIC_FILE_LISTER
-        .get()
-        .map(|b| b.as_ref())
-        .unwrap_or(&StdMusicFileLister)
-}
-
-/// Static storage for custom lyric reader implementation
-static LYRIC_READER: OnceLock<Box<dyn LyricReader>> = OnceLock::new();
-
 fn lyric_candidate_paths(file_path: &str) -> Vec<String> {
     let base_path = Path::new(file_path);
 
@@ -420,120 +541,169 @@ fn lyric_candidate_paths(file_path: &str) -> Vec<String> {
         .collect()
 }
 
-/// Trait for reading lyrics files
-///
-/// This trait allows platform-specific implementations for reading sidecar lyric files:
-/// - StdLyricReader: Uses std::fs to read `.lrc` or `.vtt` files (default for desktop)
-/// - AndroidLyricReader: Uses a content-URI-to-filesystem-path mapping to read `.lrc` or `.vtt` files
-#[async_trait]
-pub trait LyricReader: Send + Sync {
-    /// Read lyrics for a music file.
-    ///
-    /// # Arguments
-    /// * `file_path` - The path stored in the database (filesystem path on desktop, content URI on Android)
-    /// * `filename` - The display filename (e.g., "song.mp3")
-    ///
-    /// # Returns
-    /// - `Ok(Some(bytes))` - Lyrics file content as bytes
-    /// - `Ok(None)` - Lyrics file not found (expected for songs without lyrics)
-    /// - `Err(io::Error)` - I/O error occurred
-    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error>;
+struct CompatContentSource {
+    file_reader: Option<Box<dyn FileReader>>,
+    music_lister: Option<Box<dyn MusicFileLister>>,
+    lyric_reader: Option<Box<dyn LyricReader>>,
 }
 
-/// Default LyricReader using std::fs
-///
-/// This implementation constructs sidecar lyric paths by replacing the extension
-/// of the given file path with `.lrc` first, then `.vtt`, and reads the first match.
-pub struct StdLyricReader;
-
-#[async_trait]
-impl LyricReader for StdLyricReader {
-    async fn read_lyric(&self, file_path: &str, _filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
-        debug!("StdLyricReader::read_lyric called with file_path: {}", file_path);
-        for lyric_path in lyric_candidate_paths(file_path) {
-            debug!("Attempting to read lyrics file: {}", lyric_path);
-
-            let path = lyric_path.clone();
-            match tokio::task::spawn_blocking(move || std::fs::read(&path))
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            {
-                Ok(content) => {
-                    debug!(
-                        "Successfully read lyrics file: {} ({} bytes)",
-                        lyric_path,
-                        content.len()
-                    );
-                    return Ok(Some(content));
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    debug!(
-                        "Lyrics file not found (this is expected for songs without lyrics): {} - Error: {}",
-                        lyric_path, e
-                    );
-                }
-                Err(e) => return Err(e),
-            }
+impl CompatContentSource {
+    fn new(
+        file_reader: Option<Box<dyn FileReader>>,
+        music_lister: Option<Box<dyn MusicFileLister>>,
+        lyric_reader: Option<Box<dyn LyricReader>>,
+    ) -> Self {
+        Self {
+            file_reader,
+            music_lister,
+            lyric_reader,
         }
+    }
 
-        Ok(None)
+    fn unsupported() -> io::Error {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            "operation not supported by compatibility content source",
+        )
     }
 }
 
-/// Set a custom lyric reader implementation
-///
-/// This function should be called before the server starts to inject
-/// a platform-specific lyric reader (e.g., AndroidLyricReader).
-///
-/// # Arguments
-/// * `reader` - Boxed trait object implementing LyricReader
-///
-/// # Returns
-/// - `Ok(())` - Successfully set the reader
-/// - `Err(Box<dyn LyricReader>)` - A reader was already set, returns the new one
-pub fn set_lyric_reader(reader: Box<dyn LyricReader>) -> Result<(), Box<dyn LyricReader>> {
-    debug!("set_lyric_reader: Setting custom lyric reader");
-    LYRIC_READER.set(reader)
+#[async_trait]
+impl Source for CompatContentSource {
+    fn id(&self) -> &'static str {
+        "compat-content"
+    }
+
+    fn path_kind(&self) -> PathKind {
+        PathKind::AndroidMediaStoreContent
+    }
+
+    fn matches(&self, raw_path: &str) -> bool {
+        raw_path.starts_with("content://")
+    }
+
+    fn normalize_path(&self, raw_path: &str) -> String {
+        raw_path.to_string()
+    }
+
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, io::Error> {
+        match &self.file_reader {
+            Some(reader) => reader.read_file(path).await,
+            None => Err(Self::unsupported()),
+        }
+    }
+
+    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, io::Error> {
+        match &self.file_reader {
+            Some(reader) => reader.read_stream(path, chunk_size).await,
+            None => Err(Self::unsupported()),
+        }
+    }
+
+    async fn read_stream_from(
+        &self,
+        path: &str,
+        chunk_size: usize,
+        start_pos: u64,
+    ) -> Result<ByteStream, io::Error> {
+        match &self.file_reader {
+            Some(reader) => reader.read_stream_from(path, chunk_size, start_pos).await,
+            None => Err(Self::unsupported()),
+        }
+    }
+
+    async fn get_file_size(&self, path: &str) -> Result<u64, io::Error> {
+        match &self.file_reader {
+            Some(reader) => reader.get_file_size(path).await,
+            None => Err(Self::unsupported()),
+        }
+    }
+
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, io::Error> {
+        match &self.file_reader {
+            Some(reader) => reader.open_seekable_reader(path).await,
+            None => Err(Self::unsupported()),
+        }
+    }
+
+    async fn list_music_files(
+        &self,
+        base_path: &str,
+        media_types: &[String],
+    ) -> Result<Vec<MusicFileInfo>, io::Error> {
+        match &self.music_lister {
+            Some(lister) => lister.list_music_files(base_path, media_types).await,
+            None => Err(Self::unsupported()),
+        }
+    }
+
+    async fn exists(&self, path: &str) -> Result<bool, io::Error> {
+        self.get_file_size(path).await.map(|_| true)
+    }
+
+    async fn create_dir_all(&self, _path: &str) -> Result<(), io::Error> {
+        Err(Self::unsupported())
+    }
+
+    async fn remove_file(&self, _path: &str) -> Result<(), io::Error> {
+        Err(Self::unsupported())
+    }
+
+    async fn write_file(&self, _path: &str, _bytes: &[u8]) -> Result<(), io::Error> {
+        Err(Self::unsupported())
+    }
+
+    async fn write_stream(&self, _path: &str, _chunks: Vec<Bytes>) -> Result<(), io::Error> {
+        Err(Self::unsupported())
+    }
+
+    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
+        match &self.lyric_reader {
+            Some(reader) => reader.read_lyric(file_path, filename).await,
+            None => Err(Self::unsupported()),
+        }
+    }
 }
 
-/// Get the current lyric reader (custom or default)
-///
-/// Returns the custom reader if one was set, otherwise returns
-/// the default StdLyricReader.
-pub fn get_lyric_reader() -> &'static dyn LyricReader {
-    LYRIC_READER
-        .get()
-        .map(|b| b.as_ref())
-        .unwrap_or(&StdLyricReader)
+pub fn is_std_fs_path(path: &str) -> bool {
+    !path.starts_with("content://")
+}
+
+pub fn is_content_uri(path: &str) -> bool {
+    path.starts_with("content://")
+}
+
+pub fn join_relative_path(base: &str, relative: &str) -> PathBuf {
+    Path::new(base).join(relative)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
+    use std::io::{Read, Seek, SeekFrom};
 
     #[tokio::test]
     async fn test_std_file_reader() {
-        // Create a temporary file
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, b"Hello, World!").unwrap();
 
-        let reader = StdFileReader;
-        let content = reader.read_file(file_path.to_str().unwrap()).await.unwrap();
+        let content = get_file_reader()
+            .read_file(file_path.to_str().unwrap())
+            .await
+            .unwrap();
         assert_eq!(content, b"Hello, World!");
     }
 
     #[tokio::test]
     async fn test_std_file_reader_stream() {
-        use futures::StreamExt;
-
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("stream.bin");
         let data = vec![0_u8; 1024 * 1024 + 17];
         fs::write(&file_path, &data).unwrap();
 
-        let reader = StdFileReader;
-        let mut stream = reader
+        let mut stream = get_file_reader()
             .read_stream(file_path.to_str().unwrap(), 1024 * 1024)
             .await
             .unwrap();
@@ -555,14 +725,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_std_file_reader_seekable_reader() {
-        use std::io::{Read, Seek, SeekFrom};
-
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("seekable.txt");
         fs::write(&file_path, b"abcdef").unwrap();
 
-        let reader = StdFileReader;
-        let mut file = reader
+        let mut file = get_file_reader()
             .open_seekable_reader(file_path.to_str().unwrap())
             .await
             .unwrap();
@@ -572,5 +739,11 @@ mod tests {
         let read = file.read(&mut buf).unwrap();
         assert_eq!(read, 2);
         assert_eq!(&buf, b"cd");
+    }
+
+    #[test]
+    fn normalize_content_uri_is_stable() {
+        let path = "content://media/external/audio/media/42";
+        assert_eq!(normalize_path(path), path);
     }
 }

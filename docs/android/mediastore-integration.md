@@ -16,29 +16,31 @@ On Android 10 (API 29) and later, direct filesystem access to media files is res
 
 ## Solution
 
-Kaulan uses a pluggable file operations abstraction layer that allows platform-specific implementations:
+Kaulan uses a source-resolved file operations layer:
 
-- **Desktop platforms**: Uses `std::fs` for traditional file access
-- **Android platforms**: Uses the [tauri-plugin-android-mediastore](https://github.com/rustmini/tauri-plugin-android-mediastore) plugin to access MediaStore
+- **`StdFs` source**: Uses `std::fs` / `tokio::fs` for normal filesystem paths
+- **`AndroidMediaStoreContent` source**: Uses the [tauri-plugin-android-mediastore](https://github.com/rustmini/tauri-plugin-android-mediastore) plugin for `content://` paths
 
-This architecture allows the same backend code to work on both desktop and Android platforms.
+The database keeps storing raw paths. Backend code resolves each path to the correct source before reading, streaming, listing, or checking existence.
 
 ## Architecture
 
 ```mermaid
 sequenceDiagram
     participant App as Tauri App
+    participant Resolver as Source Resolver
     participant Adapter as MediaStore Adapter
     participant Plugin as MediaStore Plugin
     participant MediaStore as Android MediaStore
     participant Backend as Rust Backend
 
     Note over App,Backend: App Startup (Android only)
-    App->>Adapter: Set MediaStoreFileReader
-    App->>Adapter: Set MediaStoreMusicFileLister
+    App->>Adapter: Register MediaStore adapters
     App->>Backend: Start server
 
     Note over App,Backend: Music Scanning
+    Backend->>Resolver: resolve("/storage")
+    Resolver-->>Backend: AndroidMediaStoreContent
     Backend->>Adapter: list_music_files("/storage")
     Adapter->>Plugin: get_audio_files()
     Plugin->>MediaStore: Query audio content
@@ -48,6 +50,8 @@ sequenceDiagram
     Backend->>Backend: Populate database
 
     Note over App,Backend: Music Playback
+    Backend->>Resolver: resolve("content://...")
+    Resolver-->>Backend: AndroidMediaStoreContent
     Backend->>Adapter: read_file("content://...")
     Adapter->>Plugin: file_reader_open()
     Plugin->>MediaStore: Open content URI
@@ -66,41 +70,36 @@ sequenceDiagram
 
 ## Implementation Details
 
-### Backend: Pluggable File Operations
+### Backend: Source-Resolved File Operations
 
 **Source: [`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)**
 
-The backend defines two traits that allow platform-specific implementations:
+The backend resolves each raw path through a registry of `Source` implementations.
 
-#### FileReader Trait
+#### Source Trait
 
 ```rust
 #[async_trait]
-pub trait FileReader: Send + Sync {
+pub trait Source: Send + Sync {
+    fn matches(&self, raw_path: &str) -> bool;
+    fn normalize_path(&self, raw_path: &str) -> String;
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
+    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, std::io::Error>;
+    async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error>;
+    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
+    async fn list_music_files(&self, base_path: &str, media_types: &[String]) -> Result<Vec<MusicFileInfo>, std::io::Error>;
+    async fn exists(&self, path: &str) -> Result<bool, std::io::Error>;
 }
 ```
 
-- **StdFileReader**: Uses `std::fs::read` (default for desktop)
-- **MediaStoreFileReader**: Uses Android content URIs
-
-#### MusicFileLister Trait
-
-```rust
-#[async_trait]
-pub trait MusicFileLister: Send + Sync {
-    async fn list_music_files(&self, base_path: &str) -> Result<Vec<MusicFileInfo>, std::io::Error>;
-}
-```
-
-- **StdMusicFileLister**: Recursive directory scan using `std::fs` (default for desktop)
-- **MediaStoreMusicFileLister**: Queries Android MediaStore API
+- **`StdFs` source** handles desktop paths and Android app-private filesystem paths
+- **`AndroidMediaStoreContent` source** handles `content://` paths
 
 #### MusicFileInfo Structure
 
 ```rust
 pub struct MusicFileInfo {
-    pub path: String,        // Content URI on Android, file path on desktop
+    pub path: String,        // Raw path stored in DB
     pub filename: String,    // Generated filename from metadata on Android
     pub title: Option<String>,
     pub artist: Option<String>,
@@ -113,7 +112,7 @@ pub struct MusicFileInfo {
 
 **Source: [`frontend/src-tauri/src/mediastore_adapter.rs`](../../../frontend/src-tauri/src/mediastore_adapter.rs)**
 
-The adapters are compiled only on Android and provide implementations of the backend traits:
+The adapters are compiled only on Android and provide MediaStore-backed behavior that the backend registers into the source registry.
 
 #### MediaStoreFileReader
 
@@ -172,10 +171,10 @@ impl FileReader for MediaStoreFileReader {
 
 **Source: [`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs:52-60)**
 
-MediaStore adapters are set up before the backend server starts:
+MediaStore adapters are registered before the backend server starts:
 
 ```rust
-// Set up custom file operations implementations for Android
+// Register MediaStore-backed file operations for Android
 #[cfg(target_os = "android")]
 {
     log::info!("Setting up MediaStore adapters for Android");
@@ -200,28 +199,14 @@ For Android 12L (API 32) and earlier, the deprecated `READ_EXTERNAL_STORAGE` per
 
 ## Data Storage
 
-On Android, the database stores content URIs instead of file paths:
+On Android, the database stores raw paths instead of forcing one path format:
 
 | Field | Desktop | Android |
 |-------|---------|---------|
-| `file_path` | `/path/to/music/song.mp3` | `content://media/external/audio/media/123` |
+| `file_path` | `/path/to/music/song.mp3` | `content://media/external/audio/media/123` or `/storage/.../Android/data/<app>/...` |
 | `filename` | `song.mp3` | `Artist_Title.mp3` (generated from metadata) |
 
-The scanner normalizes paths differently based on whether they are content URIs:
-
-```rust
-fn is_content_uri(path: &str) -> bool {
-    path.starts_with("content://")
-}
-
-fn normalize_path(path: &str) -> String {
-    if is_content_uri(path) {
-        path.to_string()  // Keep content URI as-is
-    } else {
-        Path::new(path).canonicalize().to_string_lossy().to_string()  // Canonicalize file path
-    }
-}
-```
+The source resolver normalizes each raw path according to the owning source before scan deduplication and existence checks.
 
 ## Usage
 
@@ -238,10 +223,11 @@ When the app starts on Android:
 
 When a user plays a song:
 
-1. Remote clients and non-Android builds use `GET /api/music/id/{id}` over HTTP
-2. Android localhost requests may add `?stream=content` when the backend is also localhost
-3. The backend only returns `stream_url: "content://..."` for Android localhost callers
-4. Other callers receive the normal HTTP stream URL in `path`, so raw MediaStore URIs are not exposed over LAN
+1. Localhost callers receive the raw database path in the `path` field
+2. Remote callers receive the HTTP stream URL in the `path` field
+3. Android localhost callers may still add `?stream=content`
+4. When `?stream=content` is present, the backend exposes the raw `content://` path in `stream_url` for the Android direct-play backend
+5. Remote callers never receive raw MediaStore URIs
 
 ### LUFS Pre-caching
 
@@ -254,9 +240,9 @@ When LUFS pre-cache is triggered on Android:
 ## Related Source Files
 
 ### Backend
-- **[`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)** - Pluggable file operations traits and implementations
-- **[`backend/src/services/scanner.rs`](../../../backend/src/services/scanner.rs)** - Music scanner using MusicFileLister
-- **[`backend/src/handlers/music.rs`](../../../backend/src/handlers/music.rs)** - Music streaming endpoint using FileReader
+- **[`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)** - Source registry, resolver, and source implementations
+- **[`backend/src/services/scanner.rs`](../../../backend/src/services/scanner.rs)** - Music scanner using source-backed lister and existence checks
+- **[`backend/src/handlers/music.rs`](../../../backend/src/handlers/music.rs)** - Music streaming endpoint using source-backed reader
 
 ### Frontend
 - **[`frontend/src-tauri/src/mediastore_adapter.rs`](../../../frontend/src-tauri/src/mediastore_adapter.rs)** - MediaStore adapter implementations
