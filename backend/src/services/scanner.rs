@@ -10,7 +10,7 @@ use crate::entities::db_meta::{ActiveModel as DbMetaActiveModel, Entity as DbMet
 use crate::entities::music::{
     ActiveModel as MusicActiveModel, Column as MusicColumn, Entity as MusicEntity,
 };
-use crate::file_ops::{get_music_file_lister, MusicFileInfo};
+use crate::file_ops::{get_music_file_lister, normalize_path, source_exists, MusicFileInfo};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
@@ -52,26 +52,6 @@ pub async fn scan_directory_recursive(
             error!("Failed to scan directory {}: {}", dir_str, e);
             Err(e)
         }
-    }
-}
-
-/// Check if a path is a content URI (Android MediaStore)
-fn is_content_uri(path: &str) -> bool {
-    path.starts_with("content://")
-}
-
-/// Normalize a file path for database storage
-///
-/// For regular paths, this canonicalizes the path to get a unique absolute path.
-/// For content URIs (Android), returns the URI as-is.
-fn normalize_path(path: &str) -> String {
-    if is_content_uri(path) {
-        path.to_string()
-    } else {
-        Path::new(path)
-            .canonicalize()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| path.to_string())
     }
 }
 
@@ -340,14 +320,12 @@ pub async fn update_database_with_roots(
 
     // Only check for deleted files on non-Android platforms (when we have real file paths)
     // On Android with content URIs, we can't reliably check if files still exist
-    let has_content_uris = audio_files.iter().any(|f| is_content_uri(&f.path));
-
-    if !has_content_uris {
-        match MusicEntity::find().all(db_conn).await {
-            Ok(all_music) => {
-                for music in all_music {
-                    // Check if file exists - use the stored absolute path directly
-                    if !Path::new(&music.file_path).exists() {
+    match MusicEntity::find().all(db_conn).await {
+        Ok(all_music) => {
+            for music in all_music {
+                match source_exists(&music.file_path).await {
+                    Ok(true) => {}
+                    Ok(false) => {
                         let filename = music.filename.clone();
                         info!(
                             "[DB_UPDATE] Deleting non-existent file from database: {}",
@@ -362,17 +340,21 @@ pub async fn update_database_with_roots(
                             }
                         }
                     }
+                    Err(e) => {
+                        error!(
+                            "[DB_UPDATE] Failed to check existence for {}: {}",
+                            music.file_path, e
+                        );
+                    }
                 }
             }
-            Err(e) => {
-                error!(
-                    "[DB_UPDATE] Database error while checking for deleted files: {}",
-                    e
-                );
-            }
         }
-    } else {
-        info!("[DB_UPDATE] Skipping deleted file check (Android content URIs)");
+        Err(e) => {
+            error!(
+                "[DB_UPDATE] Database error while checking for deleted files: {}",
+                e
+            );
+        }
     }
 
     info!("[DB_UPDATE] ========== DATABASE UPDATE COMPLETE ==========");

@@ -13,6 +13,15 @@ The Settings and Database Management features allow users to configure the music
 4. **Playback Normalization Settings** - Volume mode and slider settings affect playback immediately
 5. **Persistent Configuration** - Music directory is saved to a config file and persists across restarts
 
+## Source-Resolved Paths
+
+The database continues to store raw file paths in `music.file_path`, but backend file access is now resolved through source-specific implementations:
+
+- `StdFs` for normal filesystem paths
+- `AndroidMediaStoreContent` for `content://` paths
+
+Database updates now use source-aware path normalization and existence checks instead of assuming every entry is a plain filesystem path.
+
 ## API Endpoints
 
 ### Settings Endpoints
@@ -205,7 +214,8 @@ sequenceDiagram
     Note over BE: Check for deleted files
 
     loop For each database entry
-        BE->>BE: Check if file still exists on disk
+        BE->>BE: Resolve stored raw path to source
+        BE->>BE: Check if file still exists via source
 
         alt File not found
             BE->>DB: DELETE FROM music WHERE id = ?

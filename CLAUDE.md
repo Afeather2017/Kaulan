@@ -130,7 +130,7 @@ backend/src/
 │   ├── mod.rs
 │   └── prelude.rs
 ├── file_ops/
-│   └── mod.rs       # Pluggable file operations (FileReader, MusicFileLister traits)
+│   └── mod.rs       # Source registry, path resolver, and backend file operations
 ├── log_broadcast.rs # TCP log streaming server on port 2081
 └── lufsgen.rs       # FFmpeg-based LUFS analysis utility
 ```
@@ -143,9 +143,10 @@ backend/src/
 - `collection_item` table provides many-to-many relationship between collections and music
 - Backend scans music directory on startup via `initialize_database()`
 - Two view modes: folder-based playlists and user-defined collections
-- **Pluggable file operations** - `file_ops` module provides traits for platform-specific file access:
-  - `FileReader` - Read file contents (std::fs on desktop, MediaStore on Android)
-  - `MusicFileLister` - List music files (recursive scan on desktop, MediaStore query on Android)
+- **Source-resolved file operations** - `file_ops` resolves each stored raw path to a source implementation:
+  - `StdFs` handles normal filesystem paths on desktop and Android app-private storage
+  - `AndroidMediaStoreContent` handles `content://` URIs on Android
+  - Callers keep using backend file operation helpers, but dispatch is source-aware
   - See [`docs/android/mediastore-integration.md`](docs/android/mediastore-integration.md) for Android implementation
 
 ### Frontend Structure
@@ -183,8 +184,9 @@ frontend/src-tauri/src/
 **Folder Mode (default):**
 1. Backend scans music directory on startup → populates `music` table
 2. Frontend calls `GET /api/playlists` → gets folder-based playlist structure
-3. Frontend calls `GET /api/music/{filename}` → streams audio file
-4. LUFS values are stored in DB
+3. Localhost callers receive raw playback paths; remote callers receive HTTP stream URLs
+4. Remote playback uses `GET /api/music/{filename}` or `GET /api/music/id/{id}` → backend resolves raw path to source and streams audio
+5. LUFS values are stored in DB
 
 **Collection Mode:**
 1. Frontend calls `GET /api/collections` → gets all user-defined collections

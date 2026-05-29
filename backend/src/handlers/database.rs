@@ -11,8 +11,8 @@ use crate::entities::collection_item::{
 use crate::entities::music::Entity as MusicEntity;
 use crate::services::scanner;
 use crate::types::{
-    build_http_stream_url, is_localhost_request, resolve_stream_url, validate_stream_request,
-    AppState, MusicInfo, StreamQuery, UpdateResponse,
+    build_http_stream_url, is_localhost_request, resolve_playback_path, resolve_stream_url,
+    validate_stream_request, AppState, MusicInfo, StreamQuery, UpdateResponse,
 };
 use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -143,7 +143,11 @@ pub async fn get_playlists_collection_mode(
                     id: music.id,
                     name: music.filename.clone(),
                     lufs: music.lufs,
-                    path: build_http_stream_url(&req, music.id),
+                    path: if localhost {
+                        resolve_playback_path(&music.file_path, localhost)
+                    } else {
+                        build_http_stream_url(&req, music.id)
+                    },
                     stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
                 };
                 playlists
@@ -170,7 +174,11 @@ pub async fn get_playlists_collection_mode(
                                         id: music.id,
                                         name: music.filename,
                                         lufs: music.lufs,
-                                        path: build_http_stream_url(&req, music.id),
+                                        path: if localhost {
+                                            resolve_playback_path(&music.file_path, localhost)
+                                        } else {
+                                            build_http_stream_url(&req, music.id)
+                                        },
                                         stream_url: resolve_stream_url(
                                             &music.file_path,
                                             &query.stream,

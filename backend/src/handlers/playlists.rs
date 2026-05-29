@@ -8,8 +8,8 @@
 
 use crate::entities::music::Entity as MusicEntity;
 use crate::types::{
-    build_http_stream_url, is_localhost_request, resolve_stream_url, validate_stream_request,
-    AppState, MusicInfo, Playlist, StreamQuery,
+    build_http_stream_url, is_localhost_request, resolve_playback_path, resolve_stream_url,
+    validate_stream_request, AppState, MusicInfo, Playlist, StreamQuery,
 };
 use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use sea_orm::EntityTrait;
@@ -47,7 +47,11 @@ pub async fn get_all_playlists(
                     id: music.id,
                     name: music.filename.clone(),
                     lufs: music.lufs,
-                    path: build_http_stream_url(&req, music.id),
+                    path: if localhost {
+                        resolve_playback_path(&music.file_path, localhost)
+                    } else {
+                        build_http_stream_url(&req, music.id)
+                    },
                     stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
                 };
 
@@ -106,7 +110,11 @@ pub async fn get_playlist(
                     id: music.id,
                     name: music.filename.clone(),
                     lufs: music.lufs,
-                    path: build_http_stream_url(&req, music.id),
+                    path: if localhost {
+                        resolve_playback_path(&music.file_path, localhost)
+                    } else {
+                        build_http_stream_url(&req, music.id)
+                    },
                     stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
                 };
 
