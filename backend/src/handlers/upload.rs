@@ -222,7 +222,8 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
                             failed: vec![],
                         });
                     }
-                    if let Err(e) = source_create_dir_all(target_dir.to_string_lossy().as_ref()).await
+                    if let Err(e) =
+                        source_create_dir_all(target_dir.to_string_lossy().as_ref()).await
                     {
                         error!(
                             "[UPLOAD] Failed to create target directory {}: {}",

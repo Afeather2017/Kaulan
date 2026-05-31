@@ -61,10 +61,7 @@ impl WakeLock {
                 &power_manager,
                 "newWakeLock",
                 "(ILjava/lang/String;)Landroid/os/PowerManager$WakeLock;",
-                &[
-                    JValue::from(PARTIAL_WAKE_LOCK),
-                    JValue::from(&tag_str),
-                ],
+                &[JValue::from(PARTIAL_WAKE_LOCK), JValue::from(&tag_str)],
             )
         })?;
 

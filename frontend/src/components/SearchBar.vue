@@ -2,27 +2,27 @@
   <div class="search-bar">
     <input
       :value="modelValue"
-      @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+      @input="
+        $emit('update:modelValue', ($event.target as HTMLInputElement).value)
+      "
       type="text"
       placeholder="搜索歌曲或歌单"
       class="search-input"
       @keyup.enter="$emit('search')"
     />
-    <button class="search-button" @click="$emit('search')">
-      搜索
-    </button>
+    <button class="search-button" @click="$emit('search')">搜索</button>
   </div>
 </template>
 
 <script setup lang="ts">
 defineProps<{
-  modelValue: string
-}>()
+  modelValue: string;
+}>();
 
 defineEmits<{
-  (e: 'update:modelValue', value: string): void
-  (e: 'search'): void
-}>()
+  (e: "update:modelValue", value: string): void;
+  (e: "search"): void;
+}>();
 </script>
 
 <style scoped>

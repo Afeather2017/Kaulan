@@ -1,6 +1,6 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from "@tauri-apps/api/core";
 
-let cachedIsAndroid: boolean | null = null
+let cachedIsAndroid: boolean | null = null;
 
 /**
  * Check if the current platform is Android
@@ -8,16 +8,16 @@ let cachedIsAndroid: boolean | null = null
  */
 export async function checkIsAndroid(): Promise<boolean> {
   if (cachedIsAndroid !== null) {
-    return cachedIsAndroid
+    return cachedIsAndroid;
   }
 
   try {
-    const platform = await invoke<string>('get_platform')
-    cachedIsAndroid = platform === 'android'
-    return cachedIsAndroid
+    const platform = await invoke<string>("get_platform");
+    cachedIsAndroid = platform === "android";
+    return cachedIsAndroid;
   } catch {
-    cachedIsAndroid = false
-    return cachedIsAndroid
+    cachedIsAndroid = false;
+    return cachedIsAndroid;
   }
 }
 
@@ -26,5 +26,5 @@ export async function checkIsAndroid(): Promise<boolean> {
  * Useful for testing or when platform may change
  */
 export function resetPlatformCache(): void {
-  cachedIsAndroid = null
+  cachedIsAndroid = null;
 }

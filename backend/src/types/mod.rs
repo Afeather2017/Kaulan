@@ -269,10 +269,7 @@ pub fn validate_stream_request(
 }
 
 /// Resolve the playback path to expose in list responses.
-pub fn resolve_playback_path(
-    file_path: &str,
-    is_localhost: bool,
-) -> String {
+pub fn resolve_playback_path(file_path: &str, is_localhost: bool) -> String {
     if is_localhost {
         file_path.to_string()
     } else {

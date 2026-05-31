@@ -1,4 +1,4 @@
-import { normalizeApiBase } from './api'
+import { normalizeApiBase } from "./api";
 
 /**
  * URL validation utilities
@@ -10,8 +10,8 @@ import { normalizeApiBase } from './api'
  * Result of URL validation
  */
 export interface UrlValidationResult {
-  valid: boolean
-  error?: string
+  valid: boolean;
+  error?: string;
 }
 
 /**
@@ -20,19 +20,19 @@ export interface UrlValidationResult {
  * @returns Validation result with error message if invalid
  */
 export function validateServerUrl(url: string): UrlValidationResult {
-  const trimmed = url.trim()
+  const trimmed = url.trim();
   // Empty string is valid (will use default)
   if (!trimmed) {
-    return { valid: true }
+    return { valid: true };
   }
 
   try {
-    normalizeApiBase(trimmed)
-    return { valid: true }
+    normalizeApiBase(trimmed);
+    return { valid: true };
   } catch (error) {
     return {
       valid: false,
-      error: error instanceof Error ? error.message : 'Invalid URL format'
-    }
+      error: error instanceof Error ? error.message : "Invalid URL format",
+    };
   }
 }

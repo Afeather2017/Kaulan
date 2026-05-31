@@ -1,20 +1,22 @@
 <template>
   <div class="song-list">
     <div v-if="showHeader" class="list-header">
-      <button class="back-button" @click="$emit('back')">
-        ← 返回
-      </button>
+      <button class="back-button" @click="$emit('back')">← 返回</button>
       <h2>{{ title }}</h2>
       <button class="select-mode-btn" @click="$emit('toggleSelectMode')">
-        {{ selectMode ? '取消勾选' : '选择' }}
+        {{ selectMode ? "取消勾选" : "选择" }}
       </button>
     </div>
     <div
       v-for="(song, index) in songs"
       :key="song.name"
       class="song-item"
-      :class="{ 'active': currentSongName === song.name }"
-      @click="selectMode ? $emit('toggleSelection', song.name) : $emit('play', song, index)"
+      :class="{ active: currentSongName === song.name }"
+      @click="
+        selectMode
+          ? $emit('toggleSelection', song.name)
+          : $emit('play', song, index)
+      "
     >
       <div v-if="selectMode" class="song-checkbox">
         <input
@@ -26,7 +28,7 @@
       <div class="song-info">
         <h3>{{ song.name }}</h3>
         <span v-if="showLufs" class="song-lufs">
-          {{ song.lufs !== null ? `${song.lufs} LUFS` : '-' }}
+          {{ song.lufs !== null ? `${song.lufs} LUFS` : "-" }}
         </span>
       </div>
     </div>
@@ -53,35 +55,38 @@
 
 <script setup lang="ts">
 export interface SongInfo {
-  id: number
-  name: string
-  lufs: number | null
-  path: string
+  id: number;
+  name: string;
+  lufs: number | null;
+  path: string;
 }
 
-withDefaults(defineProps<{
-  title: string
-  songs: SongInfo[]
-  selectMode: boolean
-  selectedSongs: Set<string>
-  currentSongName?: string
-  showRemoveButton: boolean
-  showAddButton: boolean
-  showHeader?: boolean
-  showLufs?: boolean
-}>(), {
-  showHeader: true,
-  showLufs: false
-})
+withDefaults(
+  defineProps<{
+    title: string;
+    songs: SongInfo[];
+    selectMode: boolean;
+    selectedSongs: Set<string>;
+    currentSongName?: string;
+    showRemoveButton: boolean;
+    showAddButton: boolean;
+    showHeader?: boolean;
+    showLufs?: boolean;
+  }>(),
+  {
+    showHeader: true,
+    showLufs: false,
+  },
+);
 
 defineEmits<{
-  (e: 'back'): void
-  (e: 'toggleSelectMode'): void
-  (e: 'toggleSelection', name: string): void
-  (e: 'play', song: SongInfo, index: number): void
-  (e: 'remove'): void
-  (e: 'showAddModal'): void
-}>()
+  (e: "back"): void;
+  (e: "toggleSelectMode"): void;
+  (e: "toggleSelection", name: string): void;
+  (e: "play", song: SongInfo, index: number): void;
+  (e: "remove"): void;
+  (e: "showAddModal"): void;
+}>();
 </script>
 
 <style scoped>
@@ -198,7 +203,7 @@ defineEmits<{
   right: 0;
   padding: 15px;
   background-color: #fff;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   z-index: 20;
 }
 

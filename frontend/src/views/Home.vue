@@ -2,7 +2,7 @@
   <div class="home">
     <h2>Welcome to Kaulan</h2>
     <p>Your personal music streaming platform</p>
-    
+
     <div class="stats">
       <div class="stat-card">
         <h3>Songs</h3>
@@ -17,28 +17,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { getApiBase } from '@/utils/api'
+import { ref, onMounted } from "vue";
+import { getApiBase } from "@/utils/api";
 
-const songCount = ref(0)
-const playlistCount = ref(0)
+const songCount = ref(0);
+const playlistCount = ref(0);
 
 onMounted(async () => {
   try {
     const [songsRes, playlistsRes] = await Promise.all([
       fetch(`${getApiBase()}/music/songs`),
-      fetch(`${getApiBase()}/music/playlists`)
-    ])
-    
-    const songs = await songsRes.json()
-    const playlists = await playlistsRes.json()
-    
-    songCount.value = songs.length
-    playlistCount.value = playlists.length
+      fetch(`${getApiBase()}/music/playlists`),
+    ]);
+
+    const songs = await songsRes.json();
+    const playlists = await playlistsRes.json();
+
+    songCount.value = songs.length;
+    playlistCount.value = playlists.length;
   } catch (error) {
-    console.error('Failed to fetch data:', error)
+    console.error("Failed to fetch data:", error);
   }
-})
+});
 </script>
 
 <style scoped>

@@ -14,14 +14,20 @@
           <button
             class="search-btn"
             @click="handleSearch"
-            :disabled="isSearching || !searchInput.trim() || selectedSources.length === 0"
+            :disabled="
+              isSearching || !searchInput.trim() || selectedSources.length === 0
+            "
           >
-            {{ isSearching ? '搜索中...' : '搜索' }}
+            {{ isSearching ? "搜索中..." : "搜索" }}
           </button>
         </div>
 
         <div class="source-row">
-          <label v-for="source in sourceOptions" :key="source.value" class="source-checkbox">
+          <label
+            v-for="source in sourceOptions"
+            :key="source.value"
+            class="source-checkbox"
+          >
             <input
               type="checkbox"
               :checked="selectedSources.includes(source.value)"
@@ -40,11 +46,17 @@
           class="provider-card"
         >
           <div class="provider-title">{{ provider.label }}</div>
-          <div class="provider-summary">{{ providerStatus[provider.value].summary }}</div>
+          <div class="provider-summary">
+            {{ providerStatus[provider.value].summary }}
+          </div>
           <div class="provider-actions">
             <template v-if="!providerStatus[provider.value].is_logged_in">
-              <button class="login-btn" @click="openLogin(provider.value)">打开登录</button>
-              <button class="login-btn" @click="captureLogin(provider.value)">读取登录</button>
+              <button class="login-btn" @click="openLogin(provider.value)">
+                打开登录
+              </button>
+              <button class="login-btn" @click="captureLogin(provider.value)">
+                读取登录
+              </button>
             </template>
             <button
               v-if="providerStatus[provider.value].is_logged_in"
@@ -90,14 +102,22 @@
             <div class="result-info">
               <div class="result-header">
                 <div class="result-title">{{ result.title }}</div>
-                <span class="source-badge">{{ sourceLabel(result.source) }}</span>
+                <span class="source-badge">{{
+                  sourceLabel(result.source)
+                }}</span>
               </div>
               <div class="result-meta">
                 {{ result.artist }}
-                <span v-if="result.duration" class="result-duration">{{ result.duration }}</span>
+                <span v-if="result.duration" class="result-duration">{{
+                  result.duration
+                }}</span>
               </div>
-              <div v-if="selectedLyrics[resultKey(result)]" class="selected-lyric">
-                歌词: {{ selectedLyrics[resultKey(result)]?.title }} / {{ selectedLyrics[resultKey(result)]?.artist }}
+              <div
+                v-if="selectedLyrics[resultKey(result)]"
+                class="selected-lyric"
+              >
+                歌词: {{ selectedLyrics[resultKey(result)]?.title }} /
+                {{ selectedLyrics[resultKey(result)]?.artist }}
               </div>
             </div>
 
@@ -107,21 +127,21 @@
                 @click="handlePreview(result)"
                 :disabled="previewingKey === resultKey(result)"
               >
-                {{ previewingKey === resultKey(result) ? '准备中' : '试听' }}
+                {{ previewingKey === resultKey(result) ? "准备中" : "试听" }}
               </button>
               <button
                 class="action-btn lyric-btn"
                 @click="toggleLyrics(result)"
                 :disabled="loadingLyricsKey === resultKey(result)"
               >
-                {{ loadingLyricsKey === resultKey(result) ? '读取中' : '歌词' }}
+                {{ loadingLyricsKey === resultKey(result) ? "读取中" : "歌词" }}
               </button>
               <button
                 class="action-btn download-btn"
                 @click="handleDownload(result)"
                 :disabled="downloadingKey === resultKey(result)"
               >
-                {{ downloadingKey === resultKey(result) ? '下载中' : '下载' }}
+                {{ downloadingKey === resultKey(result) ? "下载中" : "下载" }}
               </button>
             </div>
 
@@ -135,7 +155,13 @@
               <div
                 v-for="candidate in lyricCandidates[resultKey(result)] || []"
                 :key="candidate.id"
-                :class="['lyric-candidate', { selected: selectedLyrics[resultKey(result)]?.id === candidate.id }]"
+                :class="[
+                  'lyric-candidate',
+                  {
+                    selected:
+                      selectedLyrics[resultKey(result)]?.id === candidate.id,
+                  },
+                ]"
                 @click="selectLyric(result, candidate)"
               >
                 <div class="candidate-title">{{ candidate.title }}</div>
@@ -164,409 +190,425 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
-import { getApiBase } from '@/utils/api'
-import { checkIsAndroid } from '@/utils/platform'
+import { reactive, ref, onMounted } from "vue";
+import { getApiBase } from "@/utils/api";
+import { checkIsAndroid } from "@/utils/platform";
 
-type DownloadSource = 'youtube' | 'netease' | 'bilibili'
-type OnlineProvider = DownloadSource
+type DownloadSource = "youtube" | "netease" | "bilibili";
+type OnlineProvider = DownloadSource;
 
 interface SearchResult {
-  source: DownloadSource
-  id: string
-  title: string
-  artist: string
-  duration: string | null
-  thumbnail_url: string | null
-  can_preview: boolean
-  can_download: boolean
-  requires_login: boolean
+  source: DownloadSource;
+  id: string;
+  title: string;
+  artist: string;
+  duration: string | null;
+  thumbnail_url: string | null;
+  can_preview: boolean;
+  can_download: boolean;
+  requires_login: boolean;
 }
 
 interface DirectoryNode {
-  name: string
-  path: string
-  type: string
-  children?: DirectoryNode[]
+  name: string;
+  path: string;
+  type: string;
+  children?: DirectoryNode[];
 }
 
 interface ProviderStatus {
-  provider: string
-  is_logged_in: boolean
-  session_path: string
-  summary: string
+  provider: string;
+  is_logged_in: boolean;
+  session_path: string;
+  summary: string;
 }
 
 interface LyricCandidate {
-  source: DownloadSource
-  id: string
-  title: string
-  artist: string
-  album?: string | null
+  source: DownloadSource;
+  id: string;
+  title: string;
+  artist: string;
+  album?: string | null;
 }
 
 interface PreviewSong {
-  id: number
-  name: string
-  path: string
-  stream_url: string
-  lufs: number | null
-  cover_url?: string | null
-  source: DownloadSource
-  is_temporary: boolean
+  id: number;
+  name: string;
+  path: string;
+  stream_url: string;
+  lufs: number | null;
+  cover_url?: string | null;
+  source: DownloadSource;
+  is_temporary: boolean;
 }
 
 const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'downloadComplete'): void
-  (e: 'previewTrack', song: PreviewSong): void
-}>()
+  (e: "close"): void;
+  (e: "downloadComplete"): void;
+  (e: "previewTrack", song: PreviewSong): void;
+}>();
 
 const sourceOptions: Array<{ value: DownloadSource; label: string }> = [
-  { value: 'youtube', label: 'YouTube' },
-  { value: 'netease', label: '网易云' },
-  { value: 'bilibili', label: 'Bilibili' }
-]
+  { value: "youtube", label: "YouTube" },
+  { value: "netease", label: "网易云" },
+  { value: "bilibili", label: "Bilibili" },
+];
 
 const providerOptions: Array<{ value: OnlineProvider; label: string }> = [
-  { value: 'youtube', label: 'YouTube' },
-  { value: 'netease', label: '网易云' },
-  { value: 'bilibili', label: 'Bilibili' }
-]
+  { value: "youtube", label: "YouTube" },
+  { value: "netease", label: "网易云" },
+  { value: "bilibili", label: "Bilibili" },
+];
 
-const searchInput = ref('')
-const isSearching = ref(false)
-const searchResults = ref<SearchResult[]>([])
-const downloadingKey = ref<string | null>(null)
-const previewingKey = ref<string | null>(null)
-const loadingLyricsKey = ref<string | null>(null)
-const expandedLyricsKey = ref<string | null>(null)
-const statusMessage = ref('')
-const statusType = ref<'info' | 'success' | 'error'>('info')
-const directoryTree = ref<DirectoryNode | null>(null)
-const selectedPath = ref('')
-const selectedSources = ref<DownloadSource[]>(['youtube', 'netease', 'bilibili'])
-const lyricCandidates = reactive<Record<string, LyricCandidate[]>>({})
-const selectedLyrics = reactive<Record<string, LyricCandidate | null>>({})
+const searchInput = ref("");
+const isSearching = ref(false);
+const searchResults = ref<SearchResult[]>([]);
+const downloadingKey = ref<string | null>(null);
+const previewingKey = ref<string | null>(null);
+const loadingLyricsKey = ref<string | null>(null);
+const expandedLyricsKey = ref<string | null>(null);
+const statusMessage = ref("");
+const statusType = ref<"info" | "success" | "error">("info");
+const directoryTree = ref<DirectoryNode | null>(null);
+const selectedPath = ref("");
+const selectedSources = ref<DownloadSource[]>([
+  "youtube",
+  "netease",
+  "bilibili",
+]);
+const lyricCandidates = reactive<Record<string, LyricCandidate[]>>({});
+const selectedLyrics = reactive<Record<string, LyricCandidate | null>>({});
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
-    provider: 'youtube',
+    provider: "youtube",
     is_logged_in: false,
-    session_path: '',
-    summary: '未读取登录状态'
+    session_path: "",
+    summary: "未读取登录状态",
   },
   netease: {
-    provider: 'netease',
+    provider: "netease",
     is_logged_in: false,
-    session_path: '',
-    summary: '未读取登录状态'
+    session_path: "",
+    summary: "未读取登录状态",
   },
   bilibili: {
-    provider: 'bilibili',
+    provider: "bilibili",
     is_logged_in: false,
-    session_path: '',
-    summary: '未读取登录状态'
-  }
-})
+    session_path: "",
+    summary: "未读取登录状态",
+  },
+});
 
 onMounted(async () => {
   await Promise.all([
     loadDirectoryTree(),
-    loadProviderStatus('youtube'),
-    loadProviderStatus('netease'),
-    loadProviderStatus('bilibili'),
-    checkIsAndroid()
-  ])
-  syncSelectedSources()
-})
+    loadProviderStatus("youtube"),
+    loadProviderStatus("netease"),
+    loadProviderStatus("bilibili"),
+    checkIsAndroid(),
+  ]);
+  syncSelectedSources();
+});
 
-const resultKey = (result: SearchResult): string => `${result.source}:${result.id}`
+const resultKey = (result: SearchResult): string =>
+  `${result.source}:${result.id}`;
 
 const sourceLabel = (source: DownloadSource): string => {
   switch (source) {
-    case 'youtube':
-      return 'YouTube'
-    case 'netease':
-      return '网易云'
-    case 'bilibili':
-      return 'Bilibili'
+    case "youtube":
+      return "YouTube";
+    case "netease":
+      return "网易云";
+    case "bilibili":
+      return "Bilibili";
   }
-}
+};
 
-const isSourceAvailable = (source: DownloadSource): boolean => providerStatus[source].is_logged_in
+const isSourceAvailable = (source: DownloadSource): boolean =>
+  providerStatus[source].is_logged_in;
 
 const syncSelectedSources = () => {
-  selectedSources.value = selectedSources.value.filter(source => isSourceAvailable(source))
-}
+  selectedSources.value = selectedSources.value.filter((source) =>
+    isSourceAvailable(source),
+  );
+};
 
 const toggleSource = (source: DownloadSource) => {
   if (!isSourceAvailable(source)) {
-    return
+    return;
   }
   if (selectedSources.value.includes(source)) {
-    selectedSources.value = selectedSources.value.filter(item => item !== source)
-    return
+    selectedSources.value = selectedSources.value.filter(
+      (item) => item !== source,
+    );
+    return;
   }
-  selectedSources.value = [...selectedSources.value, source]
-}
+  selectedSources.value = [...selectedSources.value, source];
+};
 
 const selectDirectory = (path: string) => {
-  selectedPath.value = path
-}
+  selectedPath.value = path;
+};
 
 const loadDirectoryTree = async () => {
   try {
-    const response = await fetch(getApiBase() + '/download/directory-tree')
+    const response = await fetch(getApiBase() + "/download/directory-tree");
     if (response.ok) {
-      directoryTree.value = await response.json()
+      directoryTree.value = await response.json();
     }
   } catch (error) {
-    console.error('Failed to load download directory tree:', error)
+    console.error("Failed to load download directory tree:", error);
   }
-}
+};
 
 const providerLabel = (provider: OnlineProvider): string => {
   switch (provider) {
-    case 'youtube':
-      return 'YouTube'
-    case 'netease':
-      return '网易云'
-    case 'bilibili':
-      return 'Bilibili'
+    case "youtube":
+      return "YouTube";
+    case "netease":
+      return "网易云";
+    case "bilibili":
+      return "Bilibili";
   }
-}
+};
 
 const loadProviderStatus = async (provider: OnlineProvider) => {
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const status = await invoke<ProviderStatus>('online_login_status', { provider })
-    providerStatus[provider] = status
-    syncSelectedSources()
+    const { invoke } = await import("@tauri-apps/api/core");
+    const status = await invoke<ProviderStatus>("online_login_status", {
+      provider,
+    });
+    providerStatus[provider] = status;
+    syncSelectedSources();
   } catch (error) {
-    providerStatus[provider].summary = '当前环境不支持读取登录状态'
-    console.warn('Failed to load provider status:', provider, error)
+    providerStatus[provider].summary = "当前环境不支持读取登录状态";
+    console.warn("Failed to load provider status:", provider, error);
   }
-}
+};
 
 const openLogin = async (provider: OnlineProvider) => {
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('online_open_login', { provider })
-    statusType.value = 'info'
-    statusMessage.value = `已打开 ${providerLabel(provider)} 登录页面`
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("online_open_login", { provider });
+    statusType.value = "info";
+    statusMessage.value = `已打开 ${providerLabel(provider)} 登录页面`;
   } catch (error) {
-    statusType.value = 'error'
-    statusMessage.value = `打开登录失败: ${error}`
+    statusType.value = "error";
+    statusMessage.value = `打开登录失败: ${error}`;
   }
-}
+};
 
 const captureLogin = async (provider: OnlineProvider) => {
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const status = await invoke<ProviderStatus>('online_capture_login', { provider })
-    providerStatus[provider] = status
+    const { invoke } = await import("@tauri-apps/api/core");
+    const status = await invoke<ProviderStatus>("online_capture_login", {
+      provider,
+    });
+    providerStatus[provider] = status;
     if (!selectedSources.value.includes(provider)) {
-      selectedSources.value = [...selectedSources.value, provider]
+      selectedSources.value = [...selectedSources.value, provider];
     }
-    statusType.value = 'success'
-    statusMessage.value = `${providerLabel(provider)} 登录信息已保存`
+    statusType.value = "success";
+    statusMessage.value = `${providerLabel(provider)} 登录信息已保存`;
   } catch (error) {
-    statusType.value = 'error'
-    statusMessage.value = `读取登录信息失败: ${error}`
+    statusType.value = "error";
+    statusMessage.value = `读取登录信息失败: ${error}`;
   }
-}
+};
 
 const logout = async (provider: OnlineProvider) => {
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const status = await invoke<ProviderStatus>('online_logout', { provider })
-    providerStatus[provider] = status
-    syncSelectedSources()
-    statusType.value = 'success'
-    statusMessage.value = `${providerLabel(provider)} 已退出`
+    const { invoke } = await import("@tauri-apps/api/core");
+    const status = await invoke<ProviderStatus>("online_logout", { provider });
+    providerStatus[provider] = status;
+    syncSelectedSources();
+    statusType.value = "success";
+    statusMessage.value = `${providerLabel(provider)} 已退出`;
   } catch (error) {
-    statusType.value = 'error'
-    statusMessage.value = `退出失败: ${error}`
+    statusType.value = "error";
+    statusMessage.value = `退出失败: ${error}`;
   }
-}
+};
 
 const handleSearch = async () => {
-  const enabledSources = selectedSources.value.filter(source => isSourceAvailable(source))
+  const enabledSources = selectedSources.value.filter((source) =>
+    isSourceAvailable(source),
+  );
   if (!searchInput.value.trim() || enabledSources.length === 0) {
-    statusType.value = 'error'
-    statusMessage.value = '请先登录至少一个可用来源'
-    return
+    statusType.value = "error";
+    statusMessage.value = "请先登录至少一个可用来源";
+    return;
   }
 
-  isSearching.value = true
-  statusMessage.value = ''
+  isSearching.value = true;
+  statusMessage.value = "";
   try {
-    const response = await fetch(getApiBase() + '/download/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const response = await fetch(getApiBase() + "/download/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         query: searchInput.value.trim(),
         max_results: 8,
-        sources: enabledSources
-      })
-    })
+        sources: enabledSources,
+      }),
+    });
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(errorText || '搜索失败')
+      const errorText = await response.text();
+      throw new Error(errorText || "搜索失败");
     }
 
-    searchResults.value = await response.json()
+    searchResults.value = await response.json();
   } catch (error) {
-    statusType.value = 'error'
-    statusMessage.value = `搜索失败: ${error}`
+    statusType.value = "error";
+    statusMessage.value = `搜索失败: ${error}`;
   } finally {
-    isSearching.value = false
+    isSearching.value = false;
   }
-}
+};
 
 const handlePreview = async (result: SearchResult) => {
-  previewingKey.value = resultKey(result)
-  statusType.value = 'info'
-  statusMessage.value = `正在准备试听: ${result.title}`
+  previewingKey.value = resultKey(result);
+  statusType.value = "info";
+  statusMessage.value = `正在准备试听: ${result.title}`;
 
   try {
-    const response = await fetch(getApiBase() + '/download/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source: result.source,
-        id: result.id,
-        title: result.title,
-        artist: result.artist
-      })
-    })
-    const payload = await response.json()
-    if (!response.ok || !payload.success || !payload.song) {
-      throw new Error(payload.message || '试听准备失败')
-    }
-
-    emit('previewTrack', {
-      ...payload.song,
-      lufs: null
-    })
-    statusType.value = 'success'
-    statusMessage.value = `已开始试听: ${result.title}`
-  } catch (error) {
-    statusType.value = 'error'
-    statusMessage.value = `试听失败: ${error}`
-  } finally {
-    previewingKey.value = null
-  }
-}
-
-const fetchLyrics = async (result: SearchResult) => {
-  loadingLyricsKey.value = resultKey(result)
-  try {
-    const response = await fetch(getApiBase() + '/download/lyrics/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: `${result.title} ${result.artist}`.trim()
-      })
-    })
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(text || '歌词搜索失败')
-    }
-    lyricCandidates[resultKey(result)] = await response.json()
-  } finally {
-    loadingLyricsKey.value = null
-  }
-}
-
-const toggleLyrics = async (result: SearchResult) => {
-  const key = resultKey(result)
-  if (expandedLyricsKey.value === key) {
-    expandedLyricsKey.value = null
-    return
-  }
-  expandedLyricsKey.value = key
-  if (lyricCandidates[key] === undefined) {
-    try {
-      await fetchLyrics(result)
-    } catch (error) {
-      statusType.value = 'error'
-      statusMessage.value = `歌词搜索失败: ${error}`
-    }
-  }
-}
-
-const selectLyric = (result: SearchResult, candidate: LyricCandidate) => {
-  selectedLyrics[resultKey(result)] = candidate
-}
-
-const handleDownload = async (result: SearchResult) => {
-  downloadingKey.value = resultKey(result)
-  statusType.value = 'info'
-  statusMessage.value = `正在下载: ${result.title}`
-  try {
-    const selectedLyric = selectedLyrics[resultKey(result)]
-    const response = await fetch(getApiBase() + '/download/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const response = await fetch(getApiBase() + "/download/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         source: result.source,
         id: result.id,
         title: result.title,
         artist: result.artist,
-        target_subdir: selectedPath.value || '',
-        lyric_selection: selectedLyric?.id ?? null
-      })
-    })
-    const data = await response.json()
-    console.log('[online-search] download response:', {
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success || !payload.song) {
+      throw new Error(payload.message || "试听准备失败");
+    }
+
+    emit("previewTrack", {
+      ...payload.song,
+      lufs: null,
+    });
+    statusType.value = "success";
+    statusMessage.value = `已开始试听: ${result.title}`;
+  } catch (error) {
+    statusType.value = "error";
+    statusMessage.value = `试听失败: ${error}`;
+  } finally {
+    previewingKey.value = null;
+  }
+};
+
+const fetchLyrics = async (result: SearchResult) => {
+  loadingLyricsKey.value = resultKey(result);
+  try {
+    const response = await fetch(getApiBase() + "/download/lyrics/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `${result.title} ${result.artist}`.trim(),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || "歌词搜索失败");
+    }
+    lyricCandidates[resultKey(result)] = await response.json();
+  } finally {
+    loadingLyricsKey.value = null;
+  }
+};
+
+const toggleLyrics = async (result: SearchResult) => {
+  const key = resultKey(result);
+  if (expandedLyricsKey.value === key) {
+    expandedLyricsKey.value = null;
+    return;
+  }
+  expandedLyricsKey.value = key;
+  if (lyricCandidates[key] === undefined) {
+    try {
+      await fetchLyrics(result);
+    } catch (error) {
+      statusType.value = "error";
+      statusMessage.value = `歌词搜索失败: ${error}`;
+    }
+  }
+};
+
+const selectLyric = (result: SearchResult, candidate: LyricCandidate) => {
+  selectedLyrics[resultKey(result)] = candidate;
+};
+
+const handleDownload = async (result: SearchResult) => {
+  downloadingKey.value = resultKey(result);
+  statusType.value = "info";
+  statusMessage.value = `正在下载: ${result.title}`;
+  try {
+    const selectedLyric = selectedLyrics[resultKey(result)];
+    const response = await fetch(getApiBase() + "/download/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: result.source,
+        id: result.id,
+        title: result.title,
+        artist: result.artist,
+        target_subdir: selectedPath.value || "",
+        lyric_selection: selectedLyric?.id ?? null,
+      }),
+    });
+    const data = await response.json();
+    console.log("[online-search] download response:", {
       status: response.status,
       ok: response.ok,
       source: result.source,
       id: result.id,
-      target_subdir: selectedPath.value || '',
-      payload: data
-    })
+      target_subdir: selectedPath.value || "",
+      payload: data,
+    });
     if (!response.ok || !data.success) {
-      throw new Error(data.message || '下载失败')
+      throw new Error(data.message || "下载失败");
     }
-    statusType.value = data.warning ? 'info' : 'success'
+    statusType.value = data.warning ? "info" : "success";
     statusMessage.value = data.warning
       ? `下载完成: ${data.filename}，${data.warning}`
-      : `下载完成: ${data.filename}`
-    emit('downloadComplete')
+      : `下载完成: ${data.filename}`;
+    emit("downloadComplete");
   } catch (error) {
-    statusType.value = 'error'
-    statusMessage.value = `下载失败: ${error}`
+    statusType.value = "error";
+    statusMessage.value = `下载失败: ${error}`;
   } finally {
-    downloadingKey.value = null
+    downloadingKey.value = null;
   }
-}
+};
 </script>
 
 <script lang="ts">
-import { defineComponent, PropType } from 'vue'
+import { defineComponent, PropType } from "vue";
 
 interface DirectoryNode {
-  name: string
-  path: string
-  type: string
-  children?: DirectoryNode[]
+  name: string;
+  path: string;
+  type: string;
+  children?: DirectoryNode[];
 }
 
 export const DirectoryTreeNode = defineComponent({
-  name: 'DirectoryTreeNode',
+  name: "DirectoryTreeNode",
   props: {
     node: {
       type: Object as PropType<DirectoryNode>,
-      required: true
+      required: true,
     },
     selectedPath: {
       type: String,
-      default: ''
-    }
+      default: "",
+    },
   },
-  emits: ['select'],
+  emits: ["select"],
   template: `
     <div class="directory-node">
       <div
@@ -586,8 +628,8 @@ export const DirectoryTreeNode = defineComponent({
         />
       </div>
     </div>
-  `
-})
+  `,
+});
 </script>
 
 <style scoped>

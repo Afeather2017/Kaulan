@@ -1,3 +1,5 @@
+#[cfg(not(target_os = "android"))]
+use base64::Engine;
 use bilibili_api::auth::BiliSession;
 #[cfg(target_os = "android")]
 use jni::objects::{GlobalRef, JObject, JString, JValue};
@@ -5,21 +7,19 @@ use jni::objects::{GlobalRef, JObject, JString, JValue};
 use jni::JavaVM;
 use netease_api::auth::Session as NeteaseSession;
 use serde_json::json;
-#[cfg(not(target_os = "android"))]
-use base64::Engine;
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
-use tauri::{Manager, State, Url};
 use std::sync::OnceLock;
-#[cfg(target_os = "android")]
-use tauri_plugin_android_external_storage::AndroidExternalStorageExt;
+use std::sync::{Arc, Mutex};
 #[cfg(not(target_os = "android"))]
 use tauri::webview::PageLoadPayload;
+use tauri::{Manager, State, Url};
 #[cfg(not(target_os = "android"))]
 use tauri::{WebviewUrl, WebviewWindow};
+#[cfg(target_os = "android")]
+use tauri_plugin_android_external_storage::AndroidExternalStorageExt;
 use ytdl_audio::JsRunner;
 
 // MediaStore adapter module
@@ -50,8 +50,9 @@ static ANDROID_ACTIVITY_GLOBAL: OnceLock<Mutex<Option<GlobalRef>>> = OnceLock::n
 #[cfg(not(target_os = "android"))]
 static SOLVER_WINDOW_READY: OnceLock<Arc<(Mutex<bool>, std::sync::Condvar)>> = OnceLock::new();
 #[cfg(not(target_os = "android"))]
-static SOLVER_RESPONSE_CHANNELS: OnceLock<Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<String>>>> =
-    OnceLock::new();
+static SOLVER_RESPONSE_CHANNELS: OnceLock<
+    Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<String>>>,
+> = OnceLock::new();
 
 struct WebviewJsRunner {
     #[cfg(not(target_os = "android"))]
@@ -170,10 +171,14 @@ impl WebviewJsRunner {
                 return Ok(());
             }
             if let Some(err) = parsed.get("error").and_then(|v| v.as_str()) {
-                return Err(ytdl_audio::Error::Other(format!("webview solver init failed: {err}")));
+                return Err(ytdl_audio::Error::Other(format!(
+                    "webview solver init failed: {err}"
+                )));
             }
             if std::time::Instant::now() >= deadline {
-                return Err(ytdl_audio::Error::Other("webview solver init timed out".into()));
+                return Err(ytdl_audio::Error::Other(
+                    "webview solver init timed out".into(),
+                ));
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
@@ -209,8 +214,7 @@ fn eval_in_solver_window(
   const __kaulanJson = JSON.stringify(__kaulanResult);
   const __kaulanBase64 = btoa(unescape(encodeURIComponent(__kaulanJson)));
   document.title = {title_prefix:?} + {token:?} + ":" + __kaulanBase64;
-}})();"#
-        ,
+}})();"#,
         title_prefix = SOLVER_TITLE_PREFIX
     );
     if let Err(err) = window.eval(script) {
@@ -250,7 +254,10 @@ impl KaulanServer {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            log::info!("Backend server already running, skipping startup from {}", source);
+            log::info!(
+                "Backend server already running, skipping startup from {}",
+                source
+            );
             return Ok(());
         }
 
@@ -431,12 +438,23 @@ pub fn run() {
             fs::create_dir_all(&preview_root)
                 .map_err(|e| format!("Failed to create preview cache: {e}"))?;
 
-            std::env::set_var("KAULAN_DOWNLOAD_ROOT", external_download_root.to_string_lossy().to_string());
-            std::env::set_var("KAULAN_PREVIEW_ROOT", preview_root.to_string_lossy().to_string());
-            std::env::set_var(NCMDUMP_CONFIG_DIR_ENV, online_config_dir.to_string_lossy().to_string());
+            std::env::set_var(
+                "KAULAN_DOWNLOAD_ROOT",
+                external_download_root.to_string_lossy().to_string(),
+            );
+            std::env::set_var(
+                "KAULAN_PREVIEW_ROOT",
+                preview_root.to_string_lossy().to_string(),
+            );
+            std::env::set_var(
+                NCMDUMP_CONFIG_DIR_ENV,
+                online_config_dir.to_string_lossy().to_string(),
+            );
             std::env::set_var(
                 YOUTUBE_COOKIE_HEADER_PATH_ENV,
-                youtube_cookie_jar_path(&app_handle)?.to_string_lossy().to_string(),
+                youtube_cookie_jar_path(&app_handle)?
+                    .to_string_lossy()
+                    .to_string(),
             );
 
             // Read config from Tauri-managed storage for UI display purposes.
@@ -454,8 +472,11 @@ pub fn run() {
                     let config_path = config_dir.join("config.json");
                     if config_path.exists() {
                         if let Ok(content) = fs::read_to_string(&config_path) {
-                            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
-                                if let Some(path) = config.get("music_directory").and_then(|v| v.as_str()) {
+                            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content)
+                            {
+                                if let Some(path) =
+                                    config.get("music_directory").and_then(|v| v.as_str())
+                                {
                                     log::info!("Loaded music directory from config: {}", path);
                                     return path.to_string();
                                 }
@@ -492,15 +513,27 @@ pub fn run() {
                 log::info!("Setting up MediaStore adapters for Android");
                 let app_handle_for_adapter = app.handle().clone();
 
-                let _ = kaulan::set_file_reader(Box::new(android_media_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())));
-                let _ = kaulan::set_music_file_lister(Box::new(android_media_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter.clone())));
-                let _ = kaulan::set_lyric_reader(Box::new(android_media_adapter::AndroidLyricReader::new(app_handle_for_adapter.clone())));
+                let _ = kaulan::set_file_reader(Box::new(
+                    android_media_adapter::MediaStoreFileReader::new(
+                        app_handle_for_adapter.clone(),
+                    ),
+                ));
+                let _ = kaulan::set_music_file_lister(Box::new(
+                    android_media_adapter::MediaStoreMusicFileLister::new(
+                        app_handle_for_adapter.clone(),
+                    ),
+                ));
+                let _ = kaulan::set_lyric_reader(Box::new(
+                    android_media_adapter::AndroidLyricReader::new(app_handle_for_adapter.clone()),
+                ));
                 log::info!("MediaStore adapters configured successfully");
             }
 
             // Prepare data directory config for server startup
             let data_dir_for_server = if cfg!(target_os = "android") {
-                app_handle.path().app_data_dir()
+                app_handle
+                    .path()
+                    .app_data_dir()
                     .ok()
                     .map(|p| p.to_string_lossy().to_string())
             } else {
@@ -509,7 +542,10 @@ pub fn run() {
             *kaulan_server.data_dir.lock().unwrap() = data_dir_for_server;
             #[cfg(not(target_os = "android"))]
             if let Err(e) = kaulan_server.start_backend("desktop app startup") {
-                log::error!("Failed to start backend server during desktop startup: {}", e);
+                log::error!(
+                    "Failed to start backend server during desktop startup: {}",
+                    e
+                );
             }
 
             Ok(())
@@ -602,10 +638,7 @@ fn request_external_storage_permission(_app: tauri::AppHandle) -> Result<bool, S
         let app = _app;
         log::info!("Requesting MANAGE_EXTERNAL_STORAGE permission for lyrics");
 
-        match app
-            .android_external_storage()
-            .request_all_files_access()
-        {
+        match app.android_external_storage().request_all_files_access() {
             Ok(response) => {
                 if response.is_granted {
                     log::info!("MANAGE_EXTERNAL_STORAGE permission granted");
@@ -616,7 +649,10 @@ fn request_external_storage_permission(_app: tauri::AppHandle) -> Result<bool, S
                 }
             }
             Err(e) => {
-                log::error!("Failed to request MANAGE_EXTERNAL_STORAGE permission: {}", e);
+                log::error!(
+                    "Failed to request MANAGE_EXTERNAL_STORAGE permission: {}",
+                    e
+                );
                 Err(format!("Failed to request permission: {}", e))
             }
         }
@@ -634,12 +670,12 @@ fn check_external_storage_permission(_app: tauri::AppHandle) -> Result<bool, Str
     #[cfg(target_os = "android")]
     {
         let app = _app;
-        match app
-            .android_external_storage()
-            .check_all_files_access()
-        {
+        match app.android_external_storage().check_all_files_access() {
             Ok(response) => {
-                log::info!("MANAGE_EXTERNAL_STORAGE permission check: granted={}", response.is_granted);
+                log::info!(
+                    "MANAGE_EXTERNAL_STORAGE permission check: granted={}",
+                    response.is_granted
+                );
                 Ok(response.is_granted)
             }
             Err(e) => {
@@ -720,7 +756,11 @@ async fn export_webview_cookies(app: tauri::AppHandle) -> Result<String, String>
         let mut out = String::from("# Netscape HTTP Cookie File\n");
         out.push_str("# Exported from Tauri webview cookie store\n");
         for cookie in &exported {
-            let include_subdomains = if cookie.domain.starts_with('.') { "TRUE" } else { "FALSE" };
+            let include_subdomains = if cookie.domain.starts_with('.') {
+                "TRUE"
+            } else {
+                "FALSE"
+            };
             let secure = if cookie.secure { "TRUE" } else { "FALSE" };
             let expires = cookie.expires.unwrap_or(0);
             out.push_str(&format!(
@@ -741,8 +781,7 @@ async fn export_webview_cookies(app: tauri::AppHandle) -> Result<String, String>
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         output_path.push(format!("kaulan-webview-cookies-{}.txt", nanos));
-        fs::write(&output_path, out)
-            .map_err(|e| format!("failed to write cookie jar: {}", e))?;
+        fs::write(&output_path, out).map_err(|e| format!("failed to write cookie jar: {}", e))?;
 
         Ok(output_path.to_string_lossy().to_string())
     }
@@ -776,7 +815,8 @@ fn resolve_online_download_root(_app: &tauri::AppHandle) -> Result<PathBuf, Stri
     {
         let base = android_external_files_dir()?;
         let music_dir = base.join("Music");
-        fs::create_dir_all(&music_dir).map_err(|e| format!("Failed to create online music dir: {e}"))?;
+        fs::create_dir_all(&music_dir)
+            .map_err(|e| format!("Failed to create online music dir: {e}"))?;
         return Ok(music_dir);
     }
 
@@ -792,12 +832,16 @@ fn resolve_online_download_root(_app: &tauri::AppHandle) -> Result<PathBuf, Stri
         } else {
             PathBuf::from(configured)
         };
-        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create online download dir: {e}"))?;
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create online download dir: {e}"))?;
         Ok(dir)
     }
 }
 
-fn resolve_preview_root(app: &tauri::AppHandle, _download_root: &PathBuf) -> Result<PathBuf, String> {
+fn resolve_preview_root(
+    app: &tauri::AppHandle,
+    _download_root: &PathBuf,
+) -> Result<PathBuf, String> {
     #[cfg(target_os = "android")]
     {
         let dir = _download_root.join(".preview-cache");
@@ -818,11 +862,17 @@ fn resolve_preview_root(app: &tauri::AppHandle, _download_root: &PathBuf) -> Res
 }
 
 fn netease_session_path(app: &tauri::AppHandle) -> Result<String, String> {
-    Ok(resolve_online_config_dir(app)?.join("session.json").to_string_lossy().to_string())
+    Ok(resolve_online_config_dir(app)?
+        .join("session.json")
+        .to_string_lossy()
+        .to_string())
 }
 
 fn bilibili_session_path(app: &tauri::AppHandle) -> Result<String, String> {
-    Ok(resolve_online_config_dir(app)?.join("bilibili_session.json").to_string_lossy().to_string())
+    Ok(resolve_online_config_dir(app)?
+        .join("bilibili_session.json")
+        .to_string_lossy()
+        .to_string())
 }
 
 fn youtube_cookie_jar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -898,7 +948,10 @@ fn load_youtube_status(app: &tauri::AppHandle) -> Result<ProviderStatus, String>
     })
 }
 
-fn load_provider_status(app: &tauri::AppHandle, provider: OnlineProvider) -> Result<ProviderStatus, String> {
+fn load_provider_status(
+    app: &tauri::AppHandle,
+    provider: OnlineProvider,
+) -> Result<ProviderStatus, String> {
     match provider {
         OnlineProvider::Netease => load_netease_status(app),
         OnlineProvider::Bilibili => load_bilibili_status(app),
@@ -922,61 +975,65 @@ fn solver_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String>
         .lock()
         .map_err(|_| "solver ready mutex poisoned".to_string())? = false;
 
-    tauri::WebviewWindowBuilder::new(app, SOLVER_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
-        .visible(false)
-        .title("youtube-solver")
-        .on_page_load(|_, payload: PageLoadPayload<'_>| {
-            let url = payload.url().as_str();
-            if url.starts_with("tauri://")
-                || url.starts_with("http://tauri.localhost")
-                || url.starts_with("http://localhost:")
-                || url.starts_with("http://127.0.0.1:")
-            {
-                let state = solver_ready_state();
-                if let Ok(mut ready) = state.0.lock() {
-                    *ready = true;
-                    state.1.notify_all();
-                }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        SOLVER_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .visible(false)
+    .title("youtube-solver")
+    .on_page_load(|_, payload: PageLoadPayload<'_>| {
+        let url = payload.url().as_str();
+        if url.starts_with("tauri://")
+            || url.starts_with("http://tauri.localhost")
+            || url.starts_with("http://localhost:")
+            || url.starts_with("http://127.0.0.1:")
+        {
+            let state = solver_ready_state();
+            if let Ok(mut ready) = state.0.lock() {
+                *ready = true;
+                state.1.notify_all();
             }
-        })
-        .on_document_title_changed(|window, title| {
-            if !title.starts_with(SOLVER_TITLE_PREFIX) {
+        }
+    })
+    .on_document_title_changed(|window, title| {
+        if !title.starts_with(SOLVER_TITLE_PREFIX) {
+            return;
+        }
+
+        let payload = &title[SOLVER_TITLE_PREFIX.len()..];
+        let Some((token, encoded)) = payload.split_once(':') else {
+            log::warn!("Invalid solver title payload: {}", title);
+            return;
+        };
+
+        let decoded = match base64::engine::general_purpose::STANDARD.decode(encoded) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                log::warn!("Failed to decode solver title payload: {}", err);
                 return;
             }
-
-            let payload = &title[SOLVER_TITLE_PREFIX.len()..];
-            let Some((token, encoded)) = payload.split_once(':') else {
-                log::warn!("Invalid solver title payload: {}", title);
+        };
+        let decoded = match String::from_utf8(decoded) {
+            Ok(value) => value,
+            Err(err) => {
+                log::warn!("Failed to decode solver UTF-8 payload: {}", err);
                 return;
-            };
-
-            let decoded = match base64::engine::general_purpose::STANDARD.decode(encoded) {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    log::warn!("Failed to decode solver title payload: {}", err);
-                    return;
-                }
-            };
-            let decoded = match String::from_utf8(decoded) {
-                Ok(value) => value,
-                Err(err) => {
-                    log::warn!("Failed to decode solver UTF-8 payload: {}", err);
-                    return;
-                }
-            };
-
-            let sender = solver_response_channels()
-                .lock()
-                .ok()
-                .and_then(|mut channels| channels.remove(token));
-            if let Some(sender) = sender {
-                let _ = sender.send(decoded);
             }
+        };
 
-            let _ = window.set_title("youtube-solver");
-        })
-        .build()
-        .map_err(|e| format!("failed to create solver window: {e}"))
+        let sender = solver_response_channels()
+            .lock()
+            .ok()
+            .and_then(|mut channels| channels.remove(token));
+        if let Some(sender) = sender {
+            let _ = sender.send(decoded);
+        }
+
+        let _ = window.set_title("youtube-solver");
+    })
+    .build()
+    .map_err(|e| format!("failed to create solver window: {e}"))
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1000,9 +1057,13 @@ fn wait_for_solver_window_ready(app: &tauri::AppHandle) -> Result<(), ytdl_audio
         return Ok(());
     }
     if timeout.timed_out() {
-        return Err(ytdl_audio::Error::Other("solver window did not finish loading".into()));
+        return Err(ytdl_audio::Error::Other(
+            "solver window did not finish loading".into(),
+        ));
     }
-    Err(ytdl_audio::Error::Other("solver window did not become ready".into()))
+    Err(ytdl_audio::Error::Other(
+        "solver window did not become ready".into(),
+    ))
 }
 
 #[tauri::command]
@@ -1034,15 +1095,17 @@ fn run_hidden_android_solver(input: &str) -> Result<String, ytdl_audio::Error> {
     let mut env = vm
         .attach_current_thread()
         .map_err(|e| ytdl_audio::Error::Other(format!("attach_current_thread failed: {e}")))?;
-    let input_java = env
-        .new_string(input)
-        .map_err(|e| ytdl_audio::Error::Other(format!("failed to allocate solver input string: {e}")))?;
+    let input_java = env.new_string(input).map_err(|e| {
+        ytdl_audio::Error::Other(format!("failed to allocate solver input string: {e}"))
+    })?;
     let core_java = env
         .new_string(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../vendor/ytdl-audio/js/yt.solver.core.js"
         )))
-        .map_err(|e| ytdl_audio::Error::Other(format!("failed to allocate solver core string: {e}")))?;
+        .map_err(|e| {
+            ytdl_audio::Error::Other(format!("failed to allocate solver core string: {e}"))
+        })?;
     let result = env
         .call_method(
             activity.as_obj(),
@@ -1067,7 +1130,10 @@ fn run_hidden_android_solver(input: &str) -> Result<String, ytdl_audio::Error> {
 }
 
 #[tauri::command]
-fn online_capture_login(app: tauri::AppHandle, provider: OnlineProvider) -> Result<ProviderStatus, String> {
+fn online_capture_login(
+    app: tauri::AppHandle,
+    provider: OnlineProvider,
+) -> Result<ProviderStatus, String> {
     std::env::set_var(NCMDUMP_CONFIG_DIR_ENV, resolve_online_config_dir(&app)?);
     match provider {
         OnlineProvider::Netease => {
@@ -1092,12 +1158,18 @@ fn online_capture_login(app: tauri::AppHandle, provider: OnlineProvider) -> Resu
 }
 
 #[tauri::command]
-fn online_login_status(app: tauri::AppHandle, provider: OnlineProvider) -> Result<ProviderStatus, String> {
+fn online_login_status(
+    app: tauri::AppHandle,
+    provider: OnlineProvider,
+) -> Result<ProviderStatus, String> {
     load_provider_status(&app, provider)
 }
 
 #[tauri::command]
-fn online_logout(app: tauri::AppHandle, provider: OnlineProvider) -> Result<ProviderStatus, String> {
+fn online_logout(
+    app: tauri::AppHandle,
+    provider: OnlineProvider,
+) -> Result<ProviderStatus, String> {
     std::env::set_var(NCMDUMP_CONFIG_DIR_ENV, resolve_online_config_dir(&app)?);
     match provider {
         OnlineProvider::Netease => {
@@ -1111,14 +1183,18 @@ fn online_logout(app: tauri::AppHandle, provider: OnlineProvider) -> Result<Prov
         OnlineProvider::Youtube => {
             let path = youtube_cookie_jar_path(&app)?;
             if path.exists() {
-                fs::remove_file(path).map_err(|e| format!("failed to remove youtube cookies: {e}"))?;
+                fs::remove_file(path)
+                    .map_err(|e| format!("failed to remove youtube cookies: {e}"))?;
             }
             load_youtube_status(&app)
         }
     }
 }
 
-fn extract_netease_cookie(_app: &tauri::AppHandle, _provider: OnlineProvider) -> Result<String, String> {
+fn extract_netease_cookie(
+    _app: &tauri::AppHandle,
+    _provider: OnlineProvider,
+) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
         if let Some(value) = extract_netease_cookie_android()? {
@@ -1155,7 +1231,10 @@ fn extract_netease_cookie(_app: &tauri::AppHandle, _provider: OnlineProvider) ->
     Err("MUSIC_U cookie not found in login webview".to_string())
 }
 
-fn extract_bilibili_session(_app: &tauri::AppHandle, _provider: OnlineProvider) -> Result<BiliSession, String> {
+fn extract_bilibili_session(
+    _app: &tauri::AppHandle,
+    _provider: OnlineProvider,
+) -> Result<BiliSession, String> {
     #[cfg(target_os = "android")]
     {
         let session = extract_bilibili_cookie_android()?;
@@ -1249,9 +1328,20 @@ fn export_youtube_cookie_jar(app: &tauri::AppHandle, path: &PathBuf) -> Result<(
                 continue;
             }
 
-            let secure = if cookie.secure().unwrap_or(false) { "TRUE" } else { "FALSE" };
-            let include_subdomains = if domain.starts_with('.') { "TRUE" } else { "FALSE" };
-            let expires = cookie.expires_datetime().map(|t| t.unix_timestamp()).unwrap_or(0);
+            let secure = if cookie.secure().unwrap_or(false) {
+                "TRUE"
+            } else {
+                "FALSE"
+            };
+            let include_subdomains = if domain.starts_with('.') {
+                "TRUE"
+            } else {
+                "FALSE"
+            };
+            let expires = cookie
+                .expires_datetime()
+                .map(|t| t.unix_timestamp())
+                .unwrap_or(0);
             lines.push(format!(
                 "{domain}\t{include_subdomains}\t{path_part}\t{secure}\t{expires}\t{name}\t{value}"
             ));
@@ -1333,9 +1423,7 @@ fn cookie_header_to_netscape_lines(domain: &str, header: &str) -> Vec<String> {
         if name.is_empty() || value.is_empty() || !seen.insert(name.to_string()) {
             continue;
         }
-        lines.push(format!(
-            "{domain}\tTRUE\t/\tTRUE\t0\t{name}\t{value}"
-        ));
+        lines.push(format!("{domain}\tTRUE\t/\tTRUE\t0\t{name}\t{value}"));
     }
     lines
 }
@@ -1492,14 +1580,20 @@ pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeInitAndroidContex
     let vm = match env.get_java_vm() {
         Ok(vm) => vm,
         Err(err) => {
-            log::error!("Failed to capture Android JavaVM for hidden solver: {}", err);
+            log::error!(
+                "Failed to capture Android JavaVM for hidden solver: {}",
+                err
+            );
             return;
         }
     };
     let activity = match env.new_global_ref(activity) {
         Ok(activity) => activity,
         Err(err) => {
-            log::error!("Failed to create global Activity ref for hidden solver: {}", err);
+            log::error!(
+                "Failed to create global Activity ref for hidden solver: {}",
+                err
+            );
             return;
         }
     };

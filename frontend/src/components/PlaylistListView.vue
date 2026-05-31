@@ -2,15 +2,23 @@
   <div class="playlist-list">
     <div v-if="showHeader" class="list-header">
       <h2>{{ title }}</h2>
-      <button v-if="showSelectButton" class="select-mode-btn" @click="$emit('toggleSelectMode')">
-        {{ selectMode ? '取消勾选' : '选择' }}
+      <button
+        v-if="showSelectButton"
+        class="select-mode-btn"
+        @click="$emit('toggleSelectMode')"
+      >
+        {{ selectMode ? "取消勾选" : "选择" }}
       </button>
     </div>
     <div
       v-for="playlistName in playlistNames"
       :key="playlistName"
       class="playlist-item"
-      @click="selectMode ? $emit('toggleSelection', playlistName) : $emit('select', playlistName)"
+      @click="
+        selectMode
+          ? $emit('toggleSelection', playlistName)
+          : $emit('select', playlistName)
+      "
     >
       <div v-if="selectMode" class="playlist-checkbox">
         <input
@@ -45,27 +53,30 @@
 </template>
 
 <script setup lang="ts">
-withDefaults(defineProps<{
-  title: string
-  viewMode: 'folder' | 'collection'
-  playlistNames: string[]
-  playlists: Record<string, any[]>
-  selectMode: boolean
-  selectedPlaylists: Set<string>
-  showSelectButton: boolean
-  hasSelectedNonAllMusic: boolean
-  showHeader?: boolean
-}>(), {
-  showHeader: true
-})
+withDefaults(
+  defineProps<{
+    title: string;
+    viewMode: "folder" | "collection";
+    playlistNames: string[];
+    playlists: Record<string, any[]>;
+    selectMode: boolean;
+    selectedPlaylists: Set<string>;
+    showSelectButton: boolean;
+    hasSelectedNonAllMusic: boolean;
+    showHeader?: boolean;
+  }>(),
+  {
+    showHeader: true,
+  },
+);
 
 defineEmits<{
-  (e: 'toggleSelectMode'): void
-  (e: 'toggleSelection', name: string): void
-  (e: 'select', name: string): void
-  (e: 'showCreateModal'): void
-  (e: 'deleteSelected'): void
-}>()
+  (e: "toggleSelectMode"): void;
+  (e: "toggleSelection", name: string): void;
+  (e: "select", name: string): void;
+  (e: "showCreateModal"): void;
+  (e: "deleteSelected"): void;
+}>();
 </script>
 
 <style scoped>
@@ -170,7 +181,7 @@ defineEmits<{
   right: 0;
   padding: 15px;
   background-color: #fff;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   z-index: 20;
   display: flex;
   gap: 10px;

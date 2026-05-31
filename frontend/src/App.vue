@@ -2,29 +2,36 @@
   <div id="app" class="music-player">
     <div class="app-window">
       <div class="top-bar">
-        <button class="icon-btn settings-btn" aria-label="Settings" @click="handleShowSettingsModal">
+        <button
+          class="icon-btn settings-btn"
+          aria-label="Settings"
+          @click="handleShowSettingsModal"
+        >
           <i class="fas fa-cog"></i>
         </button>
-        <SearchBar
-          v-model="searchQuery"
-          @search="handleSearch"
-        />
+        <SearchBar v-model="searchQuery" @search="handleSearch" />
       </div>
 
       <div class="action-bar">
-        <button v-if="showBackButton" class="action-btn" @click="handleActionBack">
+        <button
+          v-if="showBackButton"
+          class="action-btn"
+          @click="handleActionBack"
+        >
           返回
         </button>
         <div class="action-spacer"></div>
-        <button v-if="showChooseButton" class="action-btn" @click="handleChooseAction">
+        <button
+          v-if="showChooseButton"
+          class="action-btn"
+          @click="handleChooseAction"
+        >
           选择
         </button>
       </div>
 
       <!-- Scanning Message -->
-      <div v-if="isScanning" class="scanning-message">
-        扫描中...
-      </div>
+      <div v-if="isScanning" class="scanning-message">扫描中...</div>
 
       <div class="main-area" :class="{ 'wide-layout': isWideLayout }">
         <div class="list-panel" v-show="!showLyric || isWideLayout">
@@ -56,8 +63,13 @@
               :select-mode="selectMode"
               :selected-songs="selectedSongs"
               :current-song-name="currentSong?.name"
-              :show-remove-button="viewMode === 'collection' && selectedPlaylist?.name !== '所有音乐'"
-              :show-add-button="viewMode === 'folder' || selectedPlaylist?.name === '所有音乐'"
+              :show-remove-button="
+                viewMode === 'collection' &&
+                selectedPlaylist?.name !== '所有音乐'
+              "
+              :show-add-button="
+                viewMode === 'folder' || selectedPlaylist?.name === '所有音乐'
+              "
               :show-header="false"
               :show-lufs="showLufs"
               @back="handleBackToPlaylists"
@@ -83,9 +95,7 @@
                 @back="handleBackToPlaylists"
                 @play="handlePlaySong"
               />
-              <div v-else class="empty-state">
-                未找到匹配的歌曲
-              </div>
+              <div v-else class="empty-state">未找到匹配的歌曲</div>
             </div>
           </div>
         </div>
@@ -95,31 +105,43 @@
             <div v-if="showLyric" class="lyric-panel">
               <div v-if="!hasLyrics" class="lyric-empty">暂无歌词</div>
               <div v-else class="lyric-container" ref="lyricContainerRef">
-                <div v-for="(line, index) in lyrics"
-                     :key="index"
-                     :class="['lyric-line', { active: index === currentLyricIndex }]"
-                     role="button"
-                     tabindex="0"
-                     @click="handleLyricLineClick(line.time)"
-                     @keydown.enter.prevent="handleLyricLineClick(line.time)"
-                     @keydown.space.prevent="handleLyricLineClick(line.time)">
+                <div
+                  v-for="(line, index) in lyrics"
+                  :key="index"
+                  :class="[
+                    'lyric-line',
+                    { active: index === currentLyricIndex },
+                  ]"
+                  role="button"
+                  tabindex="0"
+                  @click="handleLyricLineClick(line.time)"
+                  @keydown.enter.prevent="handleLyricLineClick(line.time)"
+                  @keydown.space.prevent="handleLyricLineClick(line.time)"
+                >
                   <!-- Display all language versions for this timestamp -->
-                  <template v-for="(text, textIndex) in line.texts" :key="textIndex">
+                  <template
+                    v-for="(text, textIndex) in line.texts"
+                    :key="textIndex"
+                  >
                     <div :class="['lyric-text', `lyric-lang-${textIndex}`]">
-                      {{ text || '\u00A0' }}
+                      {{ text || "\u00A0" }}
                     </div>
                   </template>
                 </div>
               </div>
             </div>
             <div v-else class="cover-panel">
-              <img v-if="currentSong?.id"
-                   :src="`${getApiBase()}/music/id/${currentSong.id}/cover`"
-                   :key="currentSong.id"
-                   class="cover-image"
-                   @error="($event.target as HTMLImageElement).style.display = 'none'"
-                   @load="(($event.target as HTMLImageElement).style.display = '')"
-                   alt="" />
+              <img
+                v-if="currentSong?.id"
+                :src="`${getApiBase()}/music/id/${currentSong.id}/cover`"
+                :key="currentSong.id"
+                class="cover-image"
+                @error="
+                  ($event.target as HTMLImageElement).style.display = 'none'
+                "
+                @load="($event.target as HTMLImageElement).style.display = ''"
+                alt=""
+              />
             </div>
 
             <PlayerControls
@@ -244,26 +266,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import SearchBar from '@/components/SearchBar.vue'
-import PlaylistListView from '@/components/PlaylistListView.vue'
-import SongListView, { type SongInfo } from '@/components/SongListView.vue'
-import PlayerControls from '@/components/PlayerControls.vue'
-import SettingsModal from '@/components/modals/SettingsModal.vue'
-import ActiveQueueModal from '@/components/modals/ActiveQueueModal.vue'
-import AddToCollectionModal from '@/components/modals/AddToCollectionModal.vue'
-import CreateCollectionModal from '@/components/modals/CreateCollectionModal.vue'
-import OnlineSearchModal from '@/components/modals/OnlineSearchModal.vue'
-import UploadModal from '@/components/modals/UploadModal.vue'
-import { useAudioPlayer, type MusicInfo } from '@/composables/useAudioPlayer'
-import { usePlaylist } from '@/composables/usePlaylist'
-import { useSelection } from '@/composables/useSelection'
-import { useTimer } from '@/composables/useTimer'
-import { useVolume } from '@/composables/useVolume'
-import { useLyrics } from '@/composables/useLyrics'
-import { getApiBase } from '@/utils/api'
-import { getShowLufs } from '@/utils/storage'
-import { checkIsAndroid } from '@/utils/platform'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
+import SearchBar from "@/components/SearchBar.vue";
+import PlaylistListView from "@/components/PlaylistListView.vue";
+import SongListView, { type SongInfo } from "@/components/SongListView.vue";
+import PlayerControls from "@/components/PlayerControls.vue";
+import SettingsModal from "@/components/modals/SettingsModal.vue";
+import ActiveQueueModal from "@/components/modals/ActiveQueueModal.vue";
+import AddToCollectionModal from "@/components/modals/AddToCollectionModal.vue";
+import CreateCollectionModal from "@/components/modals/CreateCollectionModal.vue";
+import OnlineSearchModal from "@/components/modals/OnlineSearchModal.vue";
+import UploadModal from "@/components/modals/UploadModal.vue";
+import { useAudioPlayer, type MusicInfo } from "@/composables/useAudioPlayer";
+import { usePlaylist } from "@/composables/usePlaylist";
+import { useSelection } from "@/composables/useSelection";
+import { useTimer } from "@/composables/useTimer";
+import { useVolume } from "@/composables/useVolume";
+import { useLyrics } from "@/composables/useLyrics";
+import { getApiBase } from "@/utils/api";
+import { getShowLufs } from "@/utils/storage";
+import { checkIsAndroid } from "@/utils/platform";
 
 // Search behavior docs: docs/search.md
 // Use composables
@@ -287,15 +309,21 @@ const {
   deleteCollection,
   addToCollection: apiAddToCollection,
   removeFromCollection: apiRemoveFromCollection,
-  getAllMusic
-} = usePlaylist()
+  getAllMusic,
+} = usePlaylist();
 
-const playbackSource = ref<'playlist' | 'search'>('playlist')
-const searchPlaybackSongs = ref<SongInfo[]>([])
+const playbackSource = ref<"playlist" | "search">("playlist");
+const searchPlaybackSongs = ref<SongInfo[]>([]);
 
 // Handler for song start event - trigger LUFS pre-caching for next song
 // Defined as ref to allow useAudioPlayer to reference it, but implemented below
-const handleSongStartRef = ref<((currentSongInfo: { id: number }, nextSongInfo: { id: number } | null) => void) | null>(null)
+const handleSongStartRef = ref<
+  | ((
+      currentSongInfo: { id: number },
+      nextSongInfo: { id: number } | null,
+    ) => void)
+  | null
+>(null);
 
 const {
   audioElement,
@@ -319,27 +347,27 @@ const {
   refreshAndroidSession,
   isAndroidPlayer,
   syncAndroidQueueState,
-  syncNormalizationConfig
+  syncNormalizationConfig,
 } = useAudioPlayer({
   songs: () => {
-    if (playbackSource.value === 'search') {
-      return searchPlaybackSongs.value
+    if (playbackSource.value === "search") {
+      return searchPlaybackSongs.value;
     }
     if (selectedPlaylist.value) {
-      return selectedPlaylist.value.songs
+      return selectedPlaylist.value.songs;
     }
-    return []
+    return [];
   },
   onSongEnd: () => {},
   onSongStart: (currentSongInfo, nextSongInfo) => {
-    handleSongStartRef.value?.(currentSongInfo, nextSongInfo)
+    handleSongStartRef.value?.(currentSongInfo, nextSongInfo);
   },
-  prepareSong: async (song) => await resolveSongForPlayback(song)
-})
+  prepareSong: async (song) => await resolveSongForPlayback(song),
+});
 
 const playbackSongs = computed(() => {
-  return activeQueue.value
-})
+  return activeQueue.value;
+});
 
 const {
   selectMode,
@@ -350,8 +378,8 @@ const {
   toggleSongSelection,
   toggleCollectionSelectMode,
   toggleCollectionSelection,
-  hasSelectedNonAllMusicCollection
-} = useSelection()
+  hasSelectedNonAllMusicCollection,
+} = useSelection();
 
 const {
   timerMinutes,
@@ -359,60 +387,74 @@ const {
   timerActive,
   timerStatusDisplay,
   startTimer,
-  cancelTimer
+  cancelTimer,
 } = useTimer(() => {
   // Timer complete callback
   if (isAndroidPlayer.value) {
-    void refreshAndroidSession()
+    void refreshAndroidSession();
   } else if (isPlaying.value) {
-    void pause()
+    void pause();
   } else if (audioElement.value) {
-    audioElement.value.pause()
+    audioElement.value.pause();
   }
-})
+});
 
 // Lyrics composable for synchronized lyrics display
-const { lyrics, currentLyricIndex, hasLyrics } = useLyrics(currentSong, currentTime, isPlaying)
+const { lyrics, currentLyricIndex, hasLyrics } = useLyrics(
+  currentSong,
+  currentTime,
+  isPlaying,
+);
 
 // Additional state
-const showSettings = ref(false)
-const showLufs = ref(getShowLufs())
-const showAddToCollection = ref(false)
-const selectedCollections = ref<number[]>([])
-const newCollectionName = ref('')
-const showCreateCollection = ref(false)
-const showUploadModal = ref(false)
-const showOnlineSearchModal = ref(false)
-const showActiveQueueModal = ref(false)
-const showLyric = ref(false)
-const lyricContainerRef = ref<HTMLElement | null>(null)
-const isWideLayout = ref(false)
-const hasUserToggledLyric = ref(false)
-const isScanning = ref(false)
-let androidBackListener: { unregister(): Promise<void> } | null = null
+const showSettings = ref(false);
+const showLufs = ref(getShowLufs());
+const showAddToCollection = ref(false);
+const selectedCollections = ref<number[]>([]);
+const newCollectionName = ref("");
+const showCreateCollection = ref(false);
+const showUploadModal = ref(false);
+const showOnlineSearchModal = ref(false);
+const showActiveQueueModal = ref(false);
+const showLyric = ref(false);
+const lyricContainerRef = ref<HTMLElement | null>(null);
+const isWideLayout = ref(false);
+const hasUserToggledLyric = ref(false);
+const isScanning = ref(false);
+let androidBackListener: { unregister(): Promise<void> } | null = null;
 
 const triggerDatabaseUpdate = async () => {
   try {
-    isScanning.value = true
-    console.log('[app] onMounted: triggering startup database scan')
-    const response = await fetch(`${getApiBase()}/database/update?startup=true`, { method: 'POST' })
+    isScanning.value = true;
+    console.log("[app] onMounted: triggering startup database scan");
+    const response = await fetch(
+      `${getApiBase()}/database/update?startup=true`,
+      { method: "POST" },
+    );
     if (!response.ok) {
-      const errorText = await response.text()
-      console.warn('[app] onMounted: database update failed:', response.status, errorText)
-      return
+      const errorText = await response.text();
+      console.warn(
+        "[app] onMounted: database update failed:",
+        response.status,
+        errorText,
+      );
+      return;
     }
-    const result = await response.json()
+    const result = await response.json();
     if (!result.success) {
-      console.warn('[app] onMounted: database update returned failure:', result.message)
+      console.warn(
+        "[app] onMounted: database update returned failure:",
+        result.message,
+      );
     } else {
-      console.log('[app] onMounted: database update completed')
+      console.log("[app] onMounted: database update completed");
     }
   } catch (error) {
-    console.error('[app] onMounted: database update error:', error)
+    console.error("[app] onMounted: database update error:", error);
   } finally {
-    isScanning.value = false
+    isScanning.value = false;
   }
-}
+};
 
 // Computed helper for audio player
 const {
@@ -423,697 +465,778 @@ const {
   fixedLufsInput,
   volumeModeLabels,
   calculateVolume,
-  toggleVolumeMode
-} = useVolume(currentSong, playbackSongs)
+  toggleVolumeMode,
+} = useVolume(currentSong, playbackSongs);
 
 const showBackButton = computed(() => {
-  return showLyric.value || currentView.value !== 'playlists'
-})
+  return showLyric.value || currentView.value !== "playlists";
+});
 
 const showChooseButton = computed(() => {
-  if (showLyric.value) return false
-  if (currentView.value === 'playlists') return viewMode.value === 'collection'
-  if (currentView.value === 'songs') return true
-  return false
-})
+  if (showLyric.value) return false;
+  if (currentView.value === "playlists") return viewMode.value === "collection";
+  if (currentView.value === "songs") return true;
+  return false;
+});
 
 const updateLayoutMode = () => {
-  if (typeof window === 'undefined') return
-  const isWide = window.matchMedia('(min-aspect-ratio: 1/1)').matches
-  isWideLayout.value = isWide
+  if (typeof window === "undefined") return;
+  const isWide = window.matchMedia("(min-aspect-ratio: 1/1)").matches;
+  isWideLayout.value = isWide;
   if (isWide && !hasUserToggledLyric.value) {
-    showLyric.value = true
+    showLyric.value = true;
   }
-}
+};
 
-const patchSongLufsInList = (songs: SongInfo[], songId: number, lufs: number): SongInfo[] => {
-  let changed = false
-  const updatedSongs = songs.map(song => {
+const patchSongLufsInList = (
+  songs: SongInfo[],
+  songId: number,
+  lufs: number,
+): SongInfo[] => {
+  let changed = false;
+  const updatedSongs = songs.map((song) => {
     if (song.id !== songId || song.lufs === lufs) {
-      return song
+      return song;
     }
-    changed = true
+    changed = true;
     return {
       ...song,
-      lufs
-    }
-  })
+      lufs,
+    };
+  });
 
-  return changed ? updatedSongs : songs
-}
+  return changed ? updatedSongs : songs;
+};
 
 const patchSongLufs = (songId: number, lufs: number) => {
   if (currentSong.value?.id === songId && currentSong.value.lufs !== lufs) {
     currentSong.value = {
       ...currentSong.value,
-      lufs
-    }
+      lufs,
+    };
   }
 
-  activeQueue.value = patchSongLufsInList(activeQueue.value, songId, lufs)
-  searchPlaybackSongs.value = patchSongLufsInList(searchPlaybackSongs.value, songId, lufs)
+  activeQueue.value = patchSongLufsInList(activeQueue.value, songId, lufs);
+  searchPlaybackSongs.value = patchSongLufsInList(
+    searchPlaybackSongs.value,
+    songId,
+    lufs,
+  );
 
   if (selectedPlaylist.value) {
     selectedPlaylist.value = {
       ...selectedPlaylist.value,
-      songs: patchSongLufsInList(selectedPlaylist.value.songs, songId, lufs)
-    }
+      songs: patchSongLufsInList(selectedPlaylist.value.songs, songId, lufs),
+    };
   }
 
-  let playlistsChanged = false
+  let playlistsChanged = false;
   const nextPlaylists = Object.fromEntries(
     Object.entries(playlists.value).map(([name, songs]) => {
-      const updatedSongs = patchSongLufsInList(songs, songId, lufs)
+      const updatedSongs = patchSongLufsInList(songs, songId, lufs);
       if (updatedSongs !== songs) {
-        playlistsChanged = true
+        playlistsChanged = true;
       }
-      return [name, updatedSongs]
-    })
-  )
+      return [name, updatedSongs];
+    }),
+  );
   if (playlistsChanged) {
-    playlists.value = nextPlaylists
+    playlists.value = nextPlaylists;
   }
-}
+};
 
 interface PrecacheLufsResult {
-  success: boolean
-  lufs: number | null
-  cached?: boolean
-  error?: string
+  success: boolean;
+  lufs: number | null;
+  cached?: boolean;
+  error?: string;
 }
 
-const LUFS_POLL_DELAY_MS = 1000
-const LUFS_POLL_MAX_ATTEMPTS = 8
-const pendingLufsPolls = new Set<number>()
+const LUFS_POLL_DELAY_MS = 1000;
+const LUFS_POLL_MAX_ATTEMPTS = 8;
+const pendingLufsPolls = new Set<number>();
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const pollSongLufs = async (songId: number, context: 'current' | 'next') => {
+const pollSongLufs = async (songId: number, context: "current" | "next") => {
   if (pendingLufsPolls.has(songId)) {
-    console.log(`[app] LUFS ${context} poll already in flight for song ID:`, songId)
-    return
+    console.log(
+      `[app] LUFS ${context} poll already in flight for song ID:`,
+      songId,
+    );
+    return;
   }
 
-  pendingLufsPolls.add(songId)
+  pendingLufsPolls.add(songId);
 
   try {
     for (let attempt = 1; attempt <= LUFS_POLL_MAX_ATTEMPTS; attempt++) {
-      await wait(LUFS_POLL_DELAY_MS)
+      await wait(LUFS_POLL_DELAY_MS);
 
       try {
-        console.log(`[app] LUFS ${context} poll request attempt ${attempt} for song ID:`, songId)
-        const response = await fetch(`${getApiBase()}/music/${songId}/precache-lufs`, {
-          method: 'POST'
-        })
+        console.log(
+          `[app] LUFS ${context} poll request attempt ${attempt} for song ID:`,
+          songId,
+        );
+        const response = await fetch(
+          `${getApiBase()}/music/${songId}/precache-lufs`,
+          {
+            method: "POST",
+          },
+        );
 
         if (!response.ok) {
-          console.warn(`[app] LUFS ${context} poll failed:`, response.status)
-          return
+          console.warn(`[app] LUFS ${context} poll failed:`, response.status);
+          return;
         }
 
-        const result: PrecacheLufsResult = await response.json()
+        const result: PrecacheLufsResult = await response.json();
         if (result.success && result.lufs !== null) {
-          console.log(`[app] LUFS ${context} resolved from poll attempt ${attempt}:`, result.lufs)
-          patchSongLufs(songId, result.lufs)
+          console.log(
+            `[app] LUFS ${context} resolved from poll attempt ${attempt}:`,
+            result.lufs,
+          );
+          patchSongLufs(songId, result.lufs);
           if (isAndroidPlayer.value) {
-            await syncAndroidQueueState()
+            await syncAndroidQueueState();
           }
-          return
+          return;
         }
 
         if (result.cached !== false) {
-          return
+          return;
         }
       } catch (error) {
-        console.error(`[app] LUFS ${context} poll error on attempt ${attempt}:`, error)
-        return
+        console.error(
+          `[app] LUFS ${context} poll error on attempt ${attempt}:`,
+          error,
+        );
+        return;
       }
     }
   } finally {
-    pendingLufsPolls.delete(songId)
+    pendingLufsPolls.delete(songId);
   }
-}
+};
 
-const requestSongLufs = async (song: SongInfo, context: 'current' | 'next'): Promise<SongInfo> => {
+const requestSongLufs = async (
+  song: SongInfo,
+  context: "current" | "next",
+): Promise<SongInfo> => {
   if (song.lufs !== null) {
-    console.log(`[app] LUFS ${context} already cached for song ID:`, song.id, 'value:', song.lufs)
-    return song
+    console.log(
+      `[app] LUFS ${context} already cached for song ID:`,
+      song.id,
+      "value:",
+      song.lufs,
+    );
+    return song;
   }
 
   try {
-    console.log(`[app] LUFS ${context} request for song ID:`, song.id)
-    const response = await fetch(`${getApiBase()}/music/${song.id}/precache-lufs`, {
-      method: 'POST'
-    })
+    console.log(`[app] LUFS ${context} request for song ID:`, song.id);
+    const response = await fetch(
+      `${getApiBase()}/music/${song.id}/precache-lufs`,
+      {
+        method: "POST",
+      },
+    );
 
     if (!response.ok) {
-      console.warn(`[app] LUFS ${context} pre-cache failed:`, response.status)
-      return song
+      console.warn(`[app] LUFS ${context} pre-cache failed:`, response.status);
+      return song;
     }
 
-    const result: PrecacheLufsResult = await response.json()
+    const result: PrecacheLufsResult = await response.json();
     if (result.success && result.lufs !== null) {
-      console.log(`[app] LUFS ${context} resolved immediately:`, result.lufs)
-      patchSongLufs(song.id, result.lufs)
-      if (context === 'next' && isAndroidPlayer.value) {
-        await syncAndroidQueueState()
+      console.log(`[app] LUFS ${context} resolved immediately:`, result.lufs);
+      patchSongLufs(song.id, result.lufs);
+      if (context === "next" && isAndroidPlayer.value) {
+        await syncAndroidQueueState();
       }
       return {
         ...song,
-        lufs: result.lufs
-      }
+        lufs: result.lufs,
+      };
     }
 
     if (result.success && result.cached === false) {
-      console.log(`[app] LUFS ${context} started in background (non-blocking)`)
-      void pollSongLufs(song.id, context)
+      console.log(`[app] LUFS ${context} started in background (non-blocking)`);
+      void pollSongLufs(song.id, context);
     }
   } catch (error) {
-    console.error(`[app] LUFS ${context} pre-cache error:`, error)
+    console.error(`[app] LUFS ${context} pre-cache error:`, error);
   }
 
-  return song
-}
+  return song;
+};
 
 const resolveSongForPlayback = async (song: SongInfo): Promise<SongInfo> => {
   if (isAndroidPlayer.value) {
-    return song
+    return song;
   }
-  return await requestSongLufs(song, 'current')
-}
+  return await requestSongLufs(song, "current");
+};
 
 const syncPlaybackMetadataFromBackend = () => {
   if (!isAndroidPlayer.value || activeQueue.value.length === 0) {
-    return
+    return;
   }
 
   for (const song of activeQueue.value) {
     if (song.lufs !== null) {
-      patchSongLufs(song.id, song.lufs)
+      patchSongLufs(song.id, song.lufs);
     }
   }
-}
+};
 
-watch([
-  volumeMode,
-  manualVolume,
-  manualVolumeInput,
-  fixedLufs,
-  fixedLufsInput,
-  () => currentSong.value?.id ?? null,
-  () => currentSong.value?.lufs ?? null,
-  () => playbackSongs.value.map(song => `${song.id}:${song.lufs ?? 'null'}`).join('|')
-], () => {
-  void syncNormalizationConfig(
-    volumeMode.value,
-    manualVolume.value,
-    fixedLufs.value,
-    calculateVolume()
-  )
-}, { deep: true, immediate: true })
+watch(
+  [
+    volumeMode,
+    manualVolume,
+    manualVolumeInput,
+    fixedLufs,
+    fixedLufsInput,
+    () => currentSong.value?.id ?? null,
+    () => currentSong.value?.lufs ?? null,
+    () =>
+      playbackSongs.value
+        .map((song) => `${song.id}:${song.lufs ?? "null"}`)
+        .join("|"),
+  ],
+  () => {
+    void syncNormalizationConfig(
+      volumeMode.value,
+      manualVolume.value,
+      fixedLufs.value,
+      calculateVolume(),
+    );
+  },
+  { deep: true, immediate: true },
+);
 
-watch(() => activeQueue.value.map(song => `${song.id}:${song.lufs ?? 'null'}`).join('|'), () => {
-  syncPlaybackMetadataFromBackend()
-})
+watch(
+  () =>
+    activeQueue.value
+      .map((song) => `${song.id}:${song.lufs ?? "null"}`)
+      .join("|"),
+  () => {
+    syncPlaybackMetadataFromBackend();
+  },
+);
 
 // Watch for view mode changes
 watch(viewMode, async () => {
-  backToPlaylists()
-  await refreshData()
-})
+  backToPlaylists();
+  await refreshData();
+});
 
 // Helper function to scroll to current lyric
 const scrollToCurrentLyric = () => {
-  if (!lyricContainerRef.value || currentLyricIndex.value < 0) return
+  if (!lyricContainerRef.value || currentLyricIndex.value < 0) return;
 
   // Get all lyric line elements
-  const lyricLines = lyricContainerRef.value.querySelectorAll('.lyric-line')
-  if (lyricLines.length === 0) return
+  const lyricLines = lyricContainerRef.value.querySelectorAll(".lyric-line");
+  if (lyricLines.length === 0) return;
 
-  const activeLine = lyricLines[currentLyricIndex.value] as HTMLElement
-  if (!activeLine) return
+  const activeLine = lyricLines[currentLyricIndex.value] as HTMLElement;
+  if (!activeLine) return;
 
   // Scroll the active line to center of container
   activeLine.scrollIntoView({
-    behavior: 'smooth',
-    block: 'center'
-  })
-}
+    behavior: "smooth",
+    block: "center",
+  });
+};
 
 // Auto-scroll to current lyric when index changes
-watch(currentLyricIndex, scrollToCurrentLyric)
+watch(currentLyricIndex, scrollToCurrentLyric);
 
 // Scroll to current lyric when lyric panel is shown
 watch(showLyric, (isShown) => {
   if (isShown) {
     // Use setTimeout to ensure the DOM is rendered after v-show takes effect
-    setTimeout(scrollToCurrentLyric, 50)
+    setTimeout(scrollToCurrentLyric, 50);
   }
-})
+});
 
 // Event handlers
 const handleLyricLineClick = async (time: number) => {
   if (!currentSong.value) {
-    return
+    return;
   }
 
   if (!audioElement.value || duration.value === 0) {
-    await playSong(currentSong.value, time)
-    return
+    await playSong(currentSong.value, time);
+    return;
   }
 
-  await seekToTime(time)
+  await seekToTime(time);
   if (!isPlaying.value) {
-    await play()
+    await play();
   }
-}
+};
 
 const handleSearch = () => {
-  showSearchResults()
-}
+  showSearchResults();
+};
 
 const handleSelectPlaylist = (name: string) => {
-  selectPlaylist(name)
-  playbackSource.value = 'playlist'
-  searchPlaybackSongs.value = []
-  resetPlaylist()
-}
+  selectPlaylist(name);
+  playbackSource.value = "playlist";
+  searchPlaybackSongs.value = [];
+  resetPlaylist();
+};
 
 const handleBackToPlaylists = () => {
-  backToPlaylists()
-  selectMode.value = false
-  selectedSongs.value.clear()
-  collectionSelectMode.value = false
-  selectedCollectionsList.value.clear()
-}
+  backToPlaylists();
+  selectMode.value = false;
+  selectedSongs.value.clear();
+  collectionSelectMode.value = false;
+  selectedCollectionsList.value.clear();
+};
 
 const handleActionBack = () => {
   // In wide layout, lyrics are always visible - don't toggle them off
   if (showLyric.value && !isWideLayout.value) {
-    showLyric.value = false
-    return
+    showLyric.value = false;
+    return;
   }
-  handleBackToPlaylists()
-}
+  handleBackToPlaylists();
+};
 
 const closeTopOverlay = () => {
   if (showActiveQueueModal.value) {
-    showActiveQueueModal.value = false
-    return true
+    showActiveQueueModal.value = false;
+    return true;
   }
 
   if (showUploadModal.value) {
-    showUploadModal.value = false
-    return true
+    showUploadModal.value = false;
+    return true;
   }
 
   if (showOnlineSearchModal.value) {
-    showOnlineSearchModal.value = false
-    return true
+    showOnlineSearchModal.value = false;
+    return true;
   }
 
   if (showCreateCollection.value) {
-    hideCreateCollectionModal()
-    return true
+    hideCreateCollectionModal();
+    return true;
   }
 
   if (showAddToCollection.value) {
-    hideAddToCollectionModal()
-    return true
+    hideAddToCollectionModal();
+    return true;
   }
 
   if (showSettings.value) {
-    hideSettingsModal()
-    return true
+    hideSettingsModal();
+    return true;
   }
 
-  return false
-}
+  return false;
+};
 
 const handleAndroidBackPress = () => {
   if (closeTopOverlay()) {
-    return true
+    return true;
   }
 
   if (selectMode.value) {
-    selectMode.value = false
-    selectedSongs.value.clear()
-    return true
+    selectMode.value = false;
+    selectedSongs.value.clear();
+    return true;
   }
 
   if (collectionSelectMode.value) {
-    collectionSelectMode.value = false
-    selectedCollectionsList.value.clear()
-    return true
+    collectionSelectMode.value = false;
+    selectedCollectionsList.value.clear();
+    return true;
   }
 
   // Match the visible "返回" button behavior on mobile.
   if (showLyric.value && !isWideLayout.value) {
-    showLyric.value = false
-    return true
+    showLyric.value = false;
+    return true;
   }
 
-  if (currentView.value !== 'playlists') {
-    handleBackToPlaylists()
-    return true
+  if (currentView.value !== "playlists") {
+    handleBackToPlaylists();
+    return true;
   }
 
-  return false
-}
+  return false;
+};
 
 const registerAndroidBackHandler = async () => {
-  const isAndroid = await checkIsAndroid()
+  const isAndroid = await checkIsAndroid();
   if (!isAndroid) {
-    return
+    return;
   }
 
   try {
     const [{ onBackButtonPress }, { getCurrentWindow }] = await Promise.all([
-      import('@tauri-apps/api/app'),
-      import('@tauri-apps/api/window')
-    ])
+      import("@tauri-apps/api/app"),
+      import("@tauri-apps/api/window"),
+    ]);
 
     androidBackListener = await onBackButtonPress(async ({ canGoBack }) => {
       if (handleAndroidBackPress()) {
-        return
+        return;
       }
 
       if (canGoBack) {
-        window.history.back()
-        return
+        window.history.back();
+        return;
       }
 
-      await getCurrentWindow().close()
-    })
+      await getCurrentWindow().close();
+    });
   } catch (error) {
-    console.warn('[app] Failed to register Android back handler:', error)
+    console.warn("[app] Failed to register Android back handler:", error);
   }
-}
+};
 
 const handleChooseAction = () => {
-  if (currentView.value === 'playlists') {
-    toggleCollectionSelectMode()
-    return
+  if (currentView.value === "playlists") {
+    toggleCollectionSelectMode();
+    return;
   }
-  if (currentView.value === 'songs') {
-    toggleSelectMode()
+  if (currentView.value === "songs") {
+    toggleSelectMode();
   }
-}
+};
 
 const handlePlayQueueSong = async (song: MusicInfo, index: number) => {
-  await playSongAtIndex(song, index, activeQueue.value)
-}
+  await playSongAtIndex(song, index, activeQueue.value);
+};
 
 const handlePlaySong = async (song: SongInfo, index?: number) => {
-  if (currentView.value === 'search') {
-    playbackSource.value = 'search'
-    searchPlaybackSongs.value = searchResults.value.slice()
+  if (currentView.value === "search") {
+    playbackSource.value = "search";
+    searchPlaybackSongs.value = searchResults.value.slice();
   } else {
-    playbackSource.value = 'playlist'
-    searchPlaybackSongs.value = []
+    playbackSource.value = "playlist";
+    searchPlaybackSongs.value = [];
   }
   if (index !== undefined) {
-    await playSongAtIndex(song, index)
+    await playSongAtIndex(song, index);
   } else {
-    await playSong(song)
+    await playSong(song);
   }
-}
+};
 
 // Handle song start event - trigger LUFS pre-caching for next song
-const handleSongStart = async (currentSongInfo: { id: number }, nextSongInfo: { id: number } | null) => {
-  console.log('[app] onSongStart called: currentSongId =', currentSongInfo.id, ', nextSongInfo =', nextSongInfo)
+const handleSongStart = async (
+  currentSongInfo: { id: number },
+  nextSongInfo: { id: number } | null,
+) => {
+  console.log(
+    "[app] onSongStart called: currentSongId =",
+    currentSongInfo.id,
+    ", nextSongInfo =",
+    nextSongInfo,
+  );
   if (isAndroidPlayer.value) {
-    console.log('[app] Android playback backend handles next-track LUFS pre-cache')
-    return
+    console.log(
+      "[app] Android playback backend handles next-track LUFS pre-cache",
+    );
+    return;
   }
-  const allSongs = playbackSongs.value
+  const allSongs = playbackSongs.value;
 
   if (!nextSongInfo) {
-    console.log('[app] No next song, skipping pre-cache')
-    return
+    console.log("[app] No next song, skipping pre-cache");
+    return;
   }
 
   // Skip pre-caching if next song already has LUFS calculated
-  const nextSong = allSongs.find((s: { id: number }) => s.id === nextSongInfo.id)
+  const nextSong = allSongs.find(
+    (s: { id: number }) => s.id === nextSongInfo.id,
+  );
   if (!nextSong) {
-    console.log('[app] Next song metadata missing in current playback list, skipping pre-cache')
-    return
+    console.log(
+      "[app] Next song metadata missing in current playback list, skipping pre-cache",
+    );
+    return;
   }
   if (nextSong && nextSong.lufs !== null) {
-    console.log('[app] Next song already has LUFS:', nextSong.lufs, ', skipping pre-cache')
-    return
+    console.log(
+      "[app] Next song already has LUFS:",
+      nextSong.lufs,
+      ", skipping pre-cache",
+    );
+    return;
   }
 
   // Skip pre-caching in loop mode (same song) if it already has LUFS or will be re-calculated anyway
-  if (playMode.value === 'loop' && currentSongInfo.id === nextSongInfo.id) {
-    console.log('[app] Loop mode with same song, skipping pre-cache')
-    return
+  if (playMode.value === "loop" && currentSongInfo.id === nextSongInfo.id) {
+    console.log("[app] Loop mode with same song, skipping pre-cache");
+    return;
   }
 
-  console.log('[app] Pre-caching LUFS for next song ID:', nextSongInfo.id)
-  await requestSongLufs(nextSong, 'next')
-}
+  console.log("[app] Pre-caching LUFS for next song ID:", nextSongInfo.id);
+  await requestSongLufs(nextSong, "next");
+};
 
 // Assign the handler to the ref so useAudioPlayer can call it
-handleSongStartRef.value = handleSongStart
+handleSongStartRef.value = handleSongStart;
 
 const handleShowSettingsModal = () => {
-  showSettings.value = true
-}
+  showSettings.value = true;
+};
 
 const handleShowActiveQueue = () => {
-  showActiveQueueModal.value = true
-}
+  showActiveQueueModal.value = true;
+};
 
 const handleToggleLyric = () => {
   // In wide layout, lyrics are always visible - don't allow toggle
   if (isWideLayout.value) {
-    return
+    return;
   }
-  showLyric.value = !showLyric.value
-  hasUserToggledLyric.value = true
-}
+  showLyric.value = !showLyric.value;
+  hasUserToggledLyric.value = true;
+};
 
 const hideSettingsModal = () => {
-  showSettings.value = false
-}
+  showSettings.value = false;
+};
 
 const handleToggleViewMode = () => {
-  playlistToggleViewMode()
-}
+  playlistToggleViewMode();
+};
 
 const handleToggleVolumeMode = () => {
-  toggleVolumeMode()
-}
+  toggleVolumeMode();
+};
 
 const handleStartTimer = async () => {
   if (isAndroidPlayer.value) {
-    await setTimedPause(timerMinutes.value * 60 * 1000)
+    await setTimedPause(timerMinutes.value * 60 * 1000);
   }
-  startTimer()
-}
+  startTimer();
+};
 
 const handleSetTimerPreset = async (minutes: number) => {
-  timerMinutes.value = minutes
-  timerMinutesInput.value = minutes
-  await handleStartTimer()
-}
+  timerMinutes.value = minutes;
+  timerMinutesInput.value = minutes;
+  await handleStartTimer();
+};
 
 const handleCancelTimer = async () => {
-  cancelTimer()
+  cancelTimer();
   if (isAndroidPlayer.value) {
-    await setTimedPause(0)
+    await setTimedPause(0);
   }
-}
+};
 
 const handleDirectoryChanged = () => {
   // Refresh data when directory changes
-  refreshData()
-  void refreshAndroidSession()
-}
+  refreshData();
+  void refreshAndroidSession();
+};
 
 const handleDatabaseUpdated = async () => {
   // Refresh data when database is updated
-  await refreshData()
-  await refreshAndroidSession()
-}
+  await refreshData();
+  await refreshAndroidSession();
+};
 
 const handleDatabaseUpdateStart = () => {
-  isScanning.value = true
-}
+  isScanning.value = true;
+};
 
 const handleDatabaseUpdateEnd = () => {
-  isScanning.value = false
-}
+  isScanning.value = false;
+};
 
 const handleUploadComplete = async () => {
   // Refresh data after upload completes
-  showUploadModal.value = false
-  await refreshData()
+  showUploadModal.value = false;
+  await refreshData();
 
   // If a playlist is currently selected, update its songs with the refreshed data
   if (selectedPlaylist.value) {
-    const playlistName = selectedPlaylist.value.name
-    selectPlaylist(playlistName)
+    const playlistName = selectedPlaylist.value.name;
+    selectPlaylist(playlistName);
   }
-}
+};
 
 const handleOnlineDownloadComplete = async () => {
-  await refreshData()
-  await refreshAndroidSession()
-}
+  await refreshData();
+  await refreshAndroidSession();
+};
 
 const handlePreviewTrack = async (song: MusicInfo) => {
-  playbackSource.value = 'search'
-  searchPlaybackSongs.value = [song]
-  await playSongAtIndex(song, 0, [song])
-}
+  playbackSource.value = "search";
+  searchPlaybackSongs.value = [song];
+  await playSongAtIndex(song, 0, [song]);
+};
 
 // Collection management handlers
 const handleShowAddToCollectionModal = () => {
-  selectedCollections.value = []
-  showAddToCollection.value = true
-}
+  selectedCollections.value = [];
+  showAddToCollection.value = true;
+};
 
 const hideAddToCollectionModal = () => {
-  showAddToCollection.value = false
-  selectedCollections.value = []
-}
+  showAddToCollection.value = false;
+  selectedCollections.value = [];
+};
 
 const handleToggleCollectionSelection = (id: number) => {
-  const index = selectedCollections.value.indexOf(id)
+  const index = selectedCollections.value.indexOf(id);
   if (index > -1) {
-    selectedCollections.value.splice(index, 1)
+    selectedCollections.value.splice(index, 1);
   } else {
-    selectedCollections.value.push(id)
+    selectedCollections.value.push(id);
   }
-}
+};
 
 const addToCollection = async () => {
   if (selectedCollections.value.length === 0) {
-    alert('请选择至少一个收藏夹')
-    return
+    alert("请选择至少一个收藏夹");
+    return;
   }
 
-  const allMusic = await getAllMusic()
+  const allMusic = await getAllMusic();
   const selectedMusicIds = allMusic
-    .filter((m: { filename: string; id: number }) => selectedSongs.value.has(m.filename))
-    .map((m: { id: number }) => m.id)
+    .filter((m: { filename: string; id: number }) =>
+      selectedSongs.value.has(m.filename),
+    )
+    .map((m: { id: number }) => m.id);
 
   if (selectedMusicIds.length === 0) {
-    alert('没有选中的歌曲')
-    return
+    alert("没有选中的歌曲");
+    return;
   }
 
   for (const collectionId of selectedCollections.value) {
-    await apiAddToCollection(collectionId, selectedMusicIds)
+    await apiAddToCollection(collectionId, selectedMusicIds);
   }
 
-  alert('添加成功')
-  hideAddToCollectionModal()
-  selectMode.value = false
-  selectedSongs.value.clear()
-  await refreshData()
-}
+  alert("添加成功");
+  hideAddToCollectionModal();
+  selectMode.value = false;
+  selectedSongs.value.clear();
+  await refreshData();
+};
 
 const handleRemoveFromCollection = async () => {
-  if (!selectedPlaylist.value) return
+  if (!selectedPlaylist.value) return;
 
-  const collection = collections.value.find((c: { id: number; name: string }) => c.name === selectedPlaylist.value?.name)
+  const collection = collections.value.find(
+    (c: { id: number; name: string }) =>
+      c.name === selectedPlaylist.value?.name,
+  );
   if (!collection || collection.id === -1) {
-    alert('无法从"所有音乐"中移除')
-    return
+    alert('无法从"所有音乐"中移除');
+    return;
   }
 
-  const allMusic = await getAllMusic()
+  const allMusic = await getAllMusic();
   const selectedMusicIds = allMusic
-    .filter((m: { filename: string; id: number }) => selectedSongs.value.has(m.filename))
-    .map((m: { id: number }) => m.id)
+    .filter((m: { filename: string; id: number }) =>
+      selectedSongs.value.has(m.filename),
+    )
+    .map((m: { id: number }) => m.id);
 
   if (selectedMusicIds.length === 0) {
-    alert('没有选中的歌曲')
-    return
+    alert("没有选中的歌曲");
+    return;
   }
 
-  const success = await apiRemoveFromCollection(collection.id, selectedMusicIds)
+  const success = await apiRemoveFromCollection(
+    collection.id,
+    selectedMusicIds,
+  );
   if (success) {
-    alert('移除成功')
-    selectMode.value = false
-    selectedSongs.value.clear()
-    await refreshData()
+    alert("移除成功");
+    selectMode.value = false;
+    selectedSongs.value.clear();
+    await refreshData();
   } else {
-    alert('移除失败')
+    alert("移除失败");
   }
-}
+};
 
 const handleShowCreateModal = () => {
-  newCollectionName.value = ''
-  showCreateCollection.value = true
-}
+  newCollectionName.value = "";
+  showCreateCollection.value = true;
+};
 
 const hideCreateCollectionModal = () => {
-  showCreateCollection.value = false
-  newCollectionName.value = ''
-}
+  showCreateCollection.value = false;
+  newCollectionName.value = "";
+};
 
 const handleCreateCollection = async () => {
   if (!newCollectionName.value.trim()) {
-    alert('请输入收藏夹名称')
-    return
+    alert("请输入收藏夹名称");
+    return;
   }
 
-  await apiCreateCollection(newCollectionName.value.trim())
-  hideCreateCollectionModal()
-}
+  await apiCreateCollection(newCollectionName.value.trim());
+  hideCreateCollectionModal();
+};
 
 const handleDeleteSelectedCollections = async () => {
   if (selectedCollectionsList.value.size === 0) {
-    alert('请选择要删除的收藏夹')
-    return
+    alert("请选择要删除的收藏夹");
+    return;
   }
 
-  if (!confirm(`确定要删除选中的 ${selectedCollectionsList.value.size} 个收藏夹吗？`)) {
-    return
+  if (
+    !confirm(
+      `确定要删除选中的 ${selectedCollectionsList.value.size} 个收藏夹吗？`,
+    )
+  ) {
+    return;
   }
 
-  let deletedCount = 0
+  let deletedCount = 0;
   for (const collectionName of selectedCollectionsList.value) {
-    if (collectionName === '所有音乐') continue
+    if (collectionName === "所有音乐") continue;
 
-    const collection = collections.value.find((c: { id: number; name: string }) => c.name === collectionName)
+    const collection = collections.value.find(
+      (c: { id: number; name: string }) => c.name === collectionName,
+    );
     if (collection) {
-      const success = await deleteCollection(collection.id)
-      if (success) deletedCount++
+      const success = await deleteCollection(collection.id);
+      if (success) deletedCount++;
     }
   }
 
-  alert(`已删除 ${deletedCount} 个收藏夹`)
-  collectionSelectMode.value = false
-  selectedCollectionsList.value.clear()
-  await refreshData()
-}
+  alert(`已删除 ${deletedCount} 个收藏夹`);
+  collectionSelectMode.value = false;
+  selectedCollectionsList.value.clear();
+  await refreshData();
+};
 
 // Initialize
 onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
-  await triggerDatabaseUpdate()
+  await triggerDatabaseUpdate();
 
-  await refreshData()
-  await initAudio()
-  await registerAndroidBackHandler()
-  updateLayoutMode()
-  window.addEventListener('resize', updateLayoutMode)
-})
+  await refreshData();
+  await initAudio();
+  await registerAndroidBackHandler();
+  updateLayoutMode();
+  window.addEventListener("resize", updateLayoutMode);
+});
 
 onBeforeUnmount(() => {
-  if (typeof window !== 'undefined') {
-    window.removeEventListener('resize', updateLayoutMode)
+  if (typeof window !== "undefined") {
+    window.removeEventListener("resize", updateLayoutMode);
   }
   if (androidBackListener) {
-    void androidBackListener.unregister()
-    androidBackListener = null
+    void androidBackListener.unregister();
+    androidBackListener = null;
   }
-})
+});
 </script>
 
 <style scoped>
@@ -1124,7 +1247,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   background-color: #f5f5f5;
   color: #333;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   overflow: hidden;
 }
 
