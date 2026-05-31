@@ -769,15 +769,16 @@ export const DirectoryTreeNode = defineComponent({
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   padding: 12px;
-  display: grid;
-  grid-template-columns: 72px 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  align-items: start;
+  align-items: flex-start;
 }
 
 .result-thumbnail {
   width: 72px;
   height: 72px;
+  flex-shrink: 0;
   object-fit: cover;
   border-radius: 8px;
   background: #e5e7eb;
@@ -785,6 +786,11 @@ export const DirectoryTreeNode = defineComponent({
 
 .result-thumbnail.placeholder {
   background: linear-gradient(135deg, #dae3e8, #eef3f6);
+}
+
+.result-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .result-header {
@@ -797,6 +803,9 @@ export const DirectoryTreeNode = defineComponent({
 .result-title {
   font-weight: 700;
   color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-badge {
@@ -824,11 +833,12 @@ export const DirectoryTreeNode = defineComponent({
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .lyrics-candidates {
-  grid-column: 2 / 4;
-  margin-top: 6px;
+  width: calc(100% - 84px);
+  margin-left: 84px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -884,18 +894,26 @@ export const DirectoryTreeNode = defineComponent({
 }
 
 @media (max-width: 640px) {
-  .result-item {
-    grid-template-columns: 56px 1fr;
+  .result-thumbnail {
+    width: 56px;
+    height: 56px;
+  }
+
+  .result-info {
+    flex: 1;
+    min-width: 0;
   }
 
   .result-actions {
-    grid-column: 1 / 3;
+    flex-basis: 100%;
     flex-direction: row;
     flex-wrap: wrap;
   }
 
   .lyrics-candidates {
-    grid-column: 1 / 3;
+    flex-basis: 100%;
+    width: 100%;
+    margin-left: 0;
   }
 }
 </style>
