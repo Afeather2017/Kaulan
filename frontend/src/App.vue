@@ -372,7 +372,7 @@ const {
 })
 
 // Lyrics composable for synchronized lyrics display
-const { lyrics, currentLyricIndex, hasLyrics, updateCurrentLyric } = useLyrics(currentSong)
+const { lyrics, currentLyricIndex, hasLyrics } = useLyrics(currentSong, currentTime, isPlaying)
 
 // Additional state
 const showSettings = ref(false)
@@ -640,11 +640,6 @@ watch(() => activeQueue.value.map(song => `${song.id}:${song.lufs ?? 'null'}`).j
 watch(viewMode, async () => {
   backToPlaylists()
   await refreshData()
-})
-
-// Watch currentTime to update lyrics
-watch(currentTime, (newTime) => {
-  updateCurrentLyric(newTime)
 })
 
 // Helper function to scroll to current lyric

@@ -2,10 +2,23 @@
  * Tests for useLyrics composable
  *
  * @module composables/__tests__/useLyrics.test
+ *
+ * Related documentation:
+ * - `docs/lyric-sync-timing.md`
  */
 
-import { describe, it, expect } from 'vitest'
-import { parseLrc, parseLyrics, parseVtt } from '../useLyrics'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { nextTick, ref } from 'vue'
+import { parseLrc, parseLyrics, parseVtt, useLyrics } from '../useLyrics'
+
+vi.mock('@/utils/api', () => ({
+  getApiBase: () => 'http://localhost:2080/api'
+}))
+
+async function flushLyricsLoad(): Promise<void> {
+  await Promise.resolve()
+  await nextTick()
+}
 
 describe('parseLrc', () => {
   it('should parse single-language LRC format', () => {
@@ -263,6 +276,72 @@ Hello
         texts: ['Hello', '你好']
       }
     ])
+  })
+})
+
+describe('useLyrics scheduling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
+    const storage = new Map<string, string>()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: vi.fn((key: string) => storage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          storage.set(key, value)
+        }),
+        removeItem: vi.fn((key: string) => {
+          storage.delete(key)
+        })
+      },
+      configurable: true
+    })
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve(`[00:00.05]Line one
+[00:00.12]Line two
+[00:00.40]Line three`)
+    })))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('should advance lyrics using sub-second timers', async () => {
+    const currentSong = ref({ id: 1, name: 'Song', lufs: null, path: '/song.mp3' })
+    const currentTime = ref(0)
+    const isPlaying = ref(true)
+
+    const { currentLyricIndex } = useLyrics(currentSong, currentTime, isPlaying)
+    await flushLyricsLoad()
+
+    expect(currentLyricIndex.value).toBe(-1)
+
+    await vi.advanceTimersByTimeAsync(55)
+    expect(currentLyricIndex.value).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(70)
+    expect(currentLyricIndex.value).toBe(1)
+  })
+
+  it('should rebuild the lyric timer after a seek-like correction', async () => {
+    const currentSong = ref({ id: 1, name: 'Song', lufs: null, path: '/song.mp3' })
+    const currentTime = ref(0)
+    const isPlaying = ref(true)
+
+    const { currentLyricIndex } = useLyrics(currentSong, currentTime, isPlaying)
+    await flushLyricsLoad()
+
+    currentTime.value = 0.35
+    await nextTick()
+
+    expect(currentLyricIndex.value).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(60)
+    expect(currentLyricIndex.value).toBe(2)
   })
 })
 

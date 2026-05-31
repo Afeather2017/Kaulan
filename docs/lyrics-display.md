@@ -6,6 +6,8 @@ The lyrics display feature adds synchronized lyrics display to the Kaulan music 
 
 On Android, lyric updates are still frontend-driven. The frontend polls the playback session from the Android plugin, updates the current song and playback position, and the lyric panel reacts to those values.
 
+For the timing model used to keep lyric switching accurate across playback backends, see [`docs/lyric-sync-timing.md`](./lyric-sync-timing.md).
+
 ## Related Files
 
 **Backend:**
