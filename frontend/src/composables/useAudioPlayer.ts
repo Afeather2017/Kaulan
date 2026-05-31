@@ -14,6 +14,9 @@ import type {
   NormalizationMode
 } from 'music-notification-api'
 
+// Related documentation:
+// - `docs/lyric-sync-timing.md`
+
 export interface MusicInfo {
   id: number
   name: string
@@ -59,11 +62,13 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const apiBase = getApiBase()
 
   const POLL_INTERVAL_MS = 1000
+  const SEEK_CONFIRMATION_THRESHOLD_SECONDS = 0.1
 
   let isPlayingInternal = false
   let pollingTimer: ReturnType<typeof setInterval> | null = null
   let pluginApiPromise: Promise<MusicNotificationApi> | null = null
   let lastStartedSongId: number | null = null
+  let pendingSeekTargetMs: number | null = null
 
   const loadPluginApi = async (): Promise<MusicNotificationApi> => {
     if (pluginApiPromise === null) {
@@ -335,9 +340,22 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentIndex.value = resolved.currentIndex
     currentSong.value = resolved.currentSong
     isPlaying.value = session.runtime.isPlaying
-    currentTime.value = session.runtime.positionMs / 1000
     duration.value = session.runtime.durationMs / 1000
     playMode.value = session.playMode as PlayMode
+    const correctedTimeSeconds = session.runtime.positionMs / 1000
+
+    if (pendingSeekTargetMs !== null) {
+      const driftMs = Math.abs(session.runtime.positionMs - pendingSeekTargetMs)
+      if (driftMs <= SEEK_CONFIRMATION_THRESHOLD_SECONDS * 1000) {
+        pendingSeekTargetMs = null
+        currentTime.value = correctedTimeSeconds
+      } else {
+        currentTime.value = pendingSeekTargetMs / 1000
+      }
+    } else {
+      currentTime.value = correctedTimeSeconds
+    }
+
     persistPlaybackSession(activeQueue.value, resolved.currentSongId)
     console.log('[useAudioPlayer] applyAndroidSession', {
       source,
@@ -461,8 +479,11 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     persistPlaybackSession(activeQueue.value, currentSong.value?.id ?? null)
 
     if (seekTime !== undefined) {
+      pendingSeekTargetMs = Math.max(0, Math.floor(seekTime * 1000))
+      currentTime.value = pendingSeekTargetMs / 1000
       await plugin.seekAndPlay(Math.max(0, Math.floor(seekTime * 1000)))
     } else {
+      pendingSeekTargetMs = null
       await plugin.play({
         url: targetSong.stream_url ?? buildAudioUrl(targetSong.id),
         title: targetSong.name,
@@ -502,6 +523,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
 
     const preparedSong = await prepareSongForPlayback(song)
+    pendingSeekTargetMs = null
     const sourceQueue = getBaseQueue(queueOverride)
     activeQueue.value = sourceQueue.map(sourceSong => {
       if (sourceSong.id !== preparedSong.id) {
@@ -744,6 +766,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       if (duration.value === 0) return
       const plugin = await loadPluginApi()
       const targetPositionMs = Math.max(0, Math.floor(time * 1000))
+      pendingSeekTargetMs = targetPositionMs
+      currentTime.value = targetPositionMs / 1000
       console.log('[useAudioPlayer] seekToTime(android): invoking plugin seek path', {
         targetTimeSeconds: time,
         targetPositionMs,

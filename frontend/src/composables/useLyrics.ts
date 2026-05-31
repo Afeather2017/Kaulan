@@ -5,9 +5,12 @@
  * Supports LRC and WebVTT formats, including bilingual lyric grouping.
  *
  * @module composables/useLyrics
+ *
+ * Related documentation:
+ * - `docs/lyric-sync-timing.md`
  */
 
-import { ref, computed, watch, type Ref } from 'vue'
+import { ref, computed, watch, onScopeDispose, getCurrentScope, type Ref } from 'vue'
 import { getApiBase } from '@/utils/api'
 
 /**
@@ -29,6 +32,8 @@ export interface SongInfo {
   lufs: number | null
   path: string
 }
+
+const LYRIC_RESYNC_THRESHOLD_SECONDS = 0.1
 
 /**
  * Merge parsed lyric lines by timestamp while preserving text order.
@@ -223,6 +228,30 @@ export function parseLyrics(content: string): LyricLine[] {
 }
 
 /**
+ * Find the active lyric line for a playback time.
+ *
+ * Returns the last lyric line whose timestamp is <= time.
+ */
+export function findLyricIndex(lines: LyricLine[], time: number): number {
+  let low = 0
+  let high = lines.length - 1
+  let index = -1
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+
+    if (lines[mid].time <= time) {
+      index = mid
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+
+  return index
+}
+
+/**
  * Load lyrics from the backend API
  *
  * @param id - Music ID
@@ -256,7 +285,11 @@ async function loadLyrics(id: number): Promise<string | null> {
  * @param currentSong - Ref containing the currently playing song
  * @returns Lyrics state and management functions
  */
-export function useLyrics(currentSong: Ref<SongInfo | null>) {
+export function useLyrics(
+  currentSong: Ref<SongInfo | null>,
+  currentTime: Ref<number>,
+  isPlaying: Ref<boolean>
+) {
   /** Parsed lyrics lines */
   const lyrics = ref<LyricLine[]>([])
   /** Index of the currently active lyric line (-1 if no active lyric) */
@@ -265,6 +298,29 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
   const isLoading = ref(false)
   /** Whether lyrics are available for the current song */
   const hasLyrics = computed(() => lyrics.value.length > 0)
+  let lyricTimer: number | null = null
+  let scheduledPlaybackTime = 0
+  let scheduledAtMs = 0
+
+  function clearLyricTimer(): void {
+    if (lyricTimer !== null) {
+      clearTimeout(lyricTimer)
+      lyricTimer = null
+    }
+  }
+
+  function getExpectedPlaybackTime(): number {
+    if (!isPlaying.value) {
+      return currentTime.value
+    }
+
+    if (lyricTimer === null) {
+      return currentTime.value
+    }
+
+    const elapsedSeconds = (Date.now() - scheduledAtMs) / 1000
+    return scheduledPlaybackTime + elapsedSeconds
+  }
 
   /**
    * Update the current lyric index based on playback time
@@ -279,17 +335,39 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
       currentLyricIndex.value = -1
       return
     }
+    currentLyricIndex.value = findLyricIndex(lyrics.value, time)
+  }
 
-    // Find the last lyric that should be displayed at current time
-    let index = -1
-    for (let i = 0; i < lyrics.value.length; i++) {
-      if (lyrics.value[i].time <= time) {
-        index = i
-      } else {
-        break
-      }
+  function scheduleFromTime(time: number): void {
+    clearLyricTimer()
+    updateCurrentLyric(time)
+
+    if (!isPlaying.value || lyrics.value.length === 0) {
+      return
     }
-    currentLyricIndex.value = index
+
+    const nextLine = lyrics.value[currentLyricIndex.value + 1]
+    if (!nextLine) {
+      return
+    }
+
+    scheduledPlaybackTime = time
+    scheduledAtMs = Date.now()
+    const delayMs = Math.max(0, Math.round((nextLine.time - time) * 1000))
+    lyricTimer = window.setTimeout(() => {
+      lyricTimer = null
+      scheduleFromTime(nextLine.time)
+    }, delayMs)
+  }
+
+  function resyncLyrics(time: number): void {
+    const correctedIndex = findLyricIndex(lyrics.value, time)
+    const drift = Math.abs(time - getExpectedPlaybackTime())
+    const indexChanged = correctedIndex !== currentLyricIndex.value
+
+    if (drift > LYRIC_RESYNC_THRESHOLD_SECONDS || indexChanged || lyricTimer === null) {
+      scheduleFromTime(time)
+    }
   }
 
   /**
@@ -297,6 +375,7 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
    */
   async function fetchLyrics(): Promise<void> {
     if (!currentSong.value) {
+      clearLyricTimer()
       lyrics.value = []
       currentLyricIndex.value = -1
       return
@@ -307,9 +386,9 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
 
     if (content) {
       lyrics.value = parseLyrics(content)
-      // Reset current lyric index
-      currentLyricIndex.value = -1
+      scheduleFromTime(currentTime.value)
     } else {
+      clearLyricTimer()
       lyrics.value = []
       currentLyricIndex.value = -1
     }
@@ -326,11 +405,41 @@ export function useLyrics(currentSong: Ref<SongInfo | null>) {
     { immediate: true }
   )
 
+  watch(currentTime, (time) => {
+    if (!hasLyrics.value) {
+      return
+    }
+
+    resyncLyrics(time)
+  })
+
+  watch(isPlaying, (playing) => {
+    if (!hasLyrics.value) {
+      return
+    }
+
+    if (!playing) {
+      clearLyricTimer()
+      updateCurrentLyric(currentTime.value)
+      return
+    }
+
+    scheduleFromTime(currentTime.value)
+  })
+
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      clearLyricTimer()
+    })
+  }
+
   return {
     lyrics,
     currentLyricIndex,
     hasLyrics,
     isLoading,
-    updateCurrentLyric
+    updateCurrentLyric,
+    clearLyricTimer,
+    scheduleFromTime
   }
 }
