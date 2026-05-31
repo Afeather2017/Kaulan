@@ -46,7 +46,9 @@
           class="upload-btn"
           :disabled="!selectedFile || isUploading"
         >
-          {{ isUploading ? '上传中...' : '上传到 ' + (selectedPath || '根目录') }}
+          {{
+            isUploading ? "上传中..." : "上传到 " + (selectedPath || "根目录")
+          }}
         </button>
       </div>
 
@@ -57,21 +59,38 @@
 
       <!-- Upload Result -->
       <div v-if="uploadResult" class="upload-result">
-        <div :class="['result-message', uploadResult.success ? 'success' : 'error']">
+        <div
+          :class="[
+            'result-message',
+            uploadResult.success ? 'success' : 'error',
+          ]"
+        >
           {{ uploadResult.message }}
         </div>
         <div v-if="uploadResult.uploaded.length > 0" class="result-files">
-          <div class="result-label">成功上传 ({{ uploadResult.uploaded.length }}):</div>
+          <div class="result-label">
+            成功上传 ({{ uploadResult.uploaded.length }}):
+          </div>
           <div class="result-list">
-            <div v-for="file in uploadResult.uploaded" :key="file" class="result-item success">
+            <div
+              v-for="file in uploadResult.uploaded"
+              :key="file"
+              class="result-item success"
+            >
               {{ file }}
             </div>
           </div>
         </div>
         <div v-if="uploadResult.failed.length > 0" class="result-files">
-          <div class="result-label">失败 ({{ uploadResult.failed.length }}):</div>
+          <div class="result-label">
+            失败 ({{ uploadResult.failed.length }}):
+          </div>
           <div class="result-list">
-            <div v-for="file in uploadResult.failed" :key="file" class="result-item error">
+            <div
+              v-for="file in uploadResult.failed"
+              :key="file"
+              class="result-item error"
+            >
               {{ file }}
             </div>
           </div>
@@ -87,127 +106,127 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { getApiBase } from '@/utils/api'
+import { ref, onMounted } from "vue";
+import { getApiBase } from "@/utils/api";
 
 interface DirectoryNode {
-  name: string
-  path: string
-  type: string
-  children?: DirectoryNode[]
+  name: string;
+  path: string;
+  type: string;
+  children?: DirectoryNode[];
 }
 
 interface UploadResponse {
-  success: boolean
-  message: string
-  uploaded: string[]
-  failed: string[]
+  success: boolean;
+  message: string;
+  uploaded: string[];
+  failed: string[];
 }
 
 const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'uploadComplete'): void
-}>()
+  (e: "close"): void;
+  (e: "uploadComplete"): void;
+}>();
 
-const directoryTree = ref<DirectoryNode | null>(null)
-const selectedPath = ref<string>('')
-const selectedFile = ref<File | null>(null)
-const isUploading = ref<boolean>(false)
-const uploadResult = ref<UploadResponse | null>(null)
-const fileInput = ref<HTMLInputElement | null>(null)
+const directoryTree = ref<DirectoryNode | null>(null);
+const selectedPath = ref<string>("");
+const selectedFile = ref<File | null>(null);
+const isUploading = ref<boolean>(false);
+const uploadResult = ref<UploadResponse | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(async () => {
-  await loadDirectoryTree()
-})
+  await loadDirectoryTree();
+});
 
 const loadDirectoryTree = async () => {
   try {
-    const response = await fetch(`${getApiBase()}/files/directory-tree`)
+    const response = await fetch(`${getApiBase()}/files/directory-tree`);
     if (response.ok) {
-      directoryTree.value = await response.json()
+      directoryTree.value = await response.json();
     } else {
-      alert('获取目录列表失败')
+      alert("获取目录列表失败");
     }
   } catch (error) {
-    console.error('Failed to load directory tree:', error)
-    alert('获取目录列表失败: ' + error)
+    console.error("Failed to load directory tree:", error);
+    alert("获取目录列表失败: " + error);
   }
-}
+};
 
 const selectDirectory = (path: string) => {
-  selectedPath.value = path
-}
+  selectedPath.value = path;
+};
 
 const openFileSelector = () => {
-  fileInput.value?.click()
-}
+  fileInput.value?.click();
+};
 
 const handleFileSelect = (event: Event) => {
-  const target = event.target as HTMLInputElement
+  const target = event.target as HTMLInputElement;
   if (target.files && target.files.length > 0) {
-    selectedFile.value = target.files[0]
-    uploadResult.value = null
+    selectedFile.value = target.files[0];
+    uploadResult.value = null;
   }
-}
+};
 
 const uploadFiles = async () => {
   if (!selectedFile.value) {
-    alert('请先选择文件')
-    return
+    alert("请先选择文件");
+    return;
   }
 
-  isUploading.value = true
-  uploadResult.value = null
+  isUploading.value = true;
+  uploadResult.value = null;
 
   try {
-    const formData = new FormData()
-    formData.append('targetPath', selectedPath.value)
-    formData.append('files', selectedFile.value)
+    const formData = new FormData();
+    formData.append("targetPath", selectedPath.value);
+    formData.append("files", selectedFile.value);
 
     const response = await fetch(`${getApiBase()}/files/upload`, {
-      method: 'POST',
+      method: "POST",
       body: formData,
-    })
+    });
 
-    const result: UploadResponse = await response.json()
-    uploadResult.value = result
+    const result: UploadResponse = await response.json();
+    uploadResult.value = result;
 
     if (result.success) {
       // Clear file selection on success
-      selectedFile.value = null
+      selectedFile.value = null;
       if (fileInput.value) {
-        fileInput.value.value = ''
+        fileInput.value.value = "";
       }
       // Emit upload complete event to refresh data in parent component
-      emit('uploadComplete')
+      emit("uploadComplete");
     }
   } catch (error) {
-    console.error('Failed to upload files:', error)
+    console.error("Failed to upload files:", error);
     uploadResult.value = {
       success: false,
-      message: '上传失败: ' + error,
+      message: "上传失败: " + error,
       uploaded: [],
-      failed: [selectedFile.value?.name || 'unknown'],
-    }
+      failed: [selectedFile.value?.name || "unknown"],
+    };
   } finally {
-    isUploading.value = false
+    isUploading.value = false;
   }
-}
+};
 </script>
 
 <script lang="ts">
-import { defineComponent, PropType } from 'vue'
+import { defineComponent, PropType } from "vue";
 
 interface DirectoryNode {
-  name: string
-  path: string
-  type: string
-  children?: DirectoryNode[]
+  name: string;
+  path: string;
+  type: string;
+  children?: DirectoryNode[];
 }
 
 // Directory Tree Node Component
 export const DirectoryTreeNode = defineComponent({
-  name: 'DirectoryTreeNode',
+  name: "DirectoryTreeNode",
   props: {
     node: {
       type: Object as PropType<DirectoryNode>,
@@ -215,10 +234,10 @@ export const DirectoryTreeNode = defineComponent({
     },
     selectedPath: {
       type: String,
-      default: '',
+      default: "",
     },
   },
-  emits: ['select'],
+  emits: ["select"],
   template: `
     <div class="directory-node">
       <div
@@ -239,7 +258,7 @@ export const DirectoryTreeNode = defineComponent({
       </div>
     </div>
   `,
-})
+});
 </script>
 
 <style scoped>

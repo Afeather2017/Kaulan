@@ -76,7 +76,10 @@ pub trait Source: Send + Sync {
 
     async fn get_file_size(&self, path: &str) -> Result<u64, io::Error>;
 
-    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, io::Error>;
+    async fn open_seekable_reader(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn ReadSeekSendSync>, io::Error>;
 
     async fn list_music_files(
         &self,
@@ -92,13 +95,13 @@ pub trait Source: Send + Sync {
 
     async fn write_file(&self, path: &str, bytes: &[u8]) -> Result<(), io::Error>;
 
-    async fn write_stream(
-        &self,
-        path: &str,
-        chunks: Vec<Bytes>,
-    ) -> Result<(), io::Error>;
+    async fn write_stream(&self, path: &str, chunks: Vec<Bytes>) -> Result<(), io::Error>;
 
-    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error>;
+    async fn read_lyric(
+        &self,
+        file_path: &str,
+        filename: &str,
+    ) -> Result<Option<Vec<u8>>, io::Error>;
 }
 
 #[derive(Default)]
@@ -150,7 +153,10 @@ fn source_registry() -> &'static RwLock<SourceRegistry> {
 
 pub fn register_source(source: Arc<dyn Source>) {
     let registry = source_registry();
-    registry.write().expect("source registry poisoned").register(source);
+    registry
+        .write()
+        .expect("source registry poisoned")
+        .register(source);
 }
 
 pub fn resolve_path(raw_path: &str) -> io::Result<ResolvedPath> {
@@ -179,7 +185,11 @@ pub struct SourceBackedFileReader;
 #[async_trait]
 pub trait FileReader: Send + Sync {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
-    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, std::io::Error>;
+    async fn read_stream(
+        &self,
+        path: &str,
+        chunk_size: usize,
+    ) -> Result<ByteStream, std::io::Error>;
     async fn read_stream_from(
         &self,
         path: &str,
@@ -187,7 +197,10 @@ pub trait FileReader: Send + Sync {
         start_pos: u64,
     ) -> Result<ByteStream, std::io::Error>;
     async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error>;
-    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
+    async fn open_seekable_reader(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error>;
 }
 
 #[async_trait]
@@ -196,8 +209,15 @@ impl FileReader for SourceBackedFileReader {
         resolve_source(path)?.source.read_file(path).await
     }
 
-    async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, std::io::Error> {
-        resolve_source(path)?.source.read_stream(path, chunk_size).await
+    async fn read_stream(
+        &self,
+        path: &str,
+        chunk_size: usize,
+    ) -> Result<ByteStream, std::io::Error> {
+        resolve_source(path)?
+            .source
+            .read_stream(path, chunk_size)
+            .await
     }
 
     async fn read_stream_from(
@@ -216,8 +236,14 @@ impl FileReader for SourceBackedFileReader {
         resolve_source(path)?.source.get_file_size(path).await
     }
 
-    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error> {
-        resolve_source(path)?.source.open_seekable_reader(path).await
+    async fn open_seekable_reader(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn ReadSeekSendSync>, std::io::Error> {
+        resolve_source(path)?
+            .source
+            .open_seekable_reader(path)
+            .await
     }
 }
 
@@ -324,7 +350,10 @@ pub async fn source_write_file(path: &str, bytes: &[u8]) -> Result<(), io::Error
 }
 
 pub async fn source_write_stream(path: &str, chunks: Vec<Bytes>) -> Result<(), io::Error> {
-    resolve_source(path)?.source.write_stream(path, chunks).await
+    resolve_source(path)?
+        .source
+        .write_stream(path, chunks)
+        .await
 }
 
 /// Supported audio file extensions
@@ -412,7 +441,10 @@ impl Source for StdFsSource {
         Ok(tokio::fs::metadata(path).await?.len())
     }
 
-    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, io::Error> {
+    async fn open_seekable_reader(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn ReadSeekSendSync>, io::Error> {
         let path = path.to_string();
         let file = tokio::task::spawn_blocking(move || std::fs::File::open(path))
             .await
@@ -452,11 +484,7 @@ impl Source for StdFsSource {
         tokio::fs::write(path, bytes).await
     }
 
-    async fn write_stream(
-        &self,
-        path: &str,
-        chunks: Vec<Bytes>,
-    ) -> Result<(), io::Error> {
+    async fn write_stream(&self, path: &str, chunks: Vec<Bytes>) -> Result<(), io::Error> {
         let path = path.to_string();
         tokio::task::spawn_blocking(move || -> Result<(), io::Error> {
             let mut file = std::fs::File::create(path)?;
@@ -469,7 +497,11 @@ impl Source for StdFsSource {
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
     }
 
-    async fn read_lyric(&self, file_path: &str, _filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
+    async fn read_lyric(
+        &self,
+        file_path: &str,
+        _filename: &str,
+    ) -> Result<Option<Vec<u8>>, io::Error> {
         for lyric_path in lyric_candidate_paths(file_path) {
             let candidate = lyric_path.clone();
             match tokio::task::spawn_blocking(move || std::fs::read(candidate))
@@ -619,7 +651,10 @@ impl Source for CompatContentSource {
         }
     }
 
-    async fn open_seekable_reader(&self, path: &str) -> Result<Box<dyn ReadSeekSendSync>, io::Error> {
+    async fn open_seekable_reader(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn ReadSeekSendSync>, io::Error> {
         match &self.file_reader {
             Some(reader) => reader.open_seekable_reader(path).await,
             None => Err(Self::unsupported()),
@@ -657,7 +692,11 @@ impl Source for CompatContentSource {
         Err(Self::unsupported())
     }
 
-    async fn read_lyric(&self, file_path: &str, filename: &str) -> Result<Option<Vec<u8>>, io::Error> {
+    async fn read_lyric(
+        &self,
+        file_path: &str,
+        filename: &str,
+    ) -> Result<Option<Vec<u8>>, io::Error> {
         match &self.lyric_reader {
             Some(reader) => reader.read_lyric(file_path, filename).await,
             None => Err(Self::unsupported()),

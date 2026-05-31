@@ -8,52 +8,52 @@
  * Storage keys used throughout the application
  */
 export const STORAGE_KEYS = {
-  SERVER_URL: 'kaulan_server_url',
-  VIEW_MODE: 'kaulan_view_mode',
-  SHOW_LUFS: 'kaulan_show_lufs',
-  MEDIA_TYPES: 'kaulan_media_types',
-  PLAYBACK_SESSION: 'kaulan_playback_session',
-  DISABLE_HEADSET_MEDIA_BUTTON: 'kaulan_disable_headset_media_button'
-} as const
+  SERVER_URL: "kaulan_server_url",
+  VIEW_MODE: "kaulan_view_mode",
+  SHOW_LUFS: "kaulan_show_lufs",
+  MEDIA_TYPES: "kaulan_media_types",
+  PLAYBACK_SESSION: "kaulan_playback_session",
+  DISABLE_HEADSET_MEDIA_BUTTON: "kaulan_disable_headset_media_button",
+} as const;
 
 export interface StoredPlaybackQueueSong {
-  id: number
-  name: string
-  path: string
-  url: string
-  lufs: number | null
-  coverUrl?: string | null
+  id: number;
+  name: string;
+  path: string;
+  url: string;
+  lufs: number | null;
+  coverUrl?: string | null;
 }
 
 export interface StoredPlaybackSession {
-  currentSongId: number | null
-  queue: StoredPlaybackQueueSong[]
-  timestamp: number
+  currentSongId: number | null;
+  queue: StoredPlaybackQueueSong[];
+  timestamp: number;
 }
 
 function getStorageValue(key: string): string {
   try {
-    const stored = localStorage.getItem(key)
-    return stored || ''
+    const stored = localStorage.getItem(key);
+    return stored || "";
   } catch (error) {
-    console.error(`Failed to read localStorage key ${key}:`, error)
-    return ''
+    console.error(`Failed to read localStorage key ${key}:`, error);
+    return "";
   }
 }
 
 function setStorageValue(key: string, value: string): void {
   try {
-    localStorage.setItem(key, value)
+    localStorage.setItem(key, value);
   } catch (error) {
-    console.error(`Failed to write localStorage key ${key}:`, error)
+    console.error(`Failed to write localStorage key ${key}:`, error);
   }
 }
 
 function removeStorageValue(key: string): void {
   try {
-    localStorage.removeItem(key)
+    localStorage.removeItem(key);
   } catch (error) {
-    console.error(`Failed to remove localStorage key ${key}:`, error)
+    console.error(`Failed to remove localStorage key ${key}:`, error);
   }
 }
 
@@ -62,7 +62,7 @@ function removeStorageValue(key: string): void {
  * @returns The server URL or empty string if not set
  */
 export function getServerUrl(): string {
-  return getStorageValue(STORAGE_KEYS.SERVER_URL)
+  return getStorageValue(STORAGE_KEYS.SERVER_URL);
 }
 
 /**
@@ -70,14 +70,14 @@ export function getServerUrl(): string {
  * @param url - The server URL to save
  */
 export function setServerUrl(url: string): void {
-  setStorageValue(STORAGE_KEYS.SERVER_URL, url)
+  setStorageValue(STORAGE_KEYS.SERVER_URL, url);
 }
 
 /**
  * Remove the stored server URL from localStorage
  */
 export function removeServerUrl(): void {
-  removeStorageValue(STORAGE_KEYS.SERVER_URL)
+  removeStorageValue(STORAGE_KEYS.SERVER_URL);
 }
 
 /**
@@ -85,7 +85,7 @@ export function removeServerUrl(): void {
  * @returns The view mode ('collection' or 'folder', defaults to 'collection')
  */
 export function getViewMode(): string {
-  return getStorageValue(STORAGE_KEYS.VIEW_MODE) || 'collection'
+  return getStorageValue(STORAGE_KEYS.VIEW_MODE) || "collection";
 }
 
 /**
@@ -93,14 +93,14 @@ export function getViewMode(): string {
  * @param mode - The view mode to save ('collection' or 'folder')
  */
 export function setViewMode(mode: string): void {
-  setStorageValue(STORAGE_KEYS.VIEW_MODE, mode)
+  setStorageValue(STORAGE_KEYS.VIEW_MODE, mode);
 }
 
 /**
  * Remove the stored view mode from localStorage
  */
 export function removeViewMode(): void {
-  removeStorageValue(STORAGE_KEYS.VIEW_MODE)
+  removeStorageValue(STORAGE_KEYS.VIEW_MODE);
 }
 
 /**
@@ -108,7 +108,7 @@ export function removeViewMode(): void {
  * @returns Whether to show LUFS values (defaults to false)
  */
 export function getShowLufs(): boolean {
-  return getStorageValue(STORAGE_KEYS.SHOW_LUFS) === 'true'
+  return getStorageValue(STORAGE_KEYS.SHOW_LUFS) === "true";
 }
 
 /**
@@ -116,15 +116,18 @@ export function getShowLufs(): boolean {
  * @param show - Whether to show LUFS values
  */
 export function setShowLufs(show: boolean): void {
-  setStorageValue(STORAGE_KEYS.SHOW_LUFS, show ? 'true' : 'false')
+  setStorageValue(STORAGE_KEYS.SHOW_LUFS, show ? "true" : "false");
 }
 
 export function getDisableHeadsetMediaButton(): boolean {
-  return getStorageValue(STORAGE_KEYS.DISABLE_HEADSET_MEDIA_BUTTON) === 'true'
+  return getStorageValue(STORAGE_KEYS.DISABLE_HEADSET_MEDIA_BUTTON) === "true";
 }
 
 export function setDisableHeadsetMediaButton(disabled: boolean): void {
-  setStorageValue(STORAGE_KEYS.DISABLE_HEADSET_MEDIA_BUTTON, disabled ? 'true' : 'false')
+  setStorageValue(
+    STORAGE_KEYS.DISABLE_HEADSET_MEDIA_BUTTON,
+    disabled ? "true" : "false",
+  );
 }
 
 /**
@@ -132,22 +135,24 @@ export function setDisableHeadsetMediaButton(disabled: boolean): void {
  * @returns Enabled media types, defaulting to ['audio']
  */
 export function getMediaTypes(): string[] {
-  const stored = getStorageValue(STORAGE_KEYS.MEDIA_TYPES)
+  const stored = getStorageValue(STORAGE_KEYS.MEDIA_TYPES);
   if (!stored) {
-    return ['audio']
+    return ["audio"];
   }
 
   try {
-    const parsed = JSON.parse(stored)
+    const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) {
-      return ['audio']
+      return ["audio"];
     }
 
-    const valid = parsed.filter((value): value is string => value === 'audio' || value === 'video')
-    return valid.length > 0 ? valid : ['audio']
+    const valid = parsed.filter(
+      (value): value is string => value === "audio" || value === "video",
+    );
+    return valid.length > 0 ? valid : ["audio"];
   } catch (error) {
-    console.error('Failed to parse stored media types:', error)
-    return ['audio']
+    console.error("Failed to parse stored media types:", error);
+    return ["audio"];
   }
 }
 
@@ -156,23 +161,27 @@ export function getMediaTypes(): string[] {
  * @param mediaTypes - Enabled media types
  */
 export function setMediaTypes(mediaTypes: string[]): void {
-  setStorageValue(STORAGE_KEYS.MEDIA_TYPES, JSON.stringify(mediaTypes))
+  setStorageValue(STORAGE_KEYS.MEDIA_TYPES, JSON.stringify(mediaTypes));
 }
 
-function isStoredPlaybackQueueSong(value: unknown): value is StoredPlaybackQueueSong {
-  if (!value || typeof value !== 'object') {
-    return false
+function isStoredPlaybackQueueSong(
+  value: unknown,
+): value is StoredPlaybackQueueSong {
+  if (!value || typeof value !== "object") {
+    return false;
   }
 
-  const song = value as Record<string, unknown>
+  const song = value as Record<string, unknown>;
   return (
-    typeof song.id === 'number' &&
-    typeof song.name === 'string' &&
-    typeof song.path === 'string' &&
-    typeof song.url === 'string' &&
-    (typeof song.lufs === 'number' || song.lufs === null) &&
-    (typeof song.coverUrl === 'string' || song.coverUrl === null || typeof song.coverUrl === 'undefined')
-  )
+    typeof song.id === "number" &&
+    typeof song.name === "string" &&
+    typeof song.path === "string" &&
+    typeof song.url === "string" &&
+    (typeof song.lufs === "number" || song.lufs === null) &&
+    (typeof song.coverUrl === "string" ||
+      song.coverUrl === null ||
+      typeof song.coverUrl === "undefined")
+  );
 }
 
 /**
@@ -180,34 +189,33 @@ function isStoredPlaybackQueueSong(value: unknown): value is StoredPlaybackQueue
  * @returns Stored playback session or null when missing/invalid
  */
 export function getStoredPlaybackSession(): StoredPlaybackSession | null {
-  const stored = getStorageValue(STORAGE_KEYS.PLAYBACK_SESSION)
+  const stored = getStorageValue(STORAGE_KEYS.PLAYBACK_SESSION);
   if (!stored) {
-    return null
+    return null;
   }
 
   try {
-    const parsed = JSON.parse(stored) as Record<string, unknown>
-    if (!Array.isArray(parsed.queue) || typeof parsed.timestamp !== 'number') {
-      return null
+    const parsed = JSON.parse(stored) as Record<string, unknown>;
+    if (!Array.isArray(parsed.queue) || typeof parsed.timestamp !== "number") {
+      return null;
     }
 
-    const queue = parsed.queue.filter(isStoredPlaybackQueueSong)
+    const queue = parsed.queue.filter(isStoredPlaybackQueueSong);
     if (queue.length !== parsed.queue.length) {
-      return null
+      return null;
     }
 
-    const currentSongId = typeof parsed.currentSongId === 'number'
-      ? parsed.currentSongId
-      : null
+    const currentSongId =
+      typeof parsed.currentSongId === "number" ? parsed.currentSongId : null;
 
     return {
       currentSongId,
       queue,
-      timestamp: parsed.timestamp
-    }
+      timestamp: parsed.timestamp,
+    };
   } catch (error) {
-    console.error('Failed to parse stored playback session:', error)
-    return null
+    console.error("Failed to parse stored playback session:", error);
+    return null;
   }
 }
 
@@ -216,12 +224,12 @@ export function getStoredPlaybackSession(): StoredPlaybackSession | null {
  * @param session - Playback session snapshot to persist
  */
 export function setStoredPlaybackSession(session: StoredPlaybackSession): void {
-  setStorageValue(STORAGE_KEYS.PLAYBACK_SESSION, JSON.stringify(session))
+  setStorageValue(STORAGE_KEYS.PLAYBACK_SESSION, JSON.stringify(session));
 }
 
 /**
  * Remove the stored playback session from localStorage.
  */
 export function removeStoredPlaybackSession(): void {
-  removeStorageValue(STORAGE_KEYS.PLAYBACK_SESSION)
+  removeStorageValue(STORAGE_KEYS.PLAYBACK_SESSION);
 }

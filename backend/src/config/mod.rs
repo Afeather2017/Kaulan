@@ -63,7 +63,9 @@ fn default_media_types() -> Option<Vec<String>> {
 /// - Windows: `%APPDATA%\kaulan\`
 pub fn get_config_dir() -> Option<PathBuf> {
     if std::env::var("TAURI_PLATFORM").ok().as_deref() == Some("android") {
-        return std::env::var("TAURI_ANDROID_DATA_DIR").ok().map(PathBuf::from);
+        return std::env::var("TAURI_ANDROID_DATA_DIR")
+            .ok()
+            .map(PathBuf::from);
     }
 
     let mut path = dirs::config_dir()?;
@@ -181,7 +183,9 @@ pub fn load_or_create_device_id() -> String {
 
 fn is_generic_hostname(name: &str) -> bool {
     let normalized = name.trim().to_ascii_lowercase();
-    GENERIC_HOSTNAMES.iter().any(|candidate| *candidate == normalized)
+    GENERIC_HOSTNAMES
+        .iter()
+        .any(|candidate| *candidate == normalized)
 }
 
 /// Get the configured device name.
@@ -417,6 +421,8 @@ mod tests {
         let _guard = ConfigEnvGuard::new();
 
         let err = save_media_types(&[]).expect_err("save should fail");
-        assert!(err.to_string().contains("At least one media type must be selected"));
+        assert!(err
+            .to_string()
+            .contains("At least one media type must be selected"));
     }
 }

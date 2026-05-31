@@ -1,29 +1,29 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import Home from '../views/Home.vue'
-import Library from '../views/Library.vue'
-import Playlists from '../views/Playlists.vue'
+import { createRouter, createWebHistory } from "vue-router";
+import Home from "../views/Home.vue";
+import Library from "../views/Library.vue";
+import Playlists from "../views/Playlists.vue";
 
 const routes = [
   {
-    path: '/',
-    name: 'Home',
-    component: Home
+    path: "/",
+    name: "Home",
+    component: Home,
   },
   {
-    path: '/library',
-    name: 'Library',
-    component: Library
+    path: "/library",
+    name: "Library",
+    component: Library,
   },
   {
-    path: '/playlists',
-    name: 'Playlists',
-    component: Playlists
-  }
-]
+    path: "/playlists",
+    name: "Playlists",
+    component: Playlists,
+  },
+];
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
-})
+  routes,
+});
 
-export default router
+export default router;

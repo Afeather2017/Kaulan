@@ -23,7 +23,9 @@
               type="text"
               class="url-input"
               :value="deviceNameInput"
-              @input="deviceNameInput = ($event.target as HTMLInputElement).value"
+              @input="
+                deviceNameInput = ($event.target as HTMLInputElement).value
+              "
               placeholder="My Kaulan Player"
               maxlength="64"
             />
@@ -34,7 +36,7 @@
               class="save-url-btn"
               :disabled="isSavingDeviceName"
             >
-              {{ isSavingDeviceName ? '保存中...' : '保存名称' }}
+              {{ isSavingDeviceName ? "保存中..." : "保存名称" }}
             </button>
           </div>
         </div>
@@ -42,9 +44,7 @@
         <!-- Discovered Devices -->
         <div class="setting-item">
           <label class="setting-label">局域网中的设备</label>
-          <div v-if="isLoadingDevices" class="loading-state">
-            扫描中...
-          </div>
+          <div v-if="isLoadingDevices" class="loading-state">扫描中...</div>
           <div v-else-if="displayDevices.length === 0" class="empty-state">
             未发现其他设备
           </div>
@@ -59,11 +59,17 @@
                 <div class="device-header">
                   <div class="device-name-row">
                     <div class="device-name">{{ device.device_name }}</div>
-                    <span v-if="device.isManual" class="manual-badge">手动添加</span>
+                    <span v-if="device.isManual" class="manual-badge"
+                      >手动添加</span
+                    >
                   </div>
                   <div class="device-actions">
                     <div class="device-last-seen">
-                      {{ isLocalhostDevice(device) ? '本机' : formatLastSeen(device.last_seen_secs_ago) }}
+                      {{
+                        isLocalhostDevice(device)
+                          ? "本机"
+                          : formatLastSeen(device.last_seen_secs_ago)
+                      }}
                     </div>
                     <button
                       v-if="device.isManual"
@@ -194,7 +200,11 @@
 
           <!-- Timer Action Buttons -->
           <div class="timer-actions">
-            <button v-if="timerActive" @click="$emit('cancelTimer')" class="cancel-timer-btn">
+            <button
+              v-if="timerActive"
+              @click="$emit('cancelTimer')"
+              class="cancel-timer-btn"
+            >
               取消定时
             </button>
             <button v-else @click="$emit('startTimer')" class="start-timer-btn">
@@ -215,12 +225,19 @@
           </button>
         </div>
         <div class="setting-item">
-          <button @click="updateDatabase" class="update-database-btn" :disabled="isUpdating">
-            {{ isUpdating ? '更新中...' : '更新数据库' }}
+          <button
+            @click="updateDatabase"
+            class="update-database-btn"
+            :disabled="isUpdating"
+          >
+            {{ isUpdating ? "更新中..." : "更新数据库" }}
           </button>
         </div>
         <div class="setting-item">
-          <button @click="$emit('openOnlineSearchModal')" class="upload-music-btn">
+          <button
+            @click="$emit('openOnlineSearchModal')"
+            class="upload-music-btn"
+          >
             在线查找与下载
           </button>
         </div>
@@ -266,7 +283,11 @@
             />
             <span>使用本地歌词</span>
           </label>
-          <p v-if="permissionStatus" class="setting-hint" :class="{ 'setting-error': !permissionGranted }">
+          <p
+            v-if="permissionStatus"
+            class="setting-hint"
+            :class="{ 'setting-error': !permissionGranted }"
+          >
             {{ permissionStatus }}
           </p>
         </div>
@@ -282,7 +303,9 @@
             />
             <span>禁用耳机媒体按钮</span>
           </label>
-          <p class="setting-hint">启用后，耳机的播放/暂停/上一曲/下一曲按钮将被忽略。适用于耳机按钮故障时防止误触。</p>
+          <p class="setting-hint">
+            启用后，耳机的播放/暂停/上一曲/下一曲按钮将被忽略。适用于耳机按钮故障时防止误触。
+          </p>
         </div>
 
         <hr class="settings-divider" />
@@ -295,8 +318,17 @@
               type="checkbox"
               class="setting-checkbox"
               :checked="selectedMediaTypes.includes('audio')"
-              :disabled="isMediaTypeDisabled('audio') || isSavingMediaTypes || isLoadingMediaTypes"
-              @change="toggleMediaType('audio', ($event.target as HTMLInputElement).checked)"
+              :disabled="
+                isMediaTypeDisabled('audio') ||
+                isSavingMediaTypes ||
+                isLoadingMediaTypes
+              "
+              @change="
+                toggleMediaType(
+                  'audio',
+                  ($event.target as HTMLInputElement).checked,
+                )
+              "
             />
             <span>扫描音频文件</span>
           </label>
@@ -307,15 +339,28 @@
               type="checkbox"
               class="setting-checkbox"
               :checked="selectedMediaTypes.includes('video')"
-              :disabled="isMediaTypeDisabled('video') || isSavingMediaTypes || isLoadingMediaTypes"
-              @change="toggleMediaType('video', ($event.target as HTMLInputElement).checked)"
+              :disabled="
+                isMediaTypeDisabled('video') ||
+                isSavingMediaTypes ||
+                isLoadingMediaTypes
+              "
+              @change="
+                toggleMediaType(
+                  'video',
+                  ($event.target as HTMLInputElement).checked,
+                )
+              "
             />
             <span>扫描视频文件</span>
           </label>
           <p class="setting-hint warning-hint">
             视频文件不会执行 LUFS 音量标准化，保存后需要重新扫描数据库才会生效。
           </p>
-          <p v-if="mediaTypesMessage" class="setting-hint" :class="{ 'setting-error': mediaTypesError }">
+          <p
+            v-if="mediaTypesMessage"
+            class="setting-hint"
+            :class="{ 'setting-error': mediaTypesError }"
+          >
             {{ mediaTypesMessage }}
           </p>
           <div class="url-actions">
@@ -324,7 +369,7 @@
               class="save-url-btn"
               :disabled="isSavingMediaTypes || isLoadingMediaTypes"
             >
-              {{ isSavingMediaTypes ? '保存中...' : '保存媒体类型' }}
+              {{ isSavingMediaTypes ? "保存中..." : "保存媒体类型" }}
             </button>
           </div>
         </div>
@@ -338,61 +383,70 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
-import { getApiBase, normalizeApiBase, setApiBase } from '@/utils/api'
-import { validateServerUrl } from '@/utils/validation'
-import { getMediaTypes, setMediaTypes, setShowLufs, getDisableHeadsetMediaButton, setDisableHeadsetMediaButton } from '@/utils/storage'
-import { useDeviceDiscovery, type DiscoveredDevice } from '@/composables/useDeviceDiscovery'
+import { ref, onMounted, computed, watch } from "vue";
+import { getApiBase, normalizeApiBase, setApiBase } from "@/utils/api";
+import { validateServerUrl } from "@/utils/validation";
+import {
+  getMediaTypes,
+  setMediaTypes,
+  setShowLufs,
+  getDisableHeadsetMediaButton,
+  setDisableHeadsetMediaButton,
+} from "@/utils/storage";
+import {
+  useDeviceDiscovery,
+  type DiscoveredDevice,
+} from "@/composables/useDeviceDiscovery";
 
-type VolumeMode = 'auto' | 'manual' | 'fixed'
-type ViewMode = 'folder' | 'collection'
+type VolumeMode = "auto" | "manual" | "fixed";
+type ViewMode = "folder" | "collection";
 
 const props = defineProps<{
-  viewMode: ViewMode
-  volumeMode: VolumeMode
-  manualVolume: number
-  manualVolumeInput: number
-  fixedLufs: number
-  fixedLufsInput: number
-  timerMinutes: number
-  timerMinutesInput: number
-  timerActive: boolean
-  timerStatusDisplay: string
-  viewModeLabels: Record<ViewMode, string>
-  volumeModeLabels: Record<VolumeMode, string>
-  showLufs: boolean
-}>()
+  viewMode: ViewMode;
+  volumeMode: VolumeMode;
+  manualVolume: number;
+  manualVolumeInput: number;
+  fixedLufs: number;
+  fixedLufsInput: number;
+  timerMinutes: number;
+  timerMinutesInput: number;
+  timerActive: boolean;
+  timerStatusDisplay: string;
+  viewModeLabels: Record<ViewMode, string>;
+  volumeModeLabels: Record<VolumeMode, string>;
+  showLufs: boolean;
+}>();
 
 const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'toggleViewMode'): void
-  (e: 'toggleVolumeMode'): void
-  (e: 'update:manualVolume', value: number): void
-  (e: 'update:manualVolumeInput', value: number): void
-  (e: 'update:fixedLufs', value: number): void
-  (e: 'update:fixedLufsInput', value: number): void
-  (e: 'update:timerMinutes', value: number): void
-  (e: 'update:timerMinutesInput', value: number): void
-  (e: 'setTimerPreset', minutes: number): void
-  (e: 'startTimer'): void
-  (e: 'cancelTimer'): void
-  (e: 'directoryChanged'): void
-  (e: 'databaseUpdated'): void
-  (e: 'databaseUpdateStart'): void
-  (e: 'databaseUpdateEnd'): void
-  (e: 'openOnlineSearchModal'): void
-  (e: 'openUploadModal'): void
-  (e: 'update:showLufs', value: boolean): void
-}>()
+  (e: "close"): void;
+  (e: "toggleViewMode"): void;
+  (e: "toggleVolumeMode"): void;
+  (e: "update:manualVolume", value: number): void;
+  (e: "update:manualVolumeInput", value: number): void;
+  (e: "update:fixedLufs", value: number): void;
+  (e: "update:fixedLufsInput", value: number): void;
+  (e: "update:timerMinutes", value: number): void;
+  (e: "update:timerMinutesInput", value: number): void;
+  (e: "setTimerPreset", minutes: number): void;
+  (e: "startTimer"): void;
+  (e: "cancelTimer"): void;
+  (e: "directoryChanged"): void;
+  (e: "databaseUpdated"): void;
+  (e: "databaseUpdateStart"): void;
+  (e: "databaseUpdateEnd"): void;
+  (e: "openOnlineSearchModal"): void;
+  (e: "openUploadModal"): void;
+  (e: "update:showLufs", value: boolean): void;
+}>();
 
-const musicDirectory = ref<string>('Loading...')
-const isUpdating = ref<boolean>(false)
+const musicDirectory = ref<string>("Loading...");
+const isUpdating = ref<boolean>(false);
 
 // Server URL configuration state
-const serverUrlInput = ref<string>('')
-const serverUrlError = ref<string>('')
-const isSavingServerUrl = ref<boolean>(false)
-const serverUrlValid = ref<boolean>(true)
+const serverUrlInput = ref<string>("");
+const serverUrlError = ref<string>("");
+const isSavingServerUrl = ref<boolean>(false);
+const serverUrlValid = ref<boolean>(true);
 
 // Device discovery state
 const {
@@ -405,582 +459,620 @@ const {
   setDeviceName,
   connectToDevice,
   formatLastSeen,
-} = useDeviceDiscovery()
+} = useDeviceDiscovery();
 
-const deviceNameInput = ref<string>('')
-const isSavingDeviceName = ref<boolean>(false)
-const LOCALHOST_API_URL = 'http://localhost:2080/api'
+const deviceNameInput = ref<string>("");
+const isSavingDeviceName = ref<boolean>(false);
+const LOCALHOST_API_URL = "http://localhost:2080/api";
 
 // Manual devices storage (localStorage)
-const MANUAL_DEVICES_KEY = 'kaulan_manual_devices'
+const MANUAL_DEVICES_KEY = "kaulan_manual_devices";
 
 interface ManualDevice {
-  api_url: string
-  device_name?: string
-  added_at: number
-  last_fetched?: number
+  api_url: string;
+  device_name?: string;
+  added_at: number;
+  last_fetched?: number;
 }
 
-const manualDevices = ref<ManualDevice[]>([])
+const manualDevices = ref<ManualDevice[]>([]);
 
 // Fetch device name from a manual device by calling its API
 const fetchDeviceName = async (url: string): Promise<string | null> => {
   try {
-    const normalizedUrl = normalizeApiBase(url)
-    const response = await fetch(`${normalizedUrl}/discovery/self`)
+    const normalizedUrl = normalizeApiBase(url);
+    const response = await fetch(`${normalizedUrl}/discovery/self`);
     if (response.ok) {
-      const data = await response.json()
-      return data.device_name || null
+      const data = await response.json();
+      return data.device_name || null;
     }
   } catch (e) {
-    console.warn(`Failed to fetch device name from ${url}:`, e)
+    console.warn(`Failed to fetch device name from ${url}:`, e);
   }
-  return null
-}
+  return null;
+};
 
 // Refresh names for all manual devices
 const refreshManualDeviceNames = async () => {
   const promises = manualDevices.value.map(async (device) => {
-    const name = await fetchDeviceName(device.api_url)
+    const name = await fetchDeviceName(device.api_url);
     if (name) {
-      device.device_name = name
-      device.last_fetched = Date.now()
+      device.device_name = name;
+      device.last_fetched = Date.now();
     }
-  })
-  await Promise.all(promises)
-  saveManualDevices()
-}
+  });
+  await Promise.all(promises);
+  saveManualDevices();
+};
 
 const loadManualDevices = () => {
   try {
-    const stored = localStorage.getItem(MANUAL_DEVICES_KEY)
+    const stored = localStorage.getItem(MANUAL_DEVICES_KEY);
     if (stored) {
-      manualDevices.value = JSON.parse(stored)
+      manualDevices.value = JSON.parse(stored);
       // Refresh device names in background
-      refreshManualDeviceNames()
+      refreshManualDeviceNames();
     }
   } catch (e) {
-    console.error('Failed to load manual devices:', e)
+    console.error("Failed to load manual devices:", e);
   }
-}
+};
 
 const saveManualDevices = () => {
   try {
-    localStorage.setItem(MANUAL_DEVICES_KEY, JSON.stringify(manualDevices.value))
+    localStorage.setItem(
+      MANUAL_DEVICES_KEY,
+      JSON.stringify(manualDevices.value),
+    );
   } catch (e) {
-    console.error('Failed to save manual devices:', e)
+    console.error("Failed to save manual devices:", e);
   }
-}
+};
 
 const addManualDevice = async (url: string) => {
-  const normalizedUrl = normalizeApiBase(url)
+  const normalizedUrl = normalizeApiBase(url);
 
   // Check if already exists
-  const existing = manualDevices.value.find(m => m.api_url === normalizedUrl)
+  const existing = manualDevices.value.find((m) => m.api_url === normalizedUrl);
   if (existing) {
-    return // Already exists, don't add duplicate
+    return; // Already exists, don't add duplicate
   }
 
   // Fetch device name
-  const deviceName = await fetchDeviceName(normalizedUrl)
+  const deviceName = await fetchDeviceName(normalizedUrl);
 
   manualDevices.value.push({
     api_url: normalizedUrl,
     device_name: deviceName || undefined,
     added_at: Date.now(),
-    last_fetched: deviceName ? Date.now() : undefined
-  })
-  saveManualDevices()
-}
+    last_fetched: deviceName ? Date.now() : undefined,
+  });
+  saveManualDevices();
+};
 
 const removeManualDevice = (url: string) => {
-  manualDevices.value = manualDevices.value.filter(m => m.api_url !== url)
-  saveManualDevices()
-}
+  manualDevices.value = manualDevices.value.filter((m) => m.api_url !== url);
+  saveManualDevices();
+};
 
 // Local show LUFS setting (synced with prop)
-const showLufsLocal = ref<boolean>(props.showLufs)
-const selectedMediaTypes = ref<string[]>(getMediaTypes())
-const isLoadingMediaTypes = ref<boolean>(false)
-const isSavingMediaTypes = ref<boolean>(false)
-const mediaTypesMessage = ref<string>('')
-const mediaTypesError = ref<boolean>(false)
+const showLufsLocal = ref<boolean>(props.showLufs);
+const selectedMediaTypes = ref<string[]>(getMediaTypes());
+const isLoadingMediaTypes = ref<boolean>(false);
+const isSavingMediaTypes = ref<boolean>(false);
+const mediaTypesMessage = ref<string>("");
+const mediaTypesError = ref<boolean>(false);
 
 // Watch for prop changes (from parent/App.vue)
-watch(() => props.showLufs, (newValue) => {
-  showLufsLocal.value = newValue
-})
+watch(
+  () => props.showLufs,
+  (newValue) => {
+    showLufsLocal.value = newValue;
+  },
+);
 
 // Handle show LUFS checkbox change
 const handleShowLufsChange = (e: Event) => {
-  const checked = (e.target as HTMLInputElement).checked
-  showLufsLocal.value = checked
-  setShowLufs(checked)
-  emit('update:showLufs', checked)
-}
+  const checked = (e.target as HTMLInputElement).checked;
+  showLufsLocal.value = checked;
+  setShowLufs(checked);
+  emit("update:showLufs", checked);
+};
 
 // Local lyrics setting (Android only)
-const useLocalLyrics = ref<boolean>(false)
-const isRequestingPermission = ref<boolean>(false)
-const permissionGranted = ref<boolean>(false)
-const permissionStatus = ref<string>('')
+const useLocalLyrics = ref<boolean>(false);
+const isRequestingPermission = ref<boolean>(false);
+const permissionGranted = ref<boolean>(false);
+const permissionStatus = ref<string>("");
 
 // Disable headset media button (Android only)
-const disableHeadsetMediaButton = ref<boolean>(false)
+const disableHeadsetMediaButton = ref<boolean>(false);
 
 // Check if running on Android
-const isAndroid = ref<boolean>(false)
+const isAndroid = ref<boolean>(false);
 
 // Handle use local lyrics checkbox change
 const handleUseLocalLyricsChange = async (e: Event) => {
-  const checked = (e.target as HTMLInputElement).checked
+  const checked = (e.target as HTMLInputElement).checked;
 
   if (!checked) {
-    useLocalLyrics.value = false
-    permissionStatus.value = ''
-    return
+    useLocalLyrics.value = false;
+    permissionStatus.value = "";
+    return;
   }
 
-  isRequestingPermission.value = true
-  permissionStatus.value = '正在请求权限...'
+  isRequestingPermission.value = true;
+  permissionStatus.value = "正在请求权限...";
 
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const granted = await invoke<boolean>('request_external_storage_permission')
+    const { invoke } = await import("@tauri-apps/api/core");
+    const granted = await invoke<boolean>(
+      "request_external_storage_permission",
+    );
 
-    permissionGranted.value = granted
-    useLocalLyrics.value = granted
+    permissionGranted.value = granted;
+    useLocalLyrics.value = granted;
 
     if (granted) {
-      permissionStatus.value = '权限已授予，可以读取本地歌词文件'
+      permissionStatus.value = "权限已授予，可以读取本地歌词文件";
     } else {
-      permissionStatus.value = '权限未授予，无法读取本地歌词文件'
-      useLocalLyrics.value = false
+      permissionStatus.value = "权限未授予，无法读取本地歌词文件";
+      useLocalLyrics.value = false;
     }
   } catch (error) {
-    console.error('Failed to request external storage permission:', error)
-    permissionStatus.value = '请求权限失败: ' + error
-    useLocalLyrics.value = false
+    console.error("Failed to request external storage permission:", error);
+    permissionStatus.value = "请求权限失败: " + error;
+    useLocalLyrics.value = false;
   } finally {
-    isRequestingPermission.value = false
+    isRequestingPermission.value = false;
   }
-}
+};
 
 const handleDisableHeadsetMediaButtonChange = async (e: Event) => {
-  const checked = (e.target as HTMLInputElement).checked
-  disableHeadsetMediaButton.value = checked
-  setDisableHeadsetMediaButton(checked)
+  const checked = (e.target as HTMLInputElement).checked;
+  disableHeadsetMediaButton.value = checked;
+  setDisableHeadsetMediaButton(checked);
 
   try {
-    const plugin = await import('music-notification-api')
-    await plugin.setHeadsetMediaButtonDisabled(checked)
+    const plugin = await import("music-notification-api");
+    await plugin.setHeadsetMediaButtonDisabled(checked);
   } catch (error) {
-    console.error('Failed to sync headset media button setting to native:', error)
+    console.error(
+      "Failed to sync headset media button setting to native:",
+      error,
+    );
   }
-}
+};
 
 const sortMediaTypes = (mediaTypes: string[]): string[] => {
-  return ['audio', 'video'].filter(type => mediaTypes.includes(type))
-}
+  return ["audio", "video"].filter((type) => mediaTypes.includes(type));
+};
 
 const isMediaTypeDisabled = (mediaType: string): boolean => {
-  return selectedMediaTypes.value.length === 1 && selectedMediaTypes.value.includes(mediaType)
-}
+  return (
+    selectedMediaTypes.value.length === 1 &&
+    selectedMediaTypes.value.includes(mediaType)
+  );
+};
 
 const toggleMediaType = (mediaType: string, enabled: boolean) => {
-  const next = new Set(selectedMediaTypes.value)
+  const next = new Set(selectedMediaTypes.value);
 
   if (enabled) {
-    next.add(mediaType)
+    next.add(mediaType);
   } else if (!(next.size === 1 && next.has(mediaType))) {
-    next.delete(mediaType)
+    next.delete(mediaType);
   }
 
-  selectedMediaTypes.value = sortMediaTypes(Array.from(next))
-  mediaTypesMessage.value = ''
-  mediaTypesError.value = false
-}
+  selectedMediaTypes.value = sortMediaTypes(Array.from(next));
+  mediaTypesMessage.value = "";
+  mediaTypesError.value = false;
+};
 
 const loadMediaTypes = async () => {
-  isLoadingMediaTypes.value = true
-  mediaTypesMessage.value = ''
-  mediaTypesError.value = false
+  isLoadingMediaTypes.value = true;
+  mediaTypesMessage.value = "";
+  mediaTypesError.value = false;
 
   try {
-    const response = await fetch(`${getApiBase()}/settings/media-types`)
+    const response = await fetch(`${getApiBase()}/settings/media-types`);
     if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`)
+      throw new Error(`Request failed with status ${response.status}`);
     }
 
-    const data = await response.json()
-    const mediaTypes = Array.isArray(data.media_types) ? sortMediaTypes(data.media_types) : ['audio']
-    selectedMediaTypes.value = mediaTypes.length > 0 ? mediaTypes : ['audio']
-    setMediaTypes(selectedMediaTypes.value)
+    const data = await response.json();
+    const mediaTypes = Array.isArray(data.media_types)
+      ? sortMediaTypes(data.media_types)
+      : ["audio"];
+    selectedMediaTypes.value = mediaTypes.length > 0 ? mediaTypes : ["audio"];
+    setMediaTypes(selectedMediaTypes.value);
   } catch (error) {
-    console.error('Failed to load media types:', error)
-    selectedMediaTypes.value = sortMediaTypes(getMediaTypes())
-    mediaTypesMessage.value = '读取媒体类型失败，已使用本地缓存。'
-    mediaTypesError.value = true
+    console.error("Failed to load media types:", error);
+    selectedMediaTypes.value = sortMediaTypes(getMediaTypes());
+    mediaTypesMessage.value = "读取媒体类型失败，已使用本地缓存。";
+    mediaTypesError.value = true;
   } finally {
-    isLoadingMediaTypes.value = false
+    isLoadingMediaTypes.value = false;
   }
-}
+};
 
 const saveMediaTypes = async () => {
-  isSavingMediaTypes.value = true
-  mediaTypesMessage.value = ''
-  mediaTypesError.value = false
+  isSavingMediaTypes.value = true;
+  mediaTypesMessage.value = "";
+  mediaTypesError.value = false;
 
   try {
     const response = await fetch(`${getApiBase()}/settings/media-types`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ media_types: selectedMediaTypes.value }),
-    })
-    const result = await response.json()
+    });
+    const result = await response.json();
 
     if (!response.ok || !result.success) {
-      throw new Error(result.message || `Request failed with status ${response.status}`)
+      throw new Error(
+        result.message || `Request failed with status ${response.status}`,
+      );
     }
 
-    setMediaTypes(selectedMediaTypes.value)
-    mediaTypesMessage.value = '媒体类型已保存，重新扫描数据库后生效。'
+    setMediaTypes(selectedMediaTypes.value);
+    mediaTypesMessage.value = "媒体类型已保存，重新扫描数据库后生效。";
   } catch (error) {
-    console.error('Failed to save media types:', error)
-    mediaTypesMessage.value = `保存媒体类型失败: ${error}`
-    mediaTypesError.value = true
+    console.error("Failed to save media types:", error);
+    mediaTypesMessage.value = `保存媒体类型失败: ${error}`;
+    mediaTypesError.value = true;
   } finally {
-    isSavingMediaTypes.value = false
+    isSavingMediaTypes.value = false;
   }
-}
+};
 
 const localhostDevice = computed<DiscoveredDevice>(() => ({
-  device_id: 'localhost-self',
-  device_name: 'localhost(self)',
+  device_id: "localhost-self",
+  device_name: "localhost(self)",
   api_url: LOCALHOST_API_URL,
   last_seen_secs_ago: 0,
-}))
+}));
 
 const displayDevices = computed<DiscoveredDevice[]>(() => {
-  const manualDeviceEntries: DiscoveredDevice[] = manualDevices.value.map((m, idx) => ({
-    device_id: `manual-${idx}-${m.added_at}`,
-    device_name: m.device_name || '手动添加',
-    api_url: m.api_url,
-    last_seen_secs_ago: 0,
-    isManual: true
-  }))
+  const manualDeviceEntries: DiscoveredDevice[] = manualDevices.value.map(
+    (m, idx) => ({
+      device_id: `manual-${idx}-${m.added_at}`,
+      device_name: m.device_name || "手动添加",
+      api_url: m.api_url,
+      last_seen_secs_ago: 0,
+      isManual: true,
+    }),
+  );
 
-  const merged = [localhostDevice.value, ...discoveredDevices.value, ...manualDeviceEntries]
-  const unique = new Map<string, DiscoveredDevice>()
+  const merged = [
+    localhostDevice.value,
+    ...discoveredDevices.value,
+    ...manualDeviceEntries,
+  ];
+  const unique = new Map<string, DiscoveredDevice>();
   for (const device of merged) {
     if (!unique.has(device.api_url)) {
-      unique.set(device.api_url, device)
+      unique.set(device.api_url, device);
     }
   }
-  return Array.from(unique.values())
-})
+  return Array.from(unique.values());
+});
 
-const isLocalhostDevice = (device: DiscoveredDevice): boolean => device.api_url === LOCALHOST_API_URL
+const isLocalhostDevice = (device: DiscoveredDevice): boolean =>
+  device.api_url === LOCALHOST_API_URL;
 
 // Temporary state for user input (before blur/commit)
-const manualVolumeInputTemp = ref('')
-const fixedLufsInputTemp = ref('')
-const timerMinutesInputTemp = ref('')
+const manualVolumeInputTemp = ref("");
+const fixedLufsInputTemp = ref("");
+const timerMinutesInputTemp = ref("");
 
 // Computed display values
-const manualVolumeDisplay = computed(() => `${Math.round(props.manualVolume * 100)}%`)
-const fixedLufsDisplay = computed(() => `${props.fixedLufs} LUFS`)
-const timerMinutesDisplay = computed(() => `${props.timerMinutes}`)
+const manualVolumeDisplay = computed(
+  () => `${Math.round(props.manualVolume * 100)}%`,
+);
+const fixedLufsDisplay = computed(() => `${props.fixedLufs} LUFS`);
+const timerMinutesDisplay = computed(() => `${props.timerMinutes}`);
 
 // Manual Volume handlers
 const handleManualVolumeSlider = (e: Event) => {
-  const value = Number((e.target as HTMLInputElement).value)
-  emit('update:manualVolume', value)
-}
+  const value = Number((e.target as HTMLInputElement).value);
+  emit("update:manualVolume", value);
+};
 
 const handleManualVolumeInput = (e: Event) => {
-  manualVolumeInputTemp.value = (e.target as HTMLInputElement).value
-}
+  manualVolumeInputTemp.value = (e.target as HTMLInputElement).value;
+};
 
 const handleManualVolumeBlur = () => {
-  let valueStr = manualVolumeInputTemp.value.trim()
+  let valueStr = manualVolumeInputTemp.value.trim();
   // Remove % suffix if present
-  if (valueStr.endsWith('%')) {
-    valueStr = valueStr.slice(0, -1)
+  if (valueStr.endsWith("%")) {
+    valueStr = valueStr.slice(0, -1);
   }
-  const value = Number(valueStr)
+  const value = Number(valueStr);
   if (!isNaN(value) && value >= 0 && value <= 100) {
-    emit('update:manualVolume', value / 100)
+    emit("update:manualVolume", value / 100);
   }
   // Reset temp to current display value
-  manualVolumeInputTemp.value = ''
-}
+  manualVolumeInputTemp.value = "";
+};
 
 // Fixed LUFS handlers
 const handleFixedLufsSlider = (e: Event) => {
-  const value = Number((e.target as HTMLInputElement).value)
-  emit('update:fixedLufs', value)
-}
+  const value = Number((e.target as HTMLInputElement).value);
+  emit("update:fixedLufs", value);
+};
 
 const handleFixedLufsInput = (e: Event) => {
-  fixedLufsInputTemp.value = (e.target as HTMLInputElement).value
-}
+  fixedLufsInputTemp.value = (e.target as HTMLInputElement).value;
+};
 
 const handleFixedLufsBlur = () => {
-  let valueStr = fixedLufsInputTemp.value.trim()
+  let valueStr = fixedLufsInputTemp.value.trim();
   // Remove "LUFS" suffix if present
-  if (valueStr.endsWith('LUFS') || valueStr.endsWith('lufs')) {
-    valueStr = valueStr.slice(0, -4).trim()
+  if (valueStr.endsWith("LUFS") || valueStr.endsWith("lufs")) {
+    valueStr = valueStr.slice(0, -4).trim();
   }
-  const value = Number(valueStr)
+  const value = Number(valueStr);
   if (!isNaN(value) && value >= -100 && value <= 0) {
-    emit('update:fixedLufs', value)
+    emit("update:fixedLufs", value);
   }
   // Reset temp to current display value
-  fixedLufsInputTemp.value = ''
-}
+  fixedLufsInputTemp.value = "";
+};
 
 // Timer handlers
 const handleTimerMinutesSlider = (e: Event) => {
-  const value = Number((e.target as HTMLInputElement).value)
-  emit('update:timerMinutes', value)
-}
+  const value = Number((e.target as HTMLInputElement).value);
+  emit("update:timerMinutes", value);
+};
 
 const handleTimerMinutesInput = (e: Event) => {
-  timerMinutesInputTemp.value = (e.target as HTMLInputElement).value
-}
+  timerMinutesInputTemp.value = (e.target as HTMLInputElement).value;
+};
 
 const handleTimerMinutesBlur = () => {
-  let valueStr = timerMinutesInputTemp.value.trim()
+  let valueStr = timerMinutesInputTemp.value.trim();
   // Remove Chinese time units if present
-  valueStr = valueStr.replace(/分钟/g, '').replace(/小时/g, ' ').trim()
+  valueStr = valueStr.replace(/分钟/g, "").replace(/小时/g, " ").trim();
 
   // Parse hours if present
-  const parts = valueStr.split(' ')
-  let totalMinutes = 0
+  const parts = valueStr.split(" ");
+  let totalMinutes = 0;
   if (parts.length === 2) {
-    const hours = Number(parts[0])
-    const mins = Number(parts[1])
-    if (!isNaN(hours)) totalMinutes += hours * 60
-    if (!isNaN(mins)) totalMinutes += mins
+    const hours = Number(parts[0]);
+    const mins = Number(parts[1]);
+    if (!isNaN(hours)) totalMinutes += hours * 60;
+    if (!isNaN(mins)) totalMinutes += mins;
   } else {
-    totalMinutes = Number(valueStr)
+    totalMinutes = Number(valueStr);
   }
 
   // Allow any positive value (slider is limited to 1-120, but manual input can be larger)
   if (!isNaN(totalMinutes) && totalMinutes >= 1) {
-    emit('update:timerMinutes', Math.min(totalMinutes, 999))
+    emit("update:timerMinutes", Math.min(totalMinutes, 999));
   }
   // Reset temp to current display value
-  timerMinutesInputTemp.value = ''
-}
+  timerMinutesInputTemp.value = "";
+};
 
 onMounted(async () => {
   // Initialize server URL input
-  serverUrlInput.value = getApiBase()
+  serverUrlInput.value = getApiBase();
 
   // Load manual devices from localStorage
-  loadManualDevices()
+  loadManualDevices();
 
   // Initialize device name from localStorage first (local device's name)
-  const localDeviceName = localStorage.getItem('kaulan_local_device_name')
+  const localDeviceName = localStorage.getItem("kaulan_local_device_name");
   if (localDeviceName) {
-    deviceNameInput.value = localDeviceName
+    deviceNameInput.value = localDeviceName;
   } else {
     // Fallback: fetch from current API and save as local device name
-    await fetchSelfDevice()
+    await fetchSelfDevice();
     if (selfDevice.value) {
-      deviceNameInput.value = selfDevice.value.device_name
-      localStorage.setItem('kaulan_local_device_name', selfDevice.value.device_name)
+      deviceNameInput.value = selfDevice.value.device_name;
+      localStorage.setItem(
+        "kaulan_local_device_name",
+        selfDevice.value.device_name,
+      );
     }
   }
 
   // Load current committed discovery list.
   try {
-    await fetchDevices()
+    await fetchDevices();
   } catch (err) {
-    console.error('Failed to load discovered devices:', err)
+    console.error("Failed to load discovered devices:", err);
   }
 
   try {
-    const response = await fetch(`${getApiBase()}/settings/music-directory`)
+    const response = await fetch(`${getApiBase()}/settings/music-directory`);
     if (response.ok) {
-      const data = await response.json()
-      musicDirectory.value = data.path
+      const data = await response.json();
+      musicDirectory.value = data.path;
     } else {
-      console.error('Failed to get music directory')
-      musicDirectory.value = 'Unknown'
+      console.error("Failed to get music directory");
+      musicDirectory.value = "Unknown";
     }
   } catch (error) {
-    console.error('Failed to get music directory:', error)
-    musicDirectory.value = 'Unknown'
+    console.error("Failed to get music directory:", error);
+    musicDirectory.value = "Unknown";
   }
 
-  await loadMediaTypes()
+  await loadMediaTypes();
 
   // Check if running on Android
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const platform = await invoke<string>('get_platform')
-    isAndroid.value = platform === 'android'
+    const { invoke } = await import("@tauri-apps/api/core");
+    const platform = await invoke<string>("get_platform");
+    isAndroid.value = platform === "android";
   } catch {
-    isAndroid.value = false
+    isAndroid.value = false;
   }
 
   // Load local lyrics setting (Android only) - query actual permission state
   if (isAndroid.value) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      const granted = await invoke<boolean>('check_external_storage_permission')
-      useLocalLyrics.value = granted
+      const { invoke } = await import("@tauri-apps/api/core");
+      const granted = await invoke<boolean>(
+        "check_external_storage_permission",
+      );
+      useLocalLyrics.value = granted;
       if (granted) {
-        permissionStatus.value = '本地歌词已启用'
+        permissionStatus.value = "本地歌词已启用";
       }
     } catch (e) {
-      console.error('Failed to check permission status:', e)
+      console.error("Failed to check permission status:", e);
     }
 
     // Sync headset media button setting to native plugin
-    const localHeadsetValue = getDisableHeadsetMediaButton()
-    disableHeadsetMediaButton.value = localHeadsetValue
+    const localHeadsetValue = getDisableHeadsetMediaButton();
+    disableHeadsetMediaButton.value = localHeadsetValue;
     try {
-      const plugin = await import('music-notification-api')
-      await plugin.setHeadsetMediaButtonDisabled(localHeadsetValue)
+      const plugin = await import("music-notification-api");
+      await plugin.setHeadsetMediaButtonDisabled(localHeadsetValue);
     } catch (e) {
-      console.error('Failed to sync headset media button setting:', e)
+      console.error("Failed to sync headset media button setting:", e);
     }
   }
-})
+});
 
 const selectDirectory = async () => {
   // For now, use the same prompt approach for all platforms
   // SAF integration on Android requires additional work to bypass ACL restrictions
-  let newPath = prompt('请输入新的音乐目录路径:', musicDirectory.value)
+  let newPath = prompt("请输入新的音乐目录路径:", musicDirectory.value);
 
-  if (!newPath || newPath.trim() === '') {
-    return
+  if (!newPath || newPath.trim() === "") {
+    return;
   }
 
   try {
     const response = await fetch(`${getApiBase()}/settings/music-directory`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ path: newPath.trim() }),
-    })
+    });
 
     if (response.ok) {
-      const result = await response.json()
+      const result = await response.json();
       if (result.success) {
-        musicDirectory.value = newPath.trim()
-        emit('directoryChanged')
-        alert('音乐目录已更新，正在重新加载...')
+        musicDirectory.value = newPath.trim();
+        emit("directoryChanged");
+        alert("音乐目录已更新，正在重新加载...");
         // Reload the page to refresh the data
         setTimeout(() => {
-          window.location.reload()
-        }, 1000)
+          window.location.reload();
+        }, 1000);
       } else {
-        alert('更改目录失败: ' + result.message)
+        alert("更改目录失败: " + result.message);
       }
     } else {
-      const error = await response.json()
-      alert('更改目录失败: ' + error.message)
+      const error = await response.json();
+      alert("更改目录失败: " + error.message);
     }
   } catch (error) {
-    console.error('Failed to select directory:', error)
-    alert('更改目录失败: ' + error)
+    console.error("Failed to select directory:", error);
+    alert("更改目录失败: " + error);
   }
-}
+};
 
 const updateDatabase = async () => {
-  isUpdating.value = true
-  emit('databaseUpdateStart')
+  isUpdating.value = true;
+  emit("databaseUpdateStart");
   try {
     const response = await fetch(`${getApiBase()}/database/update`, {
-      method: 'POST',
-    })
-    const result = await response.json()
+      method: "POST",
+    });
+    const result = await response.json();
     if (result.success) {
-      alert('数据库更新成功，正在重新加载...')
+      alert("数据库更新成功，正在重新加载...");
       // Reload the page to refresh all data
       setTimeout(() => {
-        window.location.reload()
-      }, 1000)
+        window.location.reload();
+      }, 1000);
     } else {
-      alert('数据库更新失败: ' + result.message)
+      alert("数据库更新失败: " + result.message);
     }
   } catch (error) {
-    console.error('Failed to update database:', error)
-    alert('数据库更新失败: ' + error)
+    console.error("Failed to update database:", error);
+    alert("数据库更新失败: " + error);
   } finally {
-    isUpdating.value = false
-    emit('databaseUpdateEnd')
+    isUpdating.value = false;
+    emit("databaseUpdateEnd");
   }
-}
+};
 
 // Server URL handlers
 const saveServerUrl = async () => {
-  const validation = validateServerUrl(serverUrlInput.value)
+  const validation = validateServerUrl(serverUrlInput.value);
   if (!validation.valid) {
-    serverUrlError.value = validation.error || 'Invalid URL'
-    serverUrlValid.value = false
-    return
+    serverUrlError.value = validation.error || "Invalid URL";
+    serverUrlValid.value = false;
+    return;
   }
 
-  isSavingServerUrl.value = true
-  serverUrlError.value = ''
-  serverUrlValid.value = true
+  isSavingServerUrl.value = true;
+  serverUrlError.value = "";
+  serverUrlValid.value = true;
 
   try {
-    setApiBase(serverUrlInput.value)
-    alert('服务器地址已保存，正在重新加载...')
+    setApiBase(serverUrlInput.value);
+    alert("服务器地址已保存，正在重新加载...");
     setTimeout(() => {
-      window.location.reload()
-    }, 500)
+      window.location.reload();
+    }, 500);
   } catch (error) {
-    serverUrlError.value = '保存失败: ' + error
-    serverUrlValid.value = false
+    serverUrlError.value = "保存失败: " + error;
+    serverUrlValid.value = false;
   } finally {
-    isSavingServerUrl.value = false
+    isSavingServerUrl.value = false;
   }
-}
+};
 
 // Device discovery functions
 const saveDeviceName = async () => {
-  if (!deviceNameInput.value.trim()) return
+  if (!deviceNameInput.value.trim()) return;
 
-  isSavingDeviceName.value = true
-  const success = await setDeviceName(deviceNameInput.value.trim())
-  isSavingDeviceName.value = false
+  isSavingDeviceName.value = true;
+  const success = await setDeviceName(deviceNameInput.value.trim());
+  isSavingDeviceName.value = false;
 
   if (success) {
     // Save to localStorage so it persists when connecting to other devices
-    localStorage.setItem('kaulan_local_device_name', deviceNameInput.value.trim())
-    alert('设备名称已更新')
+    localStorage.setItem(
+      "kaulan_local_device_name",
+      deviceNameInput.value.trim(),
+    );
+    alert("设备名称已更新");
   } else {
-    alert('保存设备名称失败')
+    alert("保存设备名称失败");
   }
-}
+};
 
 const refreshDevices = async () => {
-  await runDiscoveryRefresh()
-}
+  await runDiscoveryRefresh();
+};
 
 const openManualAddressDialog = async () => {
-  const input = prompt('请输入服务器地址，可直接填写 IP、域名或带端口地址:', serverUrlInput.value)
-  if (input === null) return
+  const input = prompt(
+    "请输入服务器地址，可直接填写 IP、域名或带端口地址:",
+    serverUrlInput.value,
+  );
+  if (input === null) return;
 
-  const trimmed = input.trim()
-  serverUrlInput.value = trimmed
+  const trimmed = input.trim();
+  serverUrlInput.value = trimmed;
 
   // Add to manual devices list before connecting (fetches device name)
-  await addManualDevice(trimmed)
+  await addManualDevice(trimmed);
 
-  await saveServerUrl()
-}
+  await saveServerUrl();
+};
 </script>
 
 <style scoped>
@@ -1271,7 +1363,8 @@ const openManualAddressDialog = async () => {
   margin-top: 15px;
 }
 
-.start-timer-btn, .cancel-timer-btn {
+.start-timer-btn,
+.cancel-timer-btn {
   width: 100%;
   padding: 10px 20px;
   border: none;
@@ -1284,7 +1377,8 @@ const openManualAddressDialog = async () => {
   color: white;
 }
 
-.start-timer-btn:hover, .cancel-timer-btn:hover {
+.start-timer-btn:hover,
+.cancel-timer-btn:hover {
   background-color: #1ed760;
 }
 

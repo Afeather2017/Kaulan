@@ -136,9 +136,7 @@ pub async fn set_music_directory(req: web::Json<SetMusicDirectoryRequest>) -> im
 #[get("/api/settings/media-types")]
 pub async fn get_media_types() -> impl Responder {
     let media_types = config::load_media_types();
-    HttpResponse::Ok().json(MediaTypesResponse {
-        media_types,
-    })
+    HttpResponse::Ok().json(MediaTypesResponse { media_types })
 }
 
 /// Set enabled media types

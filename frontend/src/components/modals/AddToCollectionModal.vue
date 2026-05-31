@@ -4,7 +4,7 @@
       <h3>添加到收藏夹</h3>
       <div class="collection-select-list">
         <div
-          v-for="collection in collections.filter(c => c.name !== '所有音乐')"
+          v-for="collection in collections.filter((c) => c.name !== '所有音乐')"
           :key="collection.id"
           class="collection-checkbox-item"
         >
@@ -15,7 +15,9 @@
             :checked="selectedCollectionIds.includes(collection.id)"
             @change="$emit('toggleSelection', collection.id)"
           />
-          <label :for="'collection-' + collection.id">{{ collection.name }}</label>
+          <label :for="'collection-' + collection.id">{{
+            collection.name
+          }}</label>
         </div>
       </div>
       <div class="modal-actions">
@@ -28,21 +30,21 @@
 
 <script setup lang="ts">
 export interface Collection {
-  id: number
-  name: string
-  created_at: string
+  id: number;
+  name: string;
+  created_at: string;
 }
 
 defineProps<{
-  collections: Collection[]
-  selectedCollectionIds: number[]
-}>()
+  collections: Collection[];
+  selectedCollectionIds: number[];
+}>();
 
 defineEmits<{
-  (e: 'close'): void
-  (e: 'confirm'): void
-  (e: 'toggleSelection', id: number): void
-}>()
+  (e: "close"): void;
+  (e: "confirm"): void;
+  (e: "toggleSelection", id: number): void;
+}>();
 </script>
 
 <style scoped>
@@ -52,7 +54,7 @@ defineEmits<{
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0,0,0,0.5);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -65,7 +67,7 @@ defineEmits<{
   border-radius: 10px;
   width: 90%;
   max-width: 400px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   max-height: 80vh;
   overflow-y: auto;
 }
@@ -118,7 +120,8 @@ defineEmits<{
   justify-content: center;
 }
 
-.confirm-btn, .cancel-btn {
+.confirm-btn,
+.cancel-btn {
   padding: 10px 20px;
   border: none;
   border-radius: 5px;

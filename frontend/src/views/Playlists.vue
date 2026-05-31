@@ -1,15 +1,23 @@
 <template>
   <div class="playlists">
     <h2>Playlists</h2>
-    
+
     <div v-if="loading" class="loading">Loading playlists...</div>
-    
+
     <div v-else class="playlists-grid">
-      <div v-for="playlist in playlists" :key="playlist.id" class="playlist-card">
+      <div
+        v-for="playlist in playlists"
+        :key="playlist.id"
+        class="playlist-card"
+      >
         <h3>{{ playlist.name }}</h3>
         <p>{{ playlist.songs.length }} songs</p>
         <div class="song-list">
-          <div v-for="song in playlist.songs.slice(0, 3)" :key="song.id" class="song-preview">
+          <div
+            v-for="song in playlist.songs.slice(0, 3)"
+            :key="song.id"
+            class="song-preview"
+          >
             {{ song.title }} - {{ song.artist }}
           </div>
           <div v-if="playlist.songs.length > 3" class="more-songs">
@@ -22,35 +30,35 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { getApiBase } from '@/utils/api'
+import { ref, onMounted } from "vue";
+import { getApiBase } from "@/utils/api";
 
 interface Song {
-  id: number
-  title: string
-  artist: string
-  duration: number
+  id: number;
+  title: string;
+  artist: string;
+  duration: number;
 }
 
 interface Playlist {
-  id: number
-  name: string
-  songs: Song[]
+  id: number;
+  name: string;
+  songs: Song[];
 }
 
-const playlists = ref<Playlist[]>([])
-const loading = ref(true)
+const playlists = ref<Playlist[]>([]);
+const loading = ref(true);
 
 onMounted(async () => {
   try {
-    const response = await fetch(`${getApiBase()}/music/playlists`)
-    playlists.value = await response.json()
+    const response = await fetch(`${getApiBase()}/music/playlists`);
+    playlists.value = await response.json();
   } catch (error) {
-    console.error('Failed to fetch playlists:', error)
+    console.error("Failed to fetch playlists:", error);
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 </script>
 
 <style scoped>

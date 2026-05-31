@@ -462,10 +462,9 @@ pub async fn get_music_cover(path: web::Path<i32>, data: web::Data<AppState>) ->
             // This avoids loading the entire file into memory (which causes OOM on Android).
             match file_reader.open_seekable_reader(&file_path).await {
                 Ok(reader) => {
-                    let result = tokio::task::spawn_blocking(move || {
-                        extract_cover_art_from_reader(reader)
-                    })
-                    .await;
+                    let result =
+                        tokio::task::spawn_blocking(move || extract_cover_art_from_reader(reader))
+                            .await;
 
                     match result {
                         Ok(Ok(Some((content_type, data)))) => {

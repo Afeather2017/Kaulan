@@ -217,16 +217,14 @@ pub async fn start_server(
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         download_root: Arc::new(
-            env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone())
+            env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone()),
         ),
-        preview_root: Arc::new(
-            env::var("KAULAN_PREVIEW_ROOT").unwrap_or_else(|_| {
-                std::env::temp_dir()
-                    .join("kaulan-preview")
-                    .to_string_lossy()
-                    .to_string()
-            })
-        ),
+        preview_root: Arc::new(env::var("KAULAN_PREVIEW_ROOT").unwrap_or_else(|_| {
+            std::env::temp_dir()
+                .join("kaulan-preview")
+                .to_string_lossy()
+                .to_string()
+        })),
         db_conn,
         scan_lock,
         discovery: discovery_state.clone(),

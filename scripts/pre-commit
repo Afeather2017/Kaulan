@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pre-commit hook: refuse commit if Rust or TS code is not formatted.
+
+set -e
+
+cd "$(git rev-parse --show-toplevel)"
+
+# --- Rust ---
+if ! cargo fmt --all --manifest-path backend/Cargo.toml -- --check; then
+    echo "" >&2
+    echo "ERROR: Rust code (backend) is not formatted. Run:" >&2
+    echo "  cargo fmt --all --manifest-path backend/Cargo.toml" >&2
+    exit 1
+fi
+
+if ! cargo fmt --all --manifest-path frontend/src-tauri/Cargo.toml -- --check; then
+    echo "" >&2
+    echo "ERROR: Rust code (frontend/src-tauri) is not formatted. Run:" >&2
+    echo "  cargo fmt --all --manifest-path frontend/src-tauri/Cargo.toml" >&2
+    exit 1
+fi
+
+# --- TypeScript / Vue / CSS ---
+if ! (cd frontend && npx prettier --check "src/**/*.{ts,js,vue,css,html}"); then
+    echo "" >&2
+    echo "ERROR: Frontend code is not formatted. Run:" >&2
+    echo "  cd frontend && npx prettier --write 'src/**/*.{ts,js,vue,css,html}'" >&2
+    exit 1
+fi
+
+echo "All code formatted. Proceeding with commit."

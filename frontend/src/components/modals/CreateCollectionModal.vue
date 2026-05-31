@@ -6,7 +6,12 @@
         <input
           type="text"
           :model-value="modelValue"
-          @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+          @input="
+            $emit(
+              'update:modelValue',
+              ($event.target as HTMLInputElement).value,
+            )
+          "
           placeholder="收藏夹名称"
           class="collection-input-full"
           @keyup.enter="$emit('confirm')"
@@ -22,24 +27,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted } from "vue";
 
 defineProps<{
-  modelValue: string
-}>()
+  modelValue: string;
+}>();
 
 defineEmits<{
-  (e: 'close'): void
-  (e: 'confirm'): void
-  (e: 'update:modelValue', value: string): void
-}>()
+  (e: "close"): void;
+  (e: "confirm"): void;
+  (e: "update:modelValue", value: string): void;
+}>();
 
-const nameInput = ref<HTMLInputElement | null>(null)
+const nameInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
   // Auto-focus the input when modal opens
-  nameInput.value?.focus()
-})
+  nameInput.value?.focus();
+});
 </script>
 
 <style scoped>
@@ -49,7 +54,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0,0,0,0.5);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -62,7 +67,7 @@ onMounted(() => {
   border-radius: 10px;
   width: 90%;
   max-width: 400px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
 .modal-content h3 {
@@ -100,7 +105,8 @@ onMounted(() => {
   justify-content: center;
 }
 
-.confirm-btn, .cancel-btn {
+.confirm-btn,
+.cancel-btn {
   padding: 10px 20px;
   border: none;
   border-radius: 5px;

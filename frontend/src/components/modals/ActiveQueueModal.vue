@@ -14,11 +14,14 @@
             v-for="(song, index) in songs"
             :key="song.name"
             class="song-item"
-            :class="{ 'active': currentSongName === song.name }"
+            :class="{ active: currentSongName === song.name }"
             @click="$emit('play', song, index)"
           >
             <div class="song-index">
-              <i v-if="currentSongName === song.name" class="fas fa-volume-up"></i>
+              <i
+                v-if="currentSongName === song.name"
+                class="fas fa-volume-up"
+              ></i>
               <span v-else>{{ index + 1 }}</span>
             </div>
             <div class="song-info">
@@ -37,17 +40,17 @@
 </template>
 
 <script setup lang="ts">
-import type { MusicInfo } from '@/composables/useAudioPlayer'
+import type { MusicInfo } from "@/composables/useAudioPlayer";
 
 defineProps<{
-  songs: MusicInfo[]
-  currentSongName?: string
-}>()
+  songs: MusicInfo[];
+  currentSongName?: string;
+}>();
 
 defineEmits<{
-  (e: 'close'): void
-  (e: 'play', song: MusicInfo, index: number): void
-}>()
+  (e: "close"): void;
+  (e: "play", song: MusicInfo, index: number): void;
+}>();
 </script>
 
 <style scoped>

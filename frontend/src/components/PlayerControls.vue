@@ -2,12 +2,14 @@
   <div class="player-controls">
     <div class="player-top">
       <div class="cover-thumb-wrapper" @click="$emit('toggleLyric')">
-        <img v-if="coverUrl && !coverFailed"
-             :src="coverUrl"
-             :key="coverUrl"
-             class="cover-thumb"
-             @error="coverFailed = true"
-             alt="" />
+        <img
+          v-if="coverUrl && !coverFailed"
+          :src="coverUrl"
+          :key="coverUrl"
+          class="cover-thumb"
+          @error="coverFailed = true"
+          alt=""
+        />
         <i v-else class="fas fa-music cover-placeholder-icon"></i>
       </div>
       <div class="player-info">
@@ -18,17 +20,14 @@
         >
           {{ currentSongName }}
         </button>
-        <div v-else class="current-song placeholder">
-          无正在播放
-        </div>
+        <div v-else class="current-song placeholder">无正在播放</div>
         <!-- Progress Bar -->
         <div class="progress-container">
-          <div
-            class="progress-bar"
-            ref="progressBar"
-            @click="handleSeek"
-          >
-            <div class="progress" :style="{ width: progressPercent + '%' }"></div>
+          <div class="progress-bar" ref="progressBar" @click="handleSeek">
+            <div
+              class="progress"
+              :style="{ width: progressPercent + '%' }"
+            ></div>
           </div>
           <div class="play-info">
             <span class="progress-time">{{ formatTime(currentTime) }}</span>
@@ -40,7 +39,11 @@
 
     <!-- Control Buttons -->
     <div class="control-buttons">
-      <button class="control-btn" :title="playModeLabel" @click="$emit('togglePlayMode')">
+      <button
+        class="control-btn"
+        :title="playModeLabel"
+        @click="$emit('togglePlayMode')"
+      >
         <i v-if="playMode === 'sequential'" class="fas fa-repeat"></i>
         <i v-else-if="playMode === 'shuffle'" class="fas fa-shuffle"></i>
         <span v-else class="play-mode-icon play-mode-icon-loop">
@@ -66,75 +69,75 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { getApiBase } from '@/utils/api'
+import { ref, computed } from "vue";
+import { getApiBase } from "@/utils/api";
 
 const props = defineProps<{
-  currentTime: number
-  duration: number
-  isPlaying: boolean
-  playMode: 'sequential' | 'shuffle' | 'loop'
-  currentSongName?: string
-  songId?: number
-}>()
+  currentTime: number;
+  duration: number;
+  isPlaying: boolean;
+  playMode: "sequential" | "shuffle" | "loop";
+  currentSongName?: string;
+  songId?: number;
+}>();
 
 const emit = defineEmits<{
-  (e: 'seek', time: number): void
-  (e: 'togglePlayMode'): void
-  (e: 'previous'): void
-  (e: 'play'): void
-  (e: 'pause'): void
-  (e: 'next'): void
-  (e: 'showActiveQueue'): void
-  (e: 'toggleLyric'): void
-}>()
+  (e: "seek", time: number): void;
+  (e: "togglePlayMode"): void;
+  (e: "previous"): void;
+  (e: "play"): void;
+  (e: "pause"): void;
+  (e: "next"): void;
+  (e: "showActiveQueue"): void;
+  (e: "toggleLyric"): void;
+}>();
 
-const progressBar = ref<HTMLElement | null>(null)
-const coverFailed = ref(false)
+const progressBar = ref<HTMLElement | null>(null);
+const coverFailed = ref(false);
 
 const coverUrl = computed(() => {
-  if (!props.songId) return null
-  coverFailed.value = false
-  return `${getApiBase()}/music/id/${props.songId}/cover`
-})
+  if (!props.songId) return null;
+  coverFailed.value = false;
+  return `${getApiBase()}/music/id/${props.songId}/cover`;
+});
 
 const playModeLabel = computed(() => {
-  if (props.playMode === 'sequential') return 'Sequential playback'
-  if (props.playMode === 'shuffle') return 'Shuffle playback'
-  return 'Single track loop'
-})
+  if (props.playMode === "sequential") return "Sequential playback";
+  if (props.playMode === "shuffle") return "Shuffle playback";
+  return "Single track loop";
+});
 
 // Computed progress percentage
 const progressPercent = computed(() => {
-  if (props.duration === 0) return 0
-  return (props.currentTime / props.duration) * 100
-})
+  if (props.duration === 0) return 0;
+  return (props.currentTime / props.duration) * 100;
+});
 
 // Handle click on progress bar to seek
 const handleSeek = (event: MouseEvent) => {
-  if (!progressBar.value || props.duration === 0) return
+  if (!progressBar.value || props.duration === 0) return;
 
-  const rect = progressBar.value.getBoundingClientRect()
-  const clickX = event.clientX - rect.left
-  const percent = Math.max(0, Math.min(1, clickX / rect.width))
-  const seekTime = percent * props.duration
+  const rect = progressBar.value.getBoundingClientRect();
+  const clickX = event.clientX - rect.left;
+  const percent = Math.max(0, Math.min(1, clickX / rect.width));
+  const seekTime = percent * props.duration;
 
-  emit('seek', seekTime)
-}
+  emit("seek", seekTime);
+};
 
 const handlePlayPause = () => {
   if (props.isPlaying) {
-    emit('pause')
-    return
+    emit("pause");
+    return;
   }
-  emit('play')
-}
+  emit("play");
+};
 
 const formatTime = (seconds: number) => {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
 </script>
 
 <style scoped>
@@ -142,7 +145,7 @@ const formatTime = (seconds: number) => {
   background-color: #fff;
   border-top: 1px solid #eee;
   padding: 15px;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
   position: relative;
   z-index: 10;
 }
@@ -231,7 +234,7 @@ const formatTime = (seconds: number) => {
 }
 
 .progress-time {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
