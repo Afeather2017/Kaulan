@@ -2,7 +2,6 @@
 //!
 //! This module organizes all API endpoint handlers by domain.
 
-pub mod collections;
 pub mod database;
 pub mod discovery;
 pub mod download;

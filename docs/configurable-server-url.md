@@ -151,6 +151,5 @@ All API endpoints are relative to the configured base URL:
 - `GET /api/music` - Get all music
 - `GET /api/music/{filename}` - Stream audio
 - `GET /api/playlists` - Get playlists
-- `GET /api/collections` - Get collections
-- `POST /api/collections` - Create collection
-- etc.
+- `POST /api/database/update` - Refresh the backend music index
+- other music/library endpoints under `/api`

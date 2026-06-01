@@ -2,20 +2,10 @@
 //!
 //! This module provides endpoints for:
 //! - Triggering a database update (scan for new files, update LUFS, remove deleted files)
-//! - Getting playlists in collection mode (returns collections instead of folders)
 
-use crate::entities::collection::Entity as CollectionEntity;
-use crate::entities::collection_item::{
-    Column as CollectionItemColumn, Entity as CollectionItemEntity,
-};
-use crate::entities::music::Entity as MusicEntity;
 use crate::services::scanner;
-use crate::types::{
-    build_http_stream_url, is_localhost_request, resolve_playback_path, resolve_stream_url,
-    validate_stream_request, AppState, MusicInfo, StreamQuery, UpdateResponse,
-};
-use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use crate::types::{AppState, UpdateResponse};
+use actix_web::{post, web, HttpResponse, Responder};
 use serde::Deserialize;
 use tracing::info;
 
@@ -104,99 +94,4 @@ pub async fn update_database_endpoint(
             }),
         }
     }
-}
-
-/// Get playlists in collection mode (returns collections instead of folders)
-///
-/// Returns a hashmap similar to `/api/playlists` but with user-defined collections
-/// instead of folder-based playlists. Includes "所有音乐" (All Music) which contains
-/// all songs in the database.
-///
-/// This endpoint is used by the frontend when the user switches to "collection mode".
-///
-/// **IMPORTANT:** This route must be registered before `/api/playlists/{name}`
-/// in the server configuration, otherwise it will match the wrong route.
-///
-/// # Returns
-/// JSON object with collection names as keys and arrays of `MusicInfo` as values
-#[get("/api/playlists/collection-mode")]
-pub async fn get_playlists_collection_mode(
-    req: HttpRequest,
-    query: web::Query<StreamQuery>,
-    data: web::Data<AppState>,
-) -> impl Responder {
-    // Block until database scan completes
-    let _lock = data.scan_lock.lock().await;
-    let localhost = is_localhost_request(&req);
-    if let Err(response) = validate_stream_request(&query.stream, localhost) {
-        return response;
-    }
-
-    let mut playlists: std::collections::HashMap<String, Vec<MusicInfo>> =
-        std::collections::HashMap::new();
-
-    match MusicEntity::find().all(&data.db_conn).await {
-        Ok(music_list) => {
-            // Add all music to "所有音乐" (All Music)
-            for music in &music_list {
-                let info = MusicInfo {
-                    id: music.id,
-                    name: music.filename.clone(),
-                    lufs: music.lufs,
-                    path: if localhost {
-                        resolve_playback_path(&music.file_path, localhost)
-                    } else {
-                        build_http_stream_url(&req, music.id)
-                    },
-                    stream_url: resolve_stream_url(&music.file_path, &query.stream, localhost),
-                };
-                playlists
-                    .entry("所有音乐".to_string())
-                    .or_insert_with(Vec::new)
-                    .push(info);
-            }
-
-            // Add collections
-            match CollectionEntity::find().all(&data.db_conn).await {
-                Ok(collections) => {
-                    for collection in collections {
-                        match CollectionItemEntity::find()
-                            .filter(CollectionItemColumn::CollectionId.eq(collection.id))
-                            .find_also_related(MusicEntity)
-                            .all(&data.db_conn)
-                            .await
-                        {
-                            Ok(items) => {
-                                let songs: Vec<MusicInfo> = items
-                                    .into_iter()
-                                    .filter_map(|(_, music_opt)| music_opt)
-                                    .map(|music| MusicInfo {
-                                        id: music.id,
-                                        name: music.filename,
-                                        lufs: music.lufs,
-                                        path: if localhost {
-                                            resolve_playback_path(&music.file_path, localhost)
-                                        } else {
-                                            build_http_stream_url(&req, music.id)
-                                        },
-                                        stream_url: resolve_stream_url(
-                                            &music.file_path,
-                                            &query.stream,
-                                            localhost,
-                                        ),
-                                    })
-                                    .collect();
-                                playlists.insert(collection.name, songs);
-                            }
-                            Err(_) => continue,
-                        }
-                    }
-                }
-                Err(_) => {}
-            }
-        }
-        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
-    }
-
-    HttpResponse::Ok().json(playlists)
 }

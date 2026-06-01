@@ -13,7 +13,6 @@ use tracing::{error, info};
 
 use crate::config;
 use crate::database::establish_connection;
-use crate::handlers::collections;
 use crate::handlers::database;
 use crate::handlers::discovery;
 use crate::handlers::download;
@@ -26,11 +25,7 @@ use crate::handlers::upload;
 use crate::types::AppState;
 
 // Re-export handler modules for convenience and for integration tests
-pub use collections::{
-    add_to_collection, create_collection, delete_collection, get_all_collections, get_collection,
-    get_collection_items, remove_from_collection,
-};
-pub use database::{get_playlists_collection_mode, update_database_endpoint};
+pub use database::update_database_endpoint;
 pub use discovery::{
     finish_discovery_scan, get_discovered_devices, get_self_device, request_discovery_once,
     set_device_name, start_discovery_scan,
@@ -261,18 +256,9 @@ pub async fn start_server(
                 // Lyrics endpoints (ID-based first, then filename-based)
                 .service(get_lyrics_by_id)
                 .service(get_lyrics)
-                // Playlist endpoints (order matters - specific routes before parameterized ones)
-                .service(get_playlists_collection_mode)
+                // Playlist endpoints
                 .service(get_all_playlists)
                 .service(get_playlist)
-                // Collection endpoints (order matters - longer paths first)
-                .service(get_collection_items)
-                .service(get_all_collections)
-                .service(create_collection)
-                .service(delete_collection)
-                .service(get_collection)
-                .service(add_to_collection)
-                .service(remove_from_collection)
                 // Settings endpoints
                 .service(get_music_directory)
                 .service(set_music_directory)
