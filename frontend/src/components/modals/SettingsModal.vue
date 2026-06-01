@@ -8,164 +8,14 @@
         </button>
       </div>
       <div class="modal-body">
-        <h3>播放器设置</h3>
+        <h3>设置</h3>
 
-        <!-- Device Discovery -->
-        <div class="mode-toggle">
-          <div class="mode-label">设备发现</div>
+        <div class="settings-section">
+          <div class="section-title">播放</div>
         </div>
-
-        <!-- Device Name Setting -->
-        <div class="setting-item">
-          <label class="setting-label">设备名称</label>
-          <div class="url-input-container">
-            <input
-              type="text"
-              class="url-input"
-              :value="deviceNameInput"
-              @input="
-                deviceNameInput = ($event.target as HTMLInputElement).value
-              "
-              placeholder="My Kaulan Player"
-              maxlength="64"
-            />
-          </div>
-          <div class="url-actions">
-            <button
-              @click="saveDeviceName"
-              class="save-url-btn"
-              :disabled="isSavingDeviceName"
-            >
-              {{ isSavingDeviceName ? "保存中..." : "保存名称" }}
-            </button>
-          </div>
-        </div>
-
-        <!-- Discovered Devices -->
-        <div class="setting-item">
-          <label class="setting-label">局域网中的设备</label>
-          <div v-if="isLoadingDevices" class="loading-state">扫描中...</div>
-          <div v-else-if="displayDevices.length === 0" class="empty-state">
-            未发现其他设备
-          </div>
-          <div v-else class="device-list">
-            <div
-              v-for="device in displayDevices"
-              :key="device.device_id"
-              class="device-item"
-              @click="connectToDevice(device)"
-            >
-              <div class="device-info">
-                <div class="device-header">
-                  <div class="device-name-row">
-                    <div class="device-name">{{ device.device_name }}</div>
-                    <span v-if="device.isManual" class="manual-badge"
-                      >手动添加</span
-                    >
-                  </div>
-                  <div class="device-actions">
-                    <div class="device-last-seen">
-                      {{
-                        isLocalhostDevice(device)
-                          ? "本机"
-                          : formatLastSeen(device.last_seen_secs_ago)
-                      }}
-                    </div>
-                    <button
-                      v-if="device.isManual"
-                      class="remove-device-btn"
-                      @click.stop="removeManualDevice(device.api_url)"
-                    >
-                      <i class="fas fa-times"></i>
-                    </button>
-                  </div>
-                </div>
-                <div class="device-url">{{ device.api_url }}</div>
-              </div>
-            </div>
-          </div>
-          <div class="url-actions">
-            <button @click="refreshDevices" class="refresh-devices-btn">
-              刷新设备
-            </button>
-            <button @click="openManualAddressDialog" class="manual-url-btn">
-              手动指定地址
-            </button>
-          </div>
-        </div>
-
-        <hr class="settings-divider" />
-
-        <!-- Volume Mode Toggle -->
-        <div class="mode-toggle" @click="$emit('toggleVolumeMode')">
-          <div class="mode-label">音量模式</div>
-          <div class="mode-value">{{ volumeModeLabels[volumeMode] }}</div>
-        </div>
-
-        <!-- Manual Volume Panel -->
-        <div v-if="volumeMode === 'manual'" class="setting-panel active">
-          <div class="setting-item">
-            <label class="setting-label">音量设置</label>
-            <div class="slider-container">
-              <input
-                type="range"
-                class="volume-slider"
-                :model-value="manualVolume"
-                @input="handleManualVolumeSlider"
-                min="0"
-                max="1"
-                step="0.01"
-              />
-              <input
-                type="text"
-                class="value-input"
-                :value="manualVolumeDisplay"
-                @input="handleManualVolumeInput"
-                @blur="handleManualVolumeBlur"
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- Fixed LUFS Volume Panel -->
-        <div v-if="volumeMode === 'fixed'" class="setting-panel active">
-          <div class="setting-item">
-            <label
-              class="setting-label"
-              title="如果音频音量过小，那么此选项可能无法设置为目标音量大小"
-            >
-              目标音量
-            </label>
-            <div class="slider-container">
-              <input
-                type="range"
-                class="volume-slider"
-                :model-value="fixedLufs"
-                @input="handleFixedLufsSlider"
-                min="-100"
-                max="0"
-                step="1"
-              />
-              <input
-                type="text"
-                class="value-input"
-                :value="fixedLufsDisplay"
-                @input="handleFixedLufsInput"
-                @blur="handleFixedLufsBlur"
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- Sleep Timer -->
-        <hr class="settings-divider" />
         <div class="setting-item">
           <label class="setting-label">定时停止播放</label>
-
-          <!-- Timer Status Display -->
           <div class="timer-status">{{ timerStatusDisplay }}</div>
-
-          <!-- Timer Slider -->
           <div class="slider-container">
             <input
               type="range"
@@ -185,8 +35,6 @@
             />
             <span class="value-suffix">分钟</span>
           </div>
-
-          <!-- Timer Presets -->
           <div class="timer-presets">
             <button
               v-for="preset in [15, 30, 60]"
@@ -197,8 +45,6 @@
               {{ preset }}分钟
             </button>
           </div>
-
-          <!-- Timer Action Buttons -->
           <div class="timer-actions">
             <button
               v-if="timerActive"
@@ -213,65 +59,7 @@
           </div>
         </div>
 
-        <!-- Music Directory -->
         <hr class="settings-divider" />
-        <div class="mode-toggle">
-          <div class="mode-label">音乐目录</div>
-        </div>
-        <div class="setting-item">
-          <div class="directory-display">{{ musicDirectory }}</div>
-          <button @click="selectDirectory" class="select-directory-btn">
-            更改目录
-          </button>
-        </div>
-        <div class="setting-item">
-          <button
-            @click="updateDatabase"
-            class="update-database-btn"
-            :disabled="isUpdating"
-          >
-            {{ isUpdating ? "更新中..." : "更新数据库" }}
-          </button>
-        </div>
-        <div class="setting-item">
-          <button
-            @click="$emit('openOnlineSearchModal')"
-            class="upload-music-btn"
-          >
-            在线查找与下载
-          </button>
-        </div>
-        <div class="setting-item">
-          <button @click="$emit('openUploadModal')" class="upload-music-btn">
-            上传音乐文件
-          </button>
-        </div>
-
-        <!-- View Mode Toggle -->
-        <hr class="settings-divider" />
-        <div class="mode-toggle" @click="$emit('toggleViewMode')">
-          <div class="mode-label">分类方式</div>
-          <div class="mode-value">{{ viewModeLabels[viewMode] }}</div>
-        </div>
-
-        <!-- Display Settings -->
-        <hr class="settings-divider" />
-        <div class="mode-toggle">
-          <div class="mode-label">显示设置</div>
-        </div>
-        <div class="setting-item">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              :checked="showLufsLocal"
-              @change="handleShowLufsChange"
-              class="setting-checkbox"
-            />
-            <span>显示 LUFS 值</span>
-          </label>
-        </div>
-
-        <!-- Android: Local Lyrics Setting -->
         <div v-if="isAndroid" class="setting-item">
           <label class="checkbox-label">
             <input
@@ -292,7 +80,6 @@
           </p>
         </div>
 
-        <!-- Android: Disable Headset Media Button -->
         <div v-if="isAndroid" class="setting-item">
           <label class="checkbox-label">
             <input
@@ -309,68 +96,186 @@
         </div>
 
         <hr class="settings-divider" />
-        <div class="mode-toggle">
-          <div class="mode-label">媒体类型过滤</div>
+        <div class="settings-section">
+          <div class="section-title">个人</div>
         </div>
         <div class="setting-item">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              class="setting-checkbox"
-              :checked="selectedMediaTypes.includes('audio')"
-              :disabled="
-                isMediaTypeDisabled('audio') ||
-                isSavingMediaTypes ||
-                isLoadingMediaTypes
-              "
-              @change="
-                toggleMediaType(
-                  'audio',
-                  ($event.target as HTMLInputElement).checked,
-                )
-              "
-            />
-            <span>扫描音频文件</span>
-          </label>
-        </div>
-        <div class="setting-item">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              class="setting-checkbox"
-              :checked="selectedMediaTypes.includes('video')"
-              :disabled="
-                isMediaTypeDisabled('video') ||
-                isSavingMediaTypes ||
-                isLoadingMediaTypes
-              "
-              @change="
-                toggleMediaType(
-                  'video',
-                  ($event.target as HTMLInputElement).checked,
-                )
-              "
-            />
-            <span>扫描视频文件</span>
-          </label>
-          <p class="setting-hint warning-hint">
-            视频文件不会执行 LUFS 音量标准化，保存后需要重新扫描数据库才会生效。
-          </p>
-          <p
-            v-if="mediaTypesMessage"
-            class="setting-hint"
-            :class="{ 'setting-error': mediaTypesError }"
+          <button
+            class="manage-collections-btn"
+            @click="$emit('manageCollections')"
           >
-            {{ mediaTypesMessage }}
-          </p>
-          <div class="url-actions">
-            <button
-              @click="saveMediaTypes"
-              class="save-url-btn"
-              :disabled="isSavingMediaTypes || isLoadingMediaTypes"
+            管理我的收藏夹
+          </button>
+        </div>
+
+        <hr class="settings-divider" />
+        <button class="advanced-toggle-btn" @click="toggleAdvancedSettings">
+          <span class="advanced-toggle-copy">
+            <span class="advanced-toggle-title">高级设置</span>
+            <span class="advanced-toggle-hint">
+              {{
+                showAdvancedSettings
+                  ? "收起设备与来源设置"
+                  : "展开设备与来源设置"
+              }}
+            </span>
+          </span>
+          <span class="advanced-toggle-state">
+            {{ showAdvancedSettings ? "收起" : "展开" }}
+            <i
+              :class="[
+                'fas',
+                showAdvancedSettings ? 'fa-chevron-up' : 'fa-chevron-down',
+              ]"
+            ></i>
+          </span>
+        </button>
+
+        <div v-if="showAdvancedSettings" class="advanced-settings-panel">
+          <div class="mode-toggle">
+            <div class="mode-label">设备与来源</div>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">设备名称</label>
+            <div class="url-input-container">
+              <input
+                type="text"
+                class="url-input"
+                :value="deviceNameInput"
+                @input="
+                  deviceNameInput = ($event.target as HTMLInputElement).value
+                "
+                placeholder="My Kaulan Player"
+                maxlength="64"
+              />
+            </div>
+            <div class="url-actions">
+              <button
+                @click="saveDeviceName"
+                class="save-url-btn"
+                :disabled="isSavingDeviceName"
+              >
+                {{ isSavingDeviceName ? "保存中..." : "保存名称" }}
+              </button>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">局域网中的设备</label>
+            <div v-if="isLoadingDevices" class="loading-state">扫描中...</div>
+            <div v-else-if="displayDevices.length === 0" class="empty-state">
+              未发现其他设备
+            </div>
+            <div v-else class="device-list">
+              <div
+                v-for="device in displayDevices"
+                :key="device.device_id"
+                class="device-item"
+                @click="connectToDevice(device)"
+              >
+                <div class="device-info">
+                  <div class="device-header">
+                    <div class="device-name-row">
+                      <div class="device-name">{{ device.device_name }}</div>
+                      <span v-if="device.isManual" class="manual-badge"
+                        >手动添加</span
+                      >
+                    </div>
+                    <div class="device-actions">
+                      <div class="device-last-seen">
+                        {{
+                          isLocalhostDevice(device)
+                            ? "本机"
+                            : formatLastSeen(device.last_seen_secs_ago)
+                        }}
+                      </div>
+                      <button
+                        v-if="device.isManual"
+                        class="remove-device-btn"
+                        @click.stop="removeManualDevice(device.api_url)"
+                      >
+                        <i class="fas fa-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="device-url">{{ device.api_url }}</div>
+                </div>
+              </div>
+            </div>
+            <div class="url-actions">
+              <button @click="refreshDevices" class="refresh-devices-btn">
+                刷新设备
+              </button>
+              <button @click="openManualAddressDialog" class="manual-url-btn">
+                手动指定地址
+              </button>
+            </div>
+          </div>
+
+          <hr class="settings-divider" />
+          <div class="mode-toggle">
+            <div class="mode-label">媒体类型过滤</div>
+          </div>
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                class="setting-checkbox"
+                :checked="selectedMediaTypes.includes('audio')"
+                :disabled="
+                  isMediaTypeDisabled('audio') ||
+                  isSavingMediaTypes ||
+                  isLoadingMediaTypes
+                "
+                @change="
+                  toggleMediaType(
+                    'audio',
+                    ($event.target as HTMLInputElement).checked,
+                  )
+                "
+              />
+              <span>扫描音频文件</span>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                class="setting-checkbox"
+                :checked="selectedMediaTypes.includes('video')"
+                :disabled="
+                  isMediaTypeDisabled('video') ||
+                  isSavingMediaTypes ||
+                  isLoadingMediaTypes
+                "
+                @change="
+                  toggleMediaType(
+                    'video',
+                    ($event.target as HTMLInputElement).checked,
+                  )
+                "
+              />
+              <span>扫描视频文件</span>
+            </label>
+            <p class="setting-hint warning-hint">
+              视频文件不会执行 LUFS
+              音量标准化，保存后需要重新扫描数据库才会生效。
+            </p>
+            <p
+              v-if="mediaTypesMessage"
+              class="setting-hint"
+              :class="{ 'setting-error': mediaTypesError }"
             >
-              {{ isSavingMediaTypes ? "保存中..." : "保存媒体类型" }}
-            </button>
+              {{ mediaTypesMessage }}
+            </p>
+            <div class="url-actions">
+              <button
+                @click="saveMediaTypes"
+                class="save-url-btn"
+                :disabled="isSavingMediaTypes || isLoadingMediaTypes"
+              >
+                {{ isSavingMediaTypes ? "保存中..." : "保存媒体类型" }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -383,15 +288,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { getApiBase, normalizeApiBase, setApiBase } from "@/utils/api";
 import { validateServerUrl } from "@/utils/validation";
 import {
   getMediaTypes,
   setMediaTypes,
-  setShowLufs,
   getDisableHeadsetMediaButton,
   setDisableHeadsetMediaButton,
+  getManualDevices,
+  setManualDevices,
+  type ManualDevice,
 } from "@/utils/storage";
 import {
   useDeviceDiscovery,
@@ -399,10 +306,8 @@ import {
 } from "@/composables/useDeviceDiscovery";
 
 type VolumeMode = "auto" | "manual" | "fixed";
-type ViewMode = "folder" | "collection";
 
 const props = defineProps<{
-  viewMode: ViewMode;
   volumeMode: VolumeMode;
   manualVolume: number;
   manualVolumeInput: number;
@@ -412,14 +317,11 @@ const props = defineProps<{
   timerMinutesInput: number;
   timerActive: boolean;
   timerStatusDisplay: string;
-  viewModeLabels: Record<ViewMode, string>;
   volumeModeLabels: Record<VolumeMode, string>;
-  showLufs: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "close"): void;
-  (e: "toggleViewMode"): void;
   (e: "toggleVolumeMode"): void;
   (e: "update:manualVolume", value: number): void;
   (e: "update:manualVolumeInput", value: number): void;
@@ -434,19 +336,12 @@ const emit = defineEmits<{
   (e: "databaseUpdated"): void;
   (e: "databaseUpdateStart"): void;
   (e: "databaseUpdateEnd"): void;
-  (e: "openOnlineSearchModal"): void;
   (e: "openUploadModal"): void;
-  (e: "update:showLufs", value: boolean): void;
+  (e: "manageCollections"): void;
 }>();
-
-const musicDirectory = ref<string>("Loading...");
-const isUpdating = ref<boolean>(false);
 
 // Server URL configuration state
 const serverUrlInput = ref<string>("");
-const serverUrlError = ref<string>("");
-const isSavingServerUrl = ref<boolean>(false);
-const serverUrlValid = ref<boolean>(true);
 
 // Device discovery state
 const {
@@ -464,16 +359,6 @@ const {
 const deviceNameInput = ref<string>("");
 const isSavingDeviceName = ref<boolean>(false);
 const LOCALHOST_API_URL = "http://localhost:2080/api";
-
-// Manual devices storage (localStorage)
-const MANUAL_DEVICES_KEY = "kaulan_manual_devices";
-
-interface ManualDevice {
-  api_url: string;
-  device_name?: string;
-  added_at: number;
-  last_fetched?: number;
-}
 
 const manualDevices = ref<ManualDevice[]>([]);
 
@@ -506,27 +391,14 @@ const refreshManualDeviceNames = async () => {
 };
 
 const loadManualDevices = () => {
-  try {
-    const stored = localStorage.getItem(MANUAL_DEVICES_KEY);
-    if (stored) {
-      manualDevices.value = JSON.parse(stored);
-      // Refresh device names in background
-      refreshManualDeviceNames();
-    }
-  } catch (e) {
-    console.error("Failed to load manual devices:", e);
+  manualDevices.value = getManualDevices();
+  if (manualDevices.value.length > 0) {
+    void refreshManualDeviceNames();
   }
 };
 
 const saveManualDevices = () => {
-  try {
-    localStorage.setItem(
-      MANUAL_DEVICES_KEY,
-      JSON.stringify(manualDevices.value),
-    );
-  } catch (e) {
-    console.error("Failed to save manual devices:", e);
-  }
+  setManualDevices(manualDevices.value);
 };
 
 const addManualDevice = async (url: string) => {
@@ -555,29 +427,11 @@ const removeManualDevice = (url: string) => {
   saveManualDevices();
 };
 
-// Local show LUFS setting (synced with prop)
-const showLufsLocal = ref<boolean>(props.showLufs);
 const selectedMediaTypes = ref<string[]>(getMediaTypes());
 const isLoadingMediaTypes = ref<boolean>(false);
 const isSavingMediaTypes = ref<boolean>(false);
 const mediaTypesMessage = ref<string>("");
 const mediaTypesError = ref<boolean>(false);
-
-// Watch for prop changes (from parent/App.vue)
-watch(
-  () => props.showLufs,
-  (newValue) => {
-    showLufsLocal.value = newValue;
-  },
-);
-
-// Handle show LUFS checkbox change
-const handleShowLufsChange = (e: Event) => {
-  const checked = (e.target as HTMLInputElement).checked;
-  showLufsLocal.value = checked;
-  setShowLufs(checked);
-  emit("update:showLufs", checked);
-};
 
 // Local lyrics setting (Android only)
 const useLocalLyrics = ref<boolean>(false);
@@ -590,6 +444,11 @@ const disableHeadsetMediaButton = ref<boolean>(false);
 
 // Check if running on Android
 const isAndroid = ref<boolean>(false);
+const showAdvancedSettings = ref<boolean>(false);
+
+const toggleAdvancedSettings = () => {
+  showAdvancedSettings.value = !showAdvancedSettings.value;
+};
 
 // Handle use local lyrics checkbox change
 const handleUseLocalLyricsChange = async (e: Event) => {
@@ -764,64 +623,10 @@ const isLocalhostDevice = (device: DiscoveredDevice): boolean =>
   device.api_url === LOCALHOST_API_URL;
 
 // Temporary state for user input (before blur/commit)
-const manualVolumeInputTemp = ref("");
-const fixedLufsInputTemp = ref("");
 const timerMinutesInputTemp = ref("");
 
 // Computed display values
-const manualVolumeDisplay = computed(
-  () => `${Math.round(props.manualVolume * 100)}%`,
-);
-const fixedLufsDisplay = computed(() => `${props.fixedLufs} LUFS`);
 const timerMinutesDisplay = computed(() => `${props.timerMinutes}`);
-
-// Manual Volume handlers
-const handleManualVolumeSlider = (e: Event) => {
-  const value = Number((e.target as HTMLInputElement).value);
-  emit("update:manualVolume", value);
-};
-
-const handleManualVolumeInput = (e: Event) => {
-  manualVolumeInputTemp.value = (e.target as HTMLInputElement).value;
-};
-
-const handleManualVolumeBlur = () => {
-  let valueStr = manualVolumeInputTemp.value.trim();
-  // Remove % suffix if present
-  if (valueStr.endsWith("%")) {
-    valueStr = valueStr.slice(0, -1);
-  }
-  const value = Number(valueStr);
-  if (!isNaN(value) && value >= 0 && value <= 100) {
-    emit("update:manualVolume", value / 100);
-  }
-  // Reset temp to current display value
-  manualVolumeInputTemp.value = "";
-};
-
-// Fixed LUFS handlers
-const handleFixedLufsSlider = (e: Event) => {
-  const value = Number((e.target as HTMLInputElement).value);
-  emit("update:fixedLufs", value);
-};
-
-const handleFixedLufsInput = (e: Event) => {
-  fixedLufsInputTemp.value = (e.target as HTMLInputElement).value;
-};
-
-const handleFixedLufsBlur = () => {
-  let valueStr = fixedLufsInputTemp.value.trim();
-  // Remove "LUFS" suffix if present
-  if (valueStr.endsWith("LUFS") || valueStr.endsWith("lufs")) {
-    valueStr = valueStr.slice(0, -4).trim();
-  }
-  const value = Number(valueStr);
-  if (!isNaN(value) && value >= -100 && value <= 0) {
-    emit("update:fixedLufs", value);
-  }
-  // Reset temp to current display value
-  fixedLufsInputTemp.value = "";
-};
 
 // Timer handlers
 const handleTimerMinutesSlider = (e: Event) => {
@@ -888,20 +693,6 @@ onMounted(async () => {
     console.error("Failed to load discovered devices:", err);
   }
 
-  try {
-    const response = await fetch(`${getApiBase()}/settings/music-directory`);
-    if (response.ok) {
-      const data = await response.json();
-      musicDirectory.value = data.path;
-    } else {
-      console.error("Failed to get music directory");
-      musicDirectory.value = "Unknown";
-    }
-  } catch (error) {
-    console.error("Failed to get music directory:", error);
-    musicDirectory.value = "Unknown";
-  }
-
   await loadMediaTypes();
 
   // Check if running on Android
@@ -940,100 +731,6 @@ onMounted(async () => {
   }
 });
 
-const selectDirectory = async () => {
-  // For now, use the same prompt approach for all platforms
-  // SAF integration on Android requires additional work to bypass ACL restrictions
-  let newPath = prompt("请输入新的音乐目录路径:", musicDirectory.value);
-
-  if (!newPath || newPath.trim() === "") {
-    return;
-  }
-
-  try {
-    const response = await fetch(`${getApiBase()}/settings/music-directory`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ path: newPath.trim() }),
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success) {
-        musicDirectory.value = newPath.trim();
-        emit("directoryChanged");
-        alert("音乐目录已更新，正在重新加载...");
-        // Reload the page to refresh the data
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
-      } else {
-        alert("更改目录失败: " + result.message);
-      }
-    } else {
-      const error = await response.json();
-      alert("更改目录失败: " + error.message);
-    }
-  } catch (error) {
-    console.error("Failed to select directory:", error);
-    alert("更改目录失败: " + error);
-  }
-};
-
-const updateDatabase = async () => {
-  isUpdating.value = true;
-  emit("databaseUpdateStart");
-  try {
-    const response = await fetch(`${getApiBase()}/database/update`, {
-      method: "POST",
-    });
-    const result = await response.json();
-    if (result.success) {
-      alert("数据库更新成功，正在重新加载...");
-      // Reload the page to refresh all data
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-    } else {
-      alert("数据库更新失败: " + result.message);
-    }
-  } catch (error) {
-    console.error("Failed to update database:", error);
-    alert("数据库更新失败: " + error);
-  } finally {
-    isUpdating.value = false;
-    emit("databaseUpdateEnd");
-  }
-};
-
-// Server URL handlers
-const saveServerUrl = async () => {
-  const validation = validateServerUrl(serverUrlInput.value);
-  if (!validation.valid) {
-    serverUrlError.value = validation.error || "Invalid URL";
-    serverUrlValid.value = false;
-    return;
-  }
-
-  isSavingServerUrl.value = true;
-  serverUrlError.value = "";
-  serverUrlValid.value = true;
-
-  try {
-    setApiBase(serverUrlInput.value);
-    alert("服务器地址已保存，正在重新加载...");
-    setTimeout(() => {
-      window.location.reload();
-    }, 500);
-  } catch (error) {
-    serverUrlError.value = "保存失败: " + error;
-    serverUrlValid.value = false;
-  } finally {
-    isSavingServerUrl.value = false;
-  }
-};
-
 // Device discovery functions
 const saveDeviceName = async () => {
   if (!deviceNameInput.value.trim()) return;
@@ -1070,8 +767,14 @@ const openManualAddressDialog = async () => {
 
   // Add to manual devices list before connecting (fetches device name)
   await addManualDevice(trimmed);
+  const validation = validateServerUrl(trimmed);
+  if (!validation.valid) {
+    alert(validation.error || "地址无效");
+    return;
+  }
 
-  await saveServerUrl();
+  setApiBase(trimmed);
+  window.location.reload();
 };
 </script>
 
@@ -1551,6 +1254,82 @@ const openManualAddressDialog = async () => {
 .save-url-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.manage-collections-btn {
+  width: 100%;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  background-color: #1db954;
+  color: white;
+}
+
+.manage-collections-btn:hover {
+  background-color: #1ed760;
+}
+
+.advanced-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #d9e1e7;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f9fb 100%);
+  color: #22313f;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.advanced-toggle-btn:hover {
+  border-color: #b8c8d6;
+  box-shadow: 0 8px 20px rgba(34, 49, 63, 0.08);
+  transform: translateY(-1px);
+}
+
+.advanced-toggle-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.advanced-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.advanced-toggle-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.advanced-toggle-hint {
+  font-size: 12px;
+  color: #6b7b88;
+  text-align: left;
+}
+
+.advanced-toggle-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #176b3a;
 }
 
 .reset-url-btn {

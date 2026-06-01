@@ -123,10 +123,16 @@ interface UploadResponse {
   failed: string[];
 }
 
+const props = defineProps<{
+  apiBase?: string;
+}>();
+
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "uploadComplete"): void;
 }>();
+
+const resolvedApiBase = () => props.apiBase || getApiBase();
 
 const directoryTree = ref<DirectoryNode | null>(null);
 const selectedPath = ref<string>("");
@@ -141,7 +147,7 @@ onMounted(async () => {
 
 const loadDirectoryTree = async () => {
   try {
-    const response = await fetch(`${getApiBase()}/files/directory-tree`);
+    const response = await fetch(`${resolvedApiBase()}/files/directory-tree`);
     if (response.ok) {
       directoryTree.value = await response.json();
     } else {
@@ -183,7 +189,7 @@ const uploadFiles = async () => {
     formData.append("targetPath", selectedPath.value);
     formData.append("files", selectedFile.value);
 
-    const response = await fetch(`${getApiBase()}/files/upload`, {
+    const response = await fetch(`${resolvedApiBase()}/files/upload`, {
       method: "POST",
       body: formData,
     });

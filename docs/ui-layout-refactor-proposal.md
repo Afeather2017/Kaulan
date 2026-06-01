@@ -1,0 +1,774 @@
+# UI Layout Refactor Proposal
+
+Related source files:
+- `frontend/src/App.vue`
+- `frontend/src/components/modals/SettingsModal.vue`
+- `frontend/src/components/SearchBar.vue`
+- `frontend/src/components/PlaylistListView.vue`
+- `frontend/src/components/SongListView.vue`
+
+## Core Direction
+
+The UI should stop asking normal users to choose a single active server.
+
+Instead:
+
+- `Library` shows server-grouped folder-based playlists from all music servers
+- each server section can show its current reachability status
+- opening a library row shows the songs in that folder-based playlist
+- search works across all servers by default
+- collections are stored locally per browser/user, not shared through the backend
+
+This matches the family-use case better:
+
+- the music library is shared
+- personal collections remain private
+
+## Product Model
+
+Normal users should understand the app like this:
+
+```text
+Kaulan shows one music library page.
+That page lists folder-based playlists from different devices or servers.
+I can open one playlist to see its songs.
+My collections are mine only.
+```
+
+Not like this:
+
+```text
+First choose one server.
+Then browse that server.
+Collections are shared with everyone.
+```
+
+## Main Concepts
+
+### 1. Shared Library
+
+The visible library is an aggregated view of folder-based playlists returned by all reachable servers and local sources.
+
+Examples of sources:
+
+- `This Device`
+- `Living Room PC`
+- `Downloads`
+
+Important detail:
+
+- this is not a recursive directory tree
+- this is not a flat merged song list by default
+- it is a grouped list of backend playlist buckets keyed by folder name
+- this matches the current `/api/playlists` behavior
+
+Primary layout:
+
+- group playlists under each server/device
+- show server status in the group header
+- show a per-source `⋮` menu in the group header
+- show playlist rows inside that group
+
+This is better than a flat merged list when a server goes offline, because the UI can show the problem once at the group level.
+
+### 2. Personal Collections
+
+Collections should be stored in frontend local storage or IndexedDB.
+
+That means:
+
+- each browser/user gets their own collections
+- family members do not overwrite each other
+- a collection can mix songs from multiple servers
+
+### 3. Advanced Settings
+
+Server addresses, discovery, source details, and scan internals should stay under `高级设置`.
+
+## Terminology
+
+Recommended user-facing labels:
+
+| Technical Term | User-facing Label |
+|---|---|
+| Server | Music Source or Device |
+| Active Server | Remove from normal UI |
+| Source List | Music Sources |
+| Database Update | Refresh Library |
+| Collection | My Collection |
+| Shared Collection | Avoid by default |
+| LUFS | Hide in advanced settings |
+
+## Narrow Mode
+
+Narrow mode should show one main task at a time.
+
+The main screen should focus on:
+
+- one content list
+- one mini player
+- one obvious way into search
+
+### Mobile Main Screen
+
+```text
++--------------------------------------------------+
+| Kaulan                             [Search] [⋮] |
++--------------------------------------------------+
+| [Library] [My Collections] [Filter]             |
++--------------------------------------------------+
+| This Device                      [Online]    [⋮]|
+|  所有音乐                                        |
+|  mp3                                             |
+|  RedmiNote7                                      |
+|                                                  |
+| Living Room PC                   [Online]    [⋮]|
+|  Downloads                                      |
+|  Anime                                          |
+|                                                  |
++--------------------------------------------------+
+| [Cover] Song Name                                |
+| [Cover]      progress bar                        |
+| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++--------------------------------------------------+
+```
+
+### Mobile Expanded Player
+
+When the user taps the mini-player cover or song name, the player expands upward while keeping the lower control block stable.
+
+Default expanded state:
+
+```text
++--------------------------------------------------+
+|           [ Cover ]                              |
+|           [ Cover ]                              |
+|           [ Cover ]                              |
+|           [ Cover ]                              |
+|           [ Cover ]                              |
+|           [ Cover ]                              |
+|           [ Cover ]                              |
++--------------------------------------------------+
+| [Cover] Song Name                                |
+| [Cover]      progress bar                        |
+| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++--------------------------------------------------+
+```
+
+Lyric state:
+
+```text
++--------------------------------------------------+
+|           [ Lyric ]                              |
+|           [ Lyric ]                              |
+|           [ Lyric ]                              |
+|           [ Lyric ]                              |
+|           [ Lyric ]                              |
+|           [ Lyric ]                              |
+|           [ Lyric ]                              |
++--------------------------------------------------+
+| [Cover] Song Name                                |
+| [Cover]      progress bar                        |
+| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++--------------------------------------------------+
+```
+
+### Narrow Mode Rules
+
+- `Library` shows server-grouped folder-based playlists from all servers
+- `My Collections` shows only local personal collections
+- `Filter` opens a sheet, not a full new permanent panel
+- only one of these is active at a time
+- lyrics should open in the expandable upper player panel
+- the lower player block should keep the same layout in cover and lyric states
+
+### Mobile Offline Example
+
+```text
++--------------------------------------------------+
+| This Device                      [Online]    [⋮]|
+|  所有音乐                                        |
+|  mp3                                             |
+|                                                  |
+| Living Room PC                  [Offline]   [⋮]|
+|  Cannot reach this source right now              |
+|  [Retry]                                         |
++--------------------------------------------------+
+```
+
+### Mobile Filter Sheet
+
+```text
++--------------------------------------------------+
+| Filter Library                                   |
++--------------------------------------------------+
+| Source                                           |
+|  (x) All sources                                 |
+|  ( ) This Device                                 |
+|  ( ) Living Room PC                              |
+|  ( ) Downloads                                   |
+|                                                  |
+| Type                                             |
+|  [x] Songs                                       |
+|  [ ] Videos                                      |
+|                                                  |
+| [Reset]                              [Apply]     |
++--------------------------------------------------+
+```
+
+### Mobile Search
+
+Search should support two behaviors in one flow:
+
+- show local library results directly
+- offer a clear `Search online` action in the result area
+
+The top search entry should not force the user to choose online/offline first.
+
+```text
++--------------------------------------------------+
+| [< Back] Search                                  |
++--------------------------------------------------+
+| [ Search songs, playlists...                 ] |
++--------------------------------------------------+
+| [ Search online for "anime ost" ]               |
+|                                                  |
+| Library results                                  |
+|                                                  |
+| Song A                              [This Device]|
+| Song B                              [Living Room]|
+| Song C                              [Downloads]  |
+|                                                  |
++--------------------------------------------------+
+```
+
+If there are no local results:
+
+```text
++--------------------------------------------------+
+| [< Back] Search                                  |
++--------------------------------------------------+
+| [ Search songs, playlists...                 ] |
++--------------------------------------------------+
+| No library results.                              |
+|                                                  |
+| [ Search online for "anime ost" ]               |
++--------------------------------------------------+
+```
+
+Online search should open the existing online-search panel, not replace it.
+
+That panel already handles:
+
+- provider selection
+- provider login status
+- save directory selection
+- preview
+- lyrics selection
+- download
+
+### Online Search Panel
+
+The online-search panel should keep the search flow visible and collapse provider-account management by default.
+
+Recommended default layout:
+
+```text
++--------------------------------------------------+
+| Online Search                                    |
++--------------------------------------------------+
+| [ Search songs, videos, lyrics...            ]   |
+| [Search]                                         |
+|                                                  |
+| Sources: [YouTube] [网易云] [Bilibili]           |
+| [Provider Settings ▾]                            |
+|                                                  |
+| Save to: [Selected Folder]                       |
++--------------------------------------------------+
+| Results...                                       |
++--------------------------------------------------+
+```
+
+Expanded provider settings:
+
+```text
++--------------------------------------------------+
+| Provider Settings ▴                              |
++--------------------------------------------------+
+| YouTube    Logged in      [Manage]               |
+| 网易云      Not logged in  [Manage]               |
+| Bilibili   Logged in      [Manage]               |
++--------------------------------------------------+
+```
+
+Provider-specific management sheet:
+
+```text
++--------------------------------------------------+
+| 网易云 Account                                   |
++--------------------------------------------------+
+| Status: Not logged in                            |
+| [Login]                                          |
+| [Sync Login]                                     |
+| [Logout]                                         |
++--------------------------------------------------+
+```
+
+Default rules:
+
+- keep source selection visible in the main online-search panel
+- collapse login and account operations under `Provider Settings`
+- do not show large provider cards before search results
+- keep directory selection visible because it affects download destination
+
+### Source Group Action Menu
+
+Library-management actions should live in each source group header, not as one shared global action area.
+
+Example:
+
+```text
+Living Room PC                  [Offline]   [⋮]
+```
+
+Opening `⋮` shows actions for that source only:
+
+```text
+Refresh library
+Upload music
+Online search/download
+Change directory
+Retry connection
+Source details
+```
+
+Visibility should depend on source capabilities, not the current client device type.
+
+Examples:
+
+- show `Change directory` only if that source type supports directory switching
+- show `Upload music` only if that source supports uploads
+- show `Retry connection` only when the source is offline or reconnectable
+- show `Online search/download` only if that source supports download destination management
+
+### Mobile Library Detail
+
+```text
++--------------------------------------------------+
+| [< Back] Library / RedmiNote7 [This Device]      |
++--------------------------------------------------+
+| Song A                                           |
+| Song B                                           |
+| Song C                                           |
+|                                                  |
+| Song row menu still supports add to collection   |
++--------------------------------------------------+
+```
+
+## Wide Mode
+
+Wide mode can show browsing and playback together, but the library should still be aggregated at the folder-playlist level.
+
+### Desktop Main Screen
+
+```text
++----------------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮]      |
++----------------------------------------------------------------------------------+
+| [Library] [My Collections] [Filter]   | Now Playing / Lyrics                     |
++---------------------------------------+------------------------------------------+
+| This Device          [Online]    [⋮]  |              [ Cover ]                   |
+|  所有音乐                             |              [ Cover ]                   |
+|  mp3                                  |              [ Cover ]                   |
+|  RedmiNote7                           |              [ Cover ]                   |
+|                                       |------------------------------------------|
+| Living Room PC       [Online]    [⋮]  | [Cover] Song Name                                |
+|  Downloads                            | [Cover]      progress bar                        |
+|  Anime                                | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++---------------------------------------+------------------------------------------+
+```
+
+### Desktop Offline Example
+
+```text
++------------------------------------------------------------------------------------------+
+| [Library] [My Collections] [Filter]   | Now Playing / Lyrics                             |
++---------------------------------------+--------------------------------------------------+
+| This Device          [Online]    [⋮]  |                                                  |
+|  所有音乐                             |                                                  |
+|  mp3                                  |                                                  |
+|                                       |--------------------------------------------------|
+| Living Room PC       [Offline]   [⋮]  | [Cover] Song Name                                |
+|  Cannot reach this source right now   | [Cover]      progress bar                        |
+|  [Retry]                              | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++---------------------------------------+--------------------------------------------------+
+```
+
+### Desktop With Library Detail Open
+
+```text
++----------------------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮]            |
++----------------------------------------------------------------------------------------+
+| Library / RedmiNote7 [This Device]  | Now Playing / Lyrics                             |
++-------------------------------------+--------------------------------------------------+
+| Song A                              |              [ Cover ]                           |
+| Song B                              |              [ Cover ]                           |
+| Song C                              |              [ Cover ]                           |
+|                                     |              [ Cover ]                           |
+|                                     |              [ Cover ]                           |
+|                                     |--------------------------------------------------|
+|                                     | [Cover] Song Name                                |
+|                                     | [Cover]      progress bar                        |
+|                                     | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++-------------------------------------+--------------------------------------------------+
+```
+
+### Desktop With Lyrics Open
+
+```text
++----------------------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮]            |
++----------------------------------------------------------------------------------------+
+| Library / RedmiNote7 [This Device]  | Now Playing / Lyrics                             |
++-------------------------------------+--------------------------------------------------+
+| Song A                              |                    [ Lyric ]                     |
+| Song B                              |                    [ Lyric ]                     |
+| Song C                              |                    [ Lyric ]                     |
+|                                     |                    [ Lyric ]                     |
+|                                     |                    [ Lyric ]                     |
+|                                     |--------------------------------------------------|
+|                                     | [Cover] Song Name                                |
+|                                     | [Cover]      progress bar                        |
+|                                     | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++-------------------------------------+--------------------------------------------------+
+```
+
+### Desktop With Collections Active
+
+```text
++------------------------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮]              |
++------------------------------------------------------------------------------------------+
+| [Library] [My Collections] [Filter]   | Now Playing / Queue                              |
++---------------------------------------+--------------------------------------------------+
+| My Collections                        |              [ Cover ]                           |
+| Favorites                             |              [ Cover ]                           |
+| Sleep                                 |              [ Cover ]                           |
+| Driving                               |              [ Cover ]                           |
+|                                       |              [ Cover ]                           |
+| Favorites Contents                    |--------------------------------------------------|
+| Song A                   [This Device]| [Cover] Song Name                                |
+| Song C                   [Downloads]  | [Cover]      progress bar                        |
+| Song F                   [Living Room]| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++---------------------------------------+--------------------------------------------------+
+```
+
+## Server Visibility
+
+The user should know where music came from, but should not be forced to manage a current active server all the time.
+
+Use clear source presentation:
+
+```text
+This Device                    [Online]    [⋮]
+  mp3
+  RedmiNote7
+
+Living Room                    [Offline]   [⋮]
+  Downloads
+```
+
+Recommended badge behavior:
+
+- always visible in server group headers
+- always visible in search results
+- optional in queue and now playing
+- tap or click badge to filter by that source
+
+### Source Capability Rules
+
+Per-source menu actions should be capability-driven.
+
+Suggested capability flags:
+
+- canRefresh
+- canUpload
+- canChangeDirectory
+- canOnlineDownload
+- canRetryConnection
+- canShowSourceDetails
+
+The UI should render actions from these capabilities instead of assuming all servers behave the same.
+
+### Library Row Identity
+
+Two servers may expose the same folder name, so a library row should be identified by:
+
+```text
+sourceKey + playlistName
+```
+
+not only:
+
+```text
+playlistName
+```
+
+Example:
+
+```text
+This Device / Downloads
+Living Room / Downloads
+```
+
+These are two different library rows.
+
+## Collection Design
+
+Collections should be personal and local by default.
+
+### Why Local Collections
+
+- a family member should not modify another person’s collections
+- collections are closer to bookmarks than shared library structure
+- local storage avoids backend synchronization conflicts
+
+### Local Collection Data Shape
+
+Collections should not identify songs by display name only.
+
+Bad:
+
+```json
+{ "name": "song.mp3" }
+```
+
+Better:
+
+```json
+{
+  "source": "living-room-pc",
+  "songId": 123
+}
+```
+
+Or:
+
+```json
+{
+  "serverUrl": "http://192.168.1.20:2080/api",
+  "songId": 123
+}
+```
+
+Best option is a stable source key plus song id:
+
+```json
+{
+  "sourceKey": "living-room-pc",
+  "songId": 123
+}
+```
+
+This avoids collisions when two servers have the same file names.
+
+## Collection Actions
+
+Collection editing should feel like a normal song action, not a special operating mode.
+
+### Recommended Entry Points
+
+- song row `⋮` menu
+- now playing `⋮` menu
+- collection row `⋮` menu
+
+### Song Row Menu
+
+```text
++--------------------------------------------------+
+| Song A                              [Source] [⋮]|
++--------------------------------------------------+
+| Play next                                        |
+| Add to queue                                     |
+| Add to collection                                |
+| Remove from collection                           |
++--------------------------------------------------+
+```
+
+### Add To Collection Modal
+
+```text
++--------------------------------------------------+
+| Add to My Collection                             |
++--------------------------------------------------+
+| [ ] Favorites                                    |
+| [x] Driving                                      |
+| [ ] Sleep                                        |
+|                                                  |
+| [Create New Collection]                          |
+|                                                  |
+| [Cancel]                           [Confirm]     |
++--------------------------------------------------+
+```
+
+### My Collections Screen
+
+```text
++--------------------------------------------------+
+| My Collections                            [ + ]  |
++--------------------------------------------------+
+| Favorites                                        |
+| Driving                                          |
+| Sleep                                            |
+|                                                  |
+| Select one collection to view its songs          |
++--------------------------------------------------+
+```
+
+### Collection Detail
+
+```text
++--------------------------------------------------+
+| [< Back] Favorites                         [⋮]   |
++--------------------------------------------------+
+| Song A                              [This Device]|
+| Song C                              [Downloads]  |
+| Song F                              [Living Room]|
++--------------------------------------------------+
+```
+
+Collection overflow menu:
+
+```text
+Rename collection
+Delete collection
+```
+
+## Settings Design
+
+Normal settings should be short and non-technical.
+
+### Settings
+
+```text
++--------------------------------------------------+
+| Settings                                         |
++--------------------------------------------------+
+| Playback                                         |
+|  - Lyrics on/off                                 |
+|  - Sleep timer                                   |
+|                                                  |
+| Personal                                         |
+|  - Manage my collections                         |
+|                                                  |
+| [Advanced Settings]                              |
++--------------------------------------------------+
+```
+
+### Advanced Settings
+
+```text
++--------------------------------------------------+
+| Advanced Settings                                |
++--------------------------------------------------+
+| Music Sources                                    |
+|  - Device discovery                              |
+|  - Manual server address                         |
+|  - Connected sources list                        |
+|                                                  |
+| Scan / backend                                   |
+|  - Music directory                               |
+|  - Media type filter                             |
+|  - Refresh internals                             |
+|                                                  |
+| Playback internals                               |
+|  - LUFS display                                  |
+|  - Target loudness                               |
+|  - Manual volume tuning                          |
++--------------------------------------------------+
+```
+
+## What Moves Out Of The Main Screen
+
+Move away from default main UI:
+
+- choosing one active server
+- manual server URL editing
+- device discovery list
+- raw source details
+- music directory path
+- LUFS number display
+- loudness internals
+- backend/database terminology
+- shared global library-management action block
+
+Keep visible in normal use:
+
+- grouped folder-based library
+- source badges
+- personal collections
+- search
+- queue
+- lyrics entry
+- source-group `⋮` actions
+- per-song collection actions
+
+## Suggested Frontend Refactor
+
+### `App.vue`
+
+Reduce `App.vue` to page orchestration and shared playback state.
+
+It should no longer directly mix:
+
+- settings internals
+- library management internals
+- lyric panel logic
+- collection editing mode
+- search mode
+
+### Suggested High-level Components
+
+- `LibraryView`
+- `CollectionView`
+- `CollectionDetailView`
+- `SearchView`
+- `NowPlayingView`
+- `SettingsView`
+- `AdvancedSettingsView`
+- `LibraryFilterSheet`
+
+### Existing Component Reuse
+
+- `SongListView.vue`
+  - reuse for library detail songs and personal collection detail lists
+- `PlaylistListView.vue`
+  - likely repurpose into merged folder-based library rows or personal collection lists
+- `SettingsModal.vue`
+  - split into normal settings and advanced settings
+- `SearchBar.vue`
+  - keep as a search entry, but use global cross-server semantics
+
+
+## Summary
+
+The proposed design changes the app from:
+
+```text
+pick one server
+then browse that server
+then share collections with everyone
+```
+
+to:
+
+```text
+see one combined library page
+see one combined library page grouped by server
+open folder-based playlists from any server
+notice immediately when one server is offline
+keep my own collections private on this device/browser
+```
+
+That model is simpler for normal users and better aligned with multi-server family usage.

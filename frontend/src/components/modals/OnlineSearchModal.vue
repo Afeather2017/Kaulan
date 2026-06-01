@@ -39,49 +39,89 @@
         </div>
       </div>
 
-      <div class="provider-statuses">
-        <div
-          v-for="provider in providerOptions"
-          :key="provider.value"
-          class="provider-card"
-        >
-          <div class="provider-title">{{ provider.label }}</div>
-          <div class="provider-summary">
-            {{ providerStatus[provider.value].summary }}
-          </div>
-          <div class="provider-actions">
-            <template v-if="!providerStatus[provider.value].is_logged_in">
-              <button class="login-btn" @click="openLogin(provider.value)">
-                打开登录
-              </button>
-              <button class="login-btn" @click="captureLogin(provider.value)">
-                读取登录
-              </button>
-            </template>
+      <div class="provider-settings">
+        <button class="provider-toggle" @click="toggleProviderSettings">
+          <span>来源设置</span>
+          <span>{{ showProviderSettings ? "▴" : "▾" }}</span>
+        </button>
+        <div v-if="showProviderSettings" class="provider-settings-panel">
+          <div
+            v-for="provider in providerOptions"
+            :key="provider.value"
+            class="provider-row"
+          >
+            <div class="provider-row-info">
+              <div class="provider-title">{{ provider.label }}</div>
+              <div class="provider-summary">
+                {{ providerStatus[provider.value].summary }}
+              </div>
+            </div>
             <button
-              v-if="providerStatus[provider.value].is_logged_in"
-              class="secondary-btn"
-              @click="logout(provider.value)"
+              class="secondary-btn provider-manage-btn"
+              @click="toggleManagingProvider(provider.value)"
             >
-              退出
+              {{ managingProvider === provider.value ? "收起" : "管理" }}
             </button>
+            <div
+              v-if="managingProvider === provider.value"
+              class="provider-manage-panel"
+            >
+              <button class="login-btn" @click="openLogin(provider.value)">
+                登录
+              </button>
+              <button
+                class="secondary-btn"
+                @click="captureLogin(provider.value)"
+              >
+                同步登录
+              </button>
+              <button
+                v-if="providerStatus[provider.value].is_logged_in"
+                class="secondary-btn"
+                @click="logout(provider.value)"
+              >
+                退出
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="directory-section">
-        <label class="setting-label">保存到目录</label>
-        <div class="directory-tree">
-          <DirectoryTreeNode
-            v-if="directoryTree"
-            :node="directoryTree"
-            :selected-path="selectedPath"
-            @select="selectDirectory"
-          />
+      <div class="download-destination">
+        <div class="setting-label">下载位置</div>
+        <div class="download-target-row">
+          <div class="download-target-value">
+            {{ selectedDownloadDirectoryLabel }}
+          </div>
+          <button class="secondary-btn" @click="toggleDownloadFolderPicker">
+            {{ showDownloadFolderPicker ? "收起" : "选择文件夹" }}
+          </button>
         </div>
         <p class="permission-message">
-          Android 下载会保存到应用目录，试听文件会在下次启动时自动清理。
+          下载内容始终保存到当前设备本地。Android
+          下载会保存到应用目录，试听文件会在下次启动时自动清理。
         </p>
+        <div v-if="showDownloadFolderPicker" class="download-folder-picker">
+          <div v-if="isLoadingDownloadDirectories" class="directory-loading">
+            读取目录中...
+          </div>
+          <div v-else-if="downloadDirectoryError" class="directory-error">
+            {{ downloadDirectoryError }}
+          </div>
+          <div v-else class="download-folder-options">
+            <button
+              v-for="option in downloadDirectoryOptions"
+              :key="option.path"
+              :class="[
+                'download-folder-option',
+                { selected: selectedDownloadSubdir === option.path },
+              ]"
+              @click="selectedDownloadSubdir = option.path"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="results-section" v-if="searchResults.length > 0">
@@ -190,9 +230,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted } from "vue";
-import { getApiBase } from "@/utils/api";
-import { checkIsAndroid } from "@/utils/platform";
+import { computed, reactive, ref, onMounted, watch } from "vue";
 
 type DownloadSource = "youtube" | "netease" | "bilibili";
 type OnlineProvider = DownloadSource;
@@ -207,13 +245,6 @@ interface SearchResult {
   can_preview: boolean;
   can_download: boolean;
   requires_login: boolean;
-}
-
-interface DirectoryNode {
-  name: string;
-  path: string;
-  type: string;
-  children?: DirectoryNode[];
 }
 
 interface ProviderStatus {
@@ -242,10 +273,22 @@ interface PreviewSong {
   is_temporary: boolean;
 }
 
+interface DirectoryNode {
+  name: string;
+  path: string;
+  node_type: string;
+  children?: DirectoryNode[] | null;
+}
+
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "downloadComplete"): void;
   (e: "previewTrack", song: PreviewSong): void;
+}>();
+
+const props = defineProps<{
+  initialQuery?: string;
+  apiBase?: string;
 }>();
 
 const sourceOptions: Array<{ value: DownloadSource; label: string }> = [
@@ -267,17 +310,23 @@ const downloadingKey = ref<string | null>(null);
 const previewingKey = ref<string | null>(null);
 const loadingLyricsKey = ref<string | null>(null);
 const expandedLyricsKey = ref<string | null>(null);
+const showProviderSettings = ref(false);
+const managingProvider = ref<OnlineProvider | null>(null);
 const statusMessage = ref("");
 const statusType = ref<"info" | "success" | "error">("info");
-const directoryTree = ref<DirectoryNode | null>(null);
-const selectedPath = ref("");
 const selectedSources = ref<DownloadSource[]>([
   "youtube",
   "netease",
   "bilibili",
 ]);
+const downloadDirectoryTree = ref<DirectoryNode | null>(null);
+const isLoadingDownloadDirectories = ref(false);
+const downloadDirectoryError = ref("");
+const showDownloadFolderPicker = ref(false);
+const selectedDownloadSubdir = ref("");
 const lyricCandidates = reactive<Record<string, LyricCandidate[]>>({});
 const selectedLyrics = reactive<Record<string, LyricCandidate | null>>({});
+const supportsProviderAccountActions = ref(false);
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
     provider: "youtube",
@@ -299,13 +348,79 @@ const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   },
 });
 
+const LOCALHOST_API_BASE = "http://localhost:2080/api";
+
+const resolvedApiBase = (): string => {
+  const candidate = props.apiBase?.trim();
+  return candidate && candidate.length > 0 ? candidate : LOCALHOST_API_BASE;
+};
+
+const collectDirectoryOptions = (
+  node: DirectoryNode | null,
+  options: Array<{ path: string; label: string }>,
+) => {
+  if (!node) {
+    return;
+  }
+
+  options.push({
+    path: node.path || "",
+    label: node.path || "下载根目录",
+  });
+
+  for (const child of node.children || []) {
+    collectDirectoryOptions(child, options);
+  }
+};
+
+const downloadDirectoryOptions = computed(() => {
+  const options: Array<{ path: string; label: string }> = [];
+  collectDirectoryOptions(downloadDirectoryTree.value, options);
+  return options;
+});
+
+const selectedDownloadDirectoryLabel = computed(() => {
+  const selected = downloadDirectoryOptions.value.find(
+    (option) => option.path === selectedDownloadSubdir.value,
+  );
+  return selected?.label || "下载根目录";
+});
+
+watch(
+  () => props.initialQuery,
+  (value) => {
+    if (typeof value === "string" && value.trim()) {
+      searchInput.value = value.trim();
+    }
+  },
+  { immediate: true },
+);
+
 onMounted(async () => {
+  await loadDownloadDirectoryTree();
+
+  supportsProviderAccountActions.value =
+    typeof window !== "undefined" &&
+    typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__ !== "undefined";
+
+  if (!supportsProviderAccountActions.value) {
+    for (const provider of providerOptions) {
+      providerStatus[provider.value] = {
+        provider: provider.value,
+        is_logged_in: true,
+        session_path: "",
+        summary: "浏览器调试模式下不显示登录状态",
+      };
+    }
+    syncSelectedSources();
+    return;
+  }
+
   await Promise.all([
-    loadDirectoryTree(),
     loadProviderStatus("youtube"),
     loadProviderStatus("netease"),
     loadProviderStatus("bilibili"),
-    checkIsAndroid(),
   ]);
   syncSelectedSources();
 });
@@ -346,19 +461,20 @@ const toggleSource = (source: DownloadSource) => {
   selectedSources.value = [...selectedSources.value, source];
 };
 
-const selectDirectory = (path: string) => {
-  selectedPath.value = path;
+const toggleProviderSettings = () => {
+  showProviderSettings.value = !showProviderSettings.value;
+  if (!showProviderSettings.value) {
+    managingProvider.value = null;
+  }
 };
 
-const loadDirectoryTree = async () => {
-  try {
-    const response = await fetch(getApiBase() + "/download/directory-tree");
-    if (response.ok) {
-      directoryTree.value = await response.json();
-    }
-  } catch (error) {
-    console.error("Failed to load download directory tree:", error);
-  }
+const toggleDownloadFolderPicker = () => {
+  showDownloadFolderPicker.value = !showDownloadFolderPicker.value;
+};
+
+const toggleManagingProvider = (provider: OnlineProvider) => {
+  managingProvider.value =
+    managingProvider.value === provider ? null : provider;
 };
 
 const providerLabel = (provider: OnlineProvider): string => {
@@ -373,6 +489,10 @@ const providerLabel = (provider: OnlineProvider): string => {
 };
 
 const loadProviderStatus = async (provider: OnlineProvider) => {
+  if (!supportsProviderAccountActions.value) {
+    return;
+  }
+
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     const status = await invoke<ProviderStatus>("online_login_status", {
@@ -386,7 +506,44 @@ const loadProviderStatus = async (provider: OnlineProvider) => {
   }
 };
 
+const loadDownloadDirectoryTree = async () => {
+  isLoadingDownloadDirectories.value = true;
+  downloadDirectoryError.value = "";
+
+  try {
+    const response = await fetch(
+      resolvedApiBase() + "/download/directory-tree",
+      {
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || "读取下载目录失败");
+    }
+
+    downloadDirectoryTree.value = await response.json();
+    if (
+      !downloadDirectoryOptions.value.some(
+        (option) => option.path === selectedDownloadSubdir.value,
+      )
+    ) {
+      selectedDownloadSubdir.value = "";
+    }
+  } catch (error) {
+    downloadDirectoryError.value = `读取下载目录失败: ${error}`;
+  } finally {
+    isLoadingDownloadDirectories.value = false;
+  }
+};
+
 const openLogin = async (provider: OnlineProvider) => {
+  if (!supportsProviderAccountActions.value) {
+    statusType.value = "info";
+    statusMessage.value = "浏览器调试模式下无法管理登录状态";
+    return;
+  }
+
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("online_open_login", { provider });
@@ -399,6 +556,12 @@ const openLogin = async (provider: OnlineProvider) => {
 };
 
 const captureLogin = async (provider: OnlineProvider) => {
+  if (!supportsProviderAccountActions.value) {
+    statusType.value = "info";
+    statusMessage.value = "浏览器调试模式下无法同步登录信息";
+    return;
+  }
+
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     const status = await invoke<ProviderStatus>("online_capture_login", {
@@ -417,6 +580,12 @@ const captureLogin = async (provider: OnlineProvider) => {
 };
 
 const logout = async (provider: OnlineProvider) => {
+  if (!supportsProviderAccountActions.value) {
+    statusType.value = "info";
+    statusMessage.value = "浏览器调试模式下无法退出登录";
+    return;
+  }
+
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     const status = await invoke<ProviderStatus>("online_logout", { provider });
@@ -443,7 +612,7 @@ const handleSearch = async () => {
   isSearching.value = true;
   statusMessage.value = "";
   try {
-    const response = await fetch(getApiBase() + "/download/search", {
+    const response = await fetch(resolvedApiBase() + "/download/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -472,7 +641,7 @@ const handlePreview = async (result: SearchResult) => {
   statusMessage.value = `正在准备试听: ${result.title}`;
 
   try {
-    const response = await fetch(getApiBase() + "/download/preview", {
+    const response = await fetch(resolvedApiBase() + "/download/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -504,13 +673,16 @@ const handlePreview = async (result: SearchResult) => {
 const fetchLyrics = async (result: SearchResult) => {
   loadingLyricsKey.value = resultKey(result);
   try {
-    const response = await fetch(getApiBase() + "/download/lyrics/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: `${result.title} ${result.artist}`.trim(),
-      }),
-    });
+    const response = await fetch(
+      resolvedApiBase() + "/download/lyrics/search",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `${result.title} ${result.artist}`.trim(),
+        }),
+      },
+    );
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || "歌词搜索失败");
@@ -548,7 +720,7 @@ const handleDownload = async (result: SearchResult) => {
   statusMessage.value = `正在下载: ${result.title}`;
   try {
     const selectedLyric = selectedLyrics[resultKey(result)];
-    const response = await fetch(getApiBase() + "/download/track", {
+    const response = await fetch(resolvedApiBase() + "/download/track", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -556,7 +728,7 @@ const handleDownload = async (result: SearchResult) => {
         id: result.id,
         title: result.title,
         artist: result.artist,
-        target_subdir: selectedPath.value || "",
+        target_subdir: selectedDownloadSubdir.value,
         lyric_selection: selectedLyric?.id ?? null,
       }),
     });
@@ -566,7 +738,7 @@ const handleDownload = async (result: SearchResult) => {
       ok: response.ok,
       source: result.source,
       id: result.id,
-      target_subdir: selectedPath.value || "",
+      target_subdir: selectedDownloadSubdir.value,
       payload: data,
     });
     if (!response.ok || !data.success) {
@@ -584,52 +756,6 @@ const handleDownload = async (result: SearchResult) => {
     downloadingKey.value = null;
   }
 };
-</script>
-
-<script lang="ts">
-import { defineComponent, PropType } from "vue";
-
-interface DirectoryNode {
-  name: string;
-  path: string;
-  type: string;
-  children?: DirectoryNode[];
-}
-
-export const DirectoryTreeNode = defineComponent({
-  name: "DirectoryTreeNode",
-  props: {
-    node: {
-      type: Object as PropType<DirectoryNode>,
-      required: true,
-    },
-    selectedPath: {
-      type: String,
-      default: "",
-    },
-  },
-  emits: ["select"],
-  template: `
-    <div class="directory-node">
-      <div
-        :class="['directory-name', { selected: node.path === selectedPath }]"
-        @click="$emit('select', node.path)"
-      >
-        <span class="folder-icon">📁</span>
-        <span class="node-text">{{ node.name || '根目录' }}</span>
-      </div>
-      <div v-if="node.children && node.children.length > 0" class="directory-children">
-        <DirectoryTreeNode
-          v-for="child in node.children"
-          :key="child.path"
-          :node="child"
-          :selected-path="selectedPath"
-          @select="$emit('select', $event)"
-        />
-      </div>
-    </div>
-  `,
-});
 </script>
 
 <style scoped>
@@ -661,7 +787,6 @@ export const DirectoryTreeNode = defineComponent({
 }
 
 .search-section,
-.directory-section,
 .results-section {
   margin-bottom: 18px;
 }
@@ -723,36 +848,125 @@ export const DirectoryTreeNode = defineComponent({
   gap: 6px;
 }
 
-.provider-statuses {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+.provider-settings,
+.download-destination {
   margin-bottom: 18px;
 }
 
-.provider-card {
+.download-target-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.download-target-value {
+  min-width: 0;
+  flex: 1;
+  font-size: 14px;
+  color: #223;
+  overflow-wrap: anywhere;
+}
+
+.download-folder-picker {
+  margin-top: 12px;
   border: 1px solid #e4e8ee;
   border-radius: 10px;
   padding: 12px;
   background: #f9fbfc;
 }
 
+.directory-loading,
+.directory-error {
+  font-size: 14px;
+  color: #556;
+}
+
+.directory-error {
+  color: #b42318;
+}
+
+.download-folder-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.download-folder-option {
+  border: 1px solid #d7dde6;
+  border-radius: 999px;
+  background: #fff;
+  color: #223;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.download-folder-option.selected {
+  background: #1db954;
+  border-color: #1db954;
+  color: #fff;
+}
+
+.provider-toggle {
+  width: 100%;
+  border: 1px solid #d7dde6;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 600;
+  color: #223;
+}
+
+.provider-settings-panel {
+  margin-top: 10px;
+  border: 1px solid #e4e8ee;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f9fbfc;
+}
+
+.provider-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e7edf4;
+}
+
+.provider-row:last-child {
+  border-bottom: none;
+}
+
+.provider-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
 .provider-title {
   font-weight: 700;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .provider-summary {
   font-size: 13px;
   color: #4a5565;
-  min-height: 34px;
 }
 
-.provider-actions {
+.provider-manage-btn {
+  flex-shrink: 0;
+}
+
+.provider-manage-panel {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 10px;
+  flex-basis: 100%;
+  padding-left: 0;
 }
 
 .setting-label {
@@ -761,44 +975,10 @@ export const DirectoryTreeNode = defineComponent({
   font-weight: 600;
 }
 
-.directory-tree {
-  border: 1px solid #e4e8ee;
-  border-radius: 8px;
-  padding: 10px;
-  max-height: 180px;
-  overflow-y: auto;
-  background: #fbfcfd;
-}
-
 .permission-message {
-  margin: 10px 0 0;
+  margin: 0;
   font-size: 13px;
   color: #556372;
-}
-
-.directory-node {
-  margin-left: 0;
-}
-
-.directory-children {
-  margin-left: 20px;
-}
-
-.directory-name {
-  display: flex;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.directory-name.selected {
-  background: #1db954;
-  color: #fff;
-}
-
-.folder-icon {
-  margin-right: 8px;
 }
 
 .results-list {

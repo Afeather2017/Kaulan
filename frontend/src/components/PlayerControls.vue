@@ -1,7 +1,7 @@
 <template>
   <div class="player-controls">
     <div class="player-top">
-      <div class="cover-thumb-wrapper" @click="$emit('toggleLyric')">
+      <div class="cover-thumb-wrapper" @click="$emit('showPlayerPanel')">
         <img
           v-if="coverUrl && !coverFailed"
           :src="coverUrl"
@@ -16,7 +16,7 @@
         <button
           v-if="currentSongName"
           class="current-song"
-          @click="$emit('toggleLyric')"
+          @click="$emit('showPlayerPanel')"
         >
           {{ currentSongName }}
         </button>
@@ -70,7 +70,6 @@
 
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { getApiBase } from "@/utils/api";
 
 const props = defineProps<{
   currentTime: number;
@@ -78,7 +77,7 @@ const props = defineProps<{
   isPlaying: boolean;
   playMode: "sequential" | "shuffle" | "loop";
   currentSongName?: string;
-  songId?: number;
+  coverUrl?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -89,16 +88,15 @@ const emit = defineEmits<{
   (e: "pause"): void;
   (e: "next"): void;
   (e: "showActiveQueue"): void;
-  (e: "toggleLyric"): void;
+  (e: "showPlayerPanel"): void;
 }>();
 
 const progressBar = ref<HTMLElement | null>(null);
 const coverFailed = ref(false);
 
 const coverUrl = computed(() => {
-  if (!props.songId) return null;
   coverFailed.value = false;
-  return `${getApiBase()}/music/id/${props.songId}/cover`;
+  return props.coverUrl || null;
 });
 
 const playModeLabel = computed(() => {

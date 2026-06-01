@@ -12,7 +12,7 @@
         <SearchBar v-model="searchQuery" @search="handleSearch" />
       </div>
 
-      <div class="action-bar">
+      <div v-if="showActionBar" class="action-bar">
         <button
           v-if="showBackButton"
           class="action-btn"
@@ -21,174 +21,86 @@
           返回
         </button>
         <div class="action-spacer"></div>
-        <button
-          v-if="showChooseButton"
-          class="action-btn"
-          @click="handleChooseAction"
-        >
-          选择
-        </button>
       </div>
 
       <!-- Scanning Message -->
       <div v-if="isScanning" class="scanning-message">扫描中...</div>
 
       <div class="main-area" :class="{ 'wide-layout': isWideLayout }">
-        <div class="list-panel" v-show="!showLyric || isWideLayout">
-          <div class="content-area">
-            <!-- Playlist List -->
-            <PlaylistListView
-              v-if="currentView === 'playlists'"
-              :title="viewModeLabels[viewMode]"
-              :view-mode="viewMode"
-              :playlist-names="playlistNames"
-              :playlists="playlists"
-              :select-mode="collectionSelectMode"
-              :selected-playlists="selectedCollectionsList"
-              :show-select-button="false"
-              :has-selected-non-all-music="hasSelectedNonAllMusicCollection()"
-              :show-header="false"
-              @toggle-select-mode="toggleCollectionSelectMode"
-              @toggle-selection="toggleCollectionSelection"
-              @select="handleSelectPlaylist"
-              @show-create-modal="handleShowCreateModal"
-              @delete-selected="handleDeleteSelectedCollections"
-            />
-
-            <!-- Song List -->
-            <SongListView
-              v-if="currentView === 'songs'"
-              :title="selectedPlaylist?.name || ''"
-              :songs="currentSongs"
-              :select-mode="selectMode"
-              :selected-songs="selectedSongs"
-              :current-song-name="currentSong?.name"
-              :show-remove-button="
-                viewMode === 'collection' &&
-                selectedPlaylist?.name !== '所有音乐'
-              "
-              :show-add-button="
-                viewMode === 'folder' || selectedPlaylist?.name === '所有音乐'
-              "
-              :show-header="false"
-              :show-lufs="showLufs"
-              @back="handleBackToPlaylists"
-              @toggle-select-mode="toggleSelectMode"
-              @toggle-selection="toggleSongSelection"
-              @play="handlePlaySong"
-              @remove="handleRemoveFromCollection"
-              @show-add-modal="handleShowAddToCollectionModal"
-            />
-
-            <!-- Search Results -->
-            <div v-if="currentView === 'search'">
-              <SongListView
-                v-if="searchResults.length > 0"
-                title="搜索结果"
-                :songs="searchResults"
-                :select-mode="false"
-                :selected-songs="new Set()"
-                :show-remove-button="false"
-                :show-add-button="false"
-                :show-header="false"
-                :show-lufs="showLufs"
-                @back="handleBackToPlaylists"
-                @play="handlePlaySong"
-              />
-              <div v-else class="empty-state">未找到匹配的歌曲</div>
-            </div>
-          </div>
+        <div class="list-panel" v-show="!isPlayerPanelVisible || isWideLayout">
+          <AppContentView
+            :current-view="currentView"
+            :active-tab="activeTab"
+            :library-group-summaries="libraryGroupSummaries"
+            :collection-names="collectionNames"
+            :collection-playlists="collectionPlaylists"
+            :collection-select-mode="collectionSelectMode"
+            :selected-collections-list="selectedCollectionsList"
+            :has-selected-non-all-music="hasSelectedNonAllMusicCollection()"
+            :selected-playlist-title="selectedPlaylist?.name || ''"
+            :current-songs="currentSongs"
+            :select-mode="selectMode"
+            :selected-songs="selectedSongs"
+            :current-song-name="currentSong?.name"
+            :show-lufs="showLufs"
+            :trimmed-search-query="trimmedSearchQuery"
+            :search-results="searchResults"
+            @set-active-tab="activeTab = $event"
+            @open-filter-sheet="openFilterSheet"
+            @select-library-playlist="handleSelectLibraryPlaylist"
+            @open-source-menu="handleOpenSourceMenu"
+            @retry-source-connection="retrySourceConnection"
+            @toggle-collection-select-mode="toggleCollectionSelectMode"
+            @toggle-collection-selection="toggleCollectionSelection"
+            @select-collection="handleSelectCollection"
+            @show-create-modal="handleShowCreateModal"
+            @delete-selected-collections="handleDeleteSelectedCollections"
+            @open-collection-menu="openCollectionMenu"
+            @back-to-playlists="handleBackToPlaylists"
+            @toggle-select-mode="toggleSelectMode"
+            @toggle-song-selection="toggleSongSelection"
+            @play-song="handlePlaySong"
+            @remove-from-collection="handleRemoveFromCollection"
+            @show-add-to-collection-modal="handleShowAddToCollectionModal"
+            @song-action="handleSongCollectionAction"
+            @open-online-search-from-query="openOnlineSearchFromQuery"
+            @reset-library-filter="resetLibraryFilter"
+          />
         </div>
-
-        <div class="right-panel" v-if="isWideLayout || showLyric">
-          <div class="right-panel-content">
-            <div v-if="showLyric" class="lyric-panel">
-              <div v-if="!hasLyrics" class="lyric-empty">暂无歌词</div>
-              <div v-else class="lyric-container" ref="lyricContainerRef">
-                <div
-                  v-for="(line, index) in lyrics"
-                  :key="index"
-                  :class="[
-                    'lyric-line',
-                    { active: index === currentLyricIndex },
-                  ]"
-                  role="button"
-                  tabindex="0"
-                  @click="handleLyricLineClick(line.time)"
-                  @keydown.enter.prevent="handleLyricLineClick(line.time)"
-                  @keydown.space.prevent="handleLyricLineClick(line.time)"
-                >
-                  <!-- Display all language versions for this timestamp -->
-                  <template
-                    v-for="(text, textIndex) in line.texts"
-                    :key="textIndex"
-                  >
-                    <div :class="['lyric-text', `lyric-lang-${textIndex}`]">
-                      {{ text || "\u00A0" }}
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </div>
-            <div v-else class="cover-panel">
-              <img
-                v-if="currentSong?.id"
-                :src="`${getApiBase()}/music/id/${currentSong.id}/cover`"
-                :key="currentSong.id"
-                class="cover-image"
-                @error="
-                  ($event.target as HTMLImageElement).style.display = 'none'
-                "
-                @load="($event.target as HTMLImageElement).style.display = ''"
-                alt=""
-              />
-            </div>
-
-            <PlayerControls
-              v-if="isWideLayout && !selectMode"
-              :current-time="currentTime"
-              :duration="duration"
-              :is-playing="isPlaying"
-              :play-mode="playMode"
-              :current-song-name="currentSong?.name"
-              :song-id="currentSong?.id"
-              @seek="seekToTime"
-              @toggle-play-mode="togglePlayMode"
-              @previous="previousSong"
-              @play="play"
-              @pause="pause"
-              @next="nextSong"
-              @show-active-queue="handleShowActiveQueue"
-              @toggle-lyric="handleToggleLyric"
-            />
-          </div>
-        </div>
+        <AppPlayerView
+          :is-player-panel-visible="isPlayerPanelVisible"
+          :is-wide-layout="isWideLayout"
+          :is-lyric-panel-visible="isLyricPanelVisible"
+          :select-mode="selectMode"
+          :has-lyrics="hasLyrics"
+          :lyrics="lyrics"
+          :current-lyric-index="currentLyricIndex"
+          :current-song-id="currentSong?.id ?? null"
+          :current-song-name="currentSong?.name"
+          :cover-url="resolveSongCoverUrl(currentSong)"
+          :current-time="currentTime"
+          :duration="duration"
+          :is-playing="isPlaying"
+          :play-mode="playMode"
+          @lyric-line-click="handleLyricLineClick"
+          @show-cover-panel="showCoverPanel"
+          @show-lyrics-panel="showLyricsPanel"
+          @cover-load-error="handleCoverLoadError(currentSong)"
+          @seek="seekToTime"
+          @toggle-play-mode="togglePlayMode"
+          @previous="previousSong"
+          @play="play"
+          @pause="pause"
+          @next="nextSong"
+          @show-active-queue="handleShowActiveQueue"
+          @toggle-panel-mode="togglePlayerPanelMode"
+        />
       </div>
-
-      <!-- Player Controls (mobile) -->
-      <PlayerControls
-        v-if="!isWideLayout && !selectMode"
-        :current-time="currentTime"
-        :duration="duration"
-        :is-playing="isPlaying"
-        :play-mode="playMode"
-        :current-song-name="currentSong?.name"
-        :song-id="currentSong?.id"
-        @seek="seekToTime"
-        @toggle-play-mode="togglePlayMode"
-        @previous="previousSong"
-        @play="play"
-        @pause="pause"
-        @next="nextSong"
-        @show-active-queue="handleShowActiveQueue"
-        @toggle-lyric="handleToggleLyric"
-      />
     </div>
 
     <!-- Settings Modal -->
     <SettingsModal
       v-if="showSettings"
-      :view-mode="viewMode"
       :volume-mode="volumeMode"
       :manual-volume="manualVolume"
       :manual-volume-input="manualVolumeInput"
@@ -198,11 +110,8 @@
       :timer-minutes-input="timerMinutesInput"
       :timer-active="timerActive"
       :timer-status-display="timerStatusDisplay"
-      :view-mode-labels="viewModeLabels"
       :volume-mode-labels="volumeModeLabels"
-      :show-lufs="showLufs"
       @close="hideSettingsModal"
-      @toggle-view-mode="handleToggleViewMode"
       @toggle-volume-mode="handleToggleVolumeMode"
       @update:manual-volume="manualVolume = $event"
       @update:manual-volume-input="manualVolumeInput = $event"
@@ -217,19 +126,19 @@
       @database-updated="handleDatabaseUpdated"
       @database-update-start="handleDatabaseUpdateStart"
       @database-update-end="handleDatabaseUpdateEnd"
-      @open-online-search-modal="showOnlineSearchModal = true"
       @open-upload-modal="showUploadModal = true"
-      @update:show-lufs="showLufs = $event"
+      @manage-collections="handleManageCollections"
     />
 
     <!-- Add to Collection Modal -->
     <AddToCollectionModal
       v-if="showAddToCollection"
-      :collections="collections"
+      :collections="localCollections"
       :selected-collection-ids="selectedCollections"
       @close="hideAddToCollectionModal"
       @confirm="addToCollection"
       @toggle-selection="handleToggleCollectionSelection"
+      @create-new="handleCreateCollectionFromAddModal"
     />
 
     <!-- Create Collection Modal -->
@@ -243,12 +152,27 @@
     <!-- Upload Modal -->
     <UploadModal
       v-if="showUploadModal"
+      :api-base="uploadTargetApiBase"
       @close="showUploadModal = false"
       @upload-complete="handleUploadComplete"
     />
 
+    <LibraryFilterSheet
+      v-if="showFilterSheet"
+      :sources="filterSources"
+      :draft-source-key="draftSourceFilterKey"
+      :draft-media-types="draftMediaTypes"
+      @close="showFilterSheet = false"
+      @apply="applyLibraryFilter"
+      @reset="resetLibraryFilter"
+      @update:draft-source-key="draftSourceFilterKey = $event"
+      @toggle-media-type="toggleDraftMediaType"
+    />
+
     <OnlineSearchModal
       v-if="showOnlineSearchModal"
+      :initial-query="searchQuery"
+      :api-base="onlineSearchApiBase"
       @close="showOnlineSearchModal = false"
       @download-complete="handleOnlineDownloadComplete"
       @preview-track="handlePreviewTrack"
@@ -262,15 +186,40 @@
       @close="showActiveQueueModal = false"
       @play="handlePlayQueueSong"
     />
+
+    <AppActionSheets
+      :active-tab="activeTab"
+      :selected-source-menu-group="selectedSourceMenuGroup"
+      :selected-collection-menu-name="selectedCollectionMenuName"
+      :selected-song-menu-song="selectedSongMenuSong"
+      @close-source-menu="closeSourceMenu"
+      @refresh-source="updateSourceDatabase"
+      @upload-to-source="openUploadForSource"
+      @open-online-search-for-source="openOnlineSearchForSource"
+      @change-source-directory="changeSourceDirectory"
+      @retry-source-connection="retrySourceConnection"
+      @show-source-details="showSourceDetails"
+      @close-collection-menu="closeCollectionMenu"
+      @rename-collection="renameCollection"
+      @delete-collection="deleteCollectionFromMenu"
+      @close-song-menu="closeSongMenu"
+      @queue-song-next="queueSongNextFromMenu"
+      @add-song-to-queue="addSongToQueueFromMenu"
+      @add-song-to-collection="addSongToCollectionFromMenu"
+      @remove-song-from-collection="removeSongFromCollectionFromMenu"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import SearchBar from "@/components/SearchBar.vue";
-import PlaylistListView from "@/components/PlaylistListView.vue";
-import SongListView, { type SongInfo } from "@/components/SongListView.vue";
-import PlayerControls from "@/components/PlayerControls.vue";
+import AppActionSheets from "@/components/AppActionSheets.vue";
+import AppContentView from "@/components/AppContentView.vue";
+import AppPlayerView from "@/components/AppPlayerView.vue";
+import { type LibrarySourceGroupSummary } from "@/components/LibrarySourceListView.vue";
+import LibraryFilterSheet from "@/components/LibraryFilterSheet.vue";
+import { type SongInfo } from "@/components/SongListView.vue";
 import SettingsModal from "@/components/modals/SettingsModal.vue";
 import ActiveQueueModal from "@/components/modals/ActiveQueueModal.vue";
 import AddToCollectionModal from "@/components/modals/AddToCollectionModal.vue";
@@ -278,42 +227,140 @@ import CreateCollectionModal from "@/components/modals/CreateCollectionModal.vue
 import OnlineSearchModal from "@/components/modals/OnlineSearchModal.vue";
 import UploadModal from "@/components/modals/UploadModal.vue";
 import { useAudioPlayer, type MusicInfo } from "@/composables/useAudioPlayer";
-import { usePlaylist } from "@/composables/usePlaylist";
 import { useSelection } from "@/composables/useSelection";
 import { useTimer } from "@/composables/useTimer";
 import { useVolume } from "@/composables/useVolume";
 import { useLyrics } from "@/composables/useLyrics";
 import { getApiBase } from "@/utils/api";
-import { getShowLufs } from "@/utils/storage";
+import {
+  getLocalCollections,
+  getManualDevices,
+  getShowLufs,
+  setLocalCollections,
+  type StoredLocalCollection,
+} from "@/utils/storage";
 import { checkIsAndroid } from "@/utils/platform";
 
-// Search behavior docs: docs/search.md
-// Use composables
-const {
-  viewMode,
-  playlists,
-  collections,
-  searchQuery,
-  currentView,
-  selectedPlaylist,
-  playlistNames,
-  currentSongs,
-  searchResults,
-  viewModeLabels,
-  refreshData,
-  toggleViewMode: playlistToggleViewMode,
-  selectPlaylist,
-  backToPlaylists,
-  showSearchResults,
-  createCollection: apiCreateCollection,
-  deleteCollection,
-  addToCollection: apiAddToCollection,
-  removeFromCollection: apiRemoveFromCollection,
-  getAllMusic,
-} = usePlaylist();
+type MainView = "playlists" | "songs" | "search";
+type MainTab = "library" | "collections";
+type PlayerPanelMode = "collapsed" | "cover" | "lyrics";
+
+interface PlaylistSelection {
+  name: string;
+  songs: MusicInfo[];
+}
+
+interface LibraryPlaylistGroup {
+  name: string;
+  songs: MusicInfo[];
+}
+
+interface SourceCapabilities {
+  canRefresh: boolean;
+  canUpload: boolean;
+  canChangeDirectory: boolean;
+  canOnlineDownload: boolean;
+  canRetryConnection: boolean;
+  canShowSourceDetails: boolean;
+}
+
+interface LibrarySourceGroup {
+  apiBase: string;
+  sourceKey: string;
+  name: string;
+  isOnline: boolean;
+  isCurrent: boolean;
+  playlists: LibraryPlaylistGroup[];
+  capabilities: SourceCapabilities;
+}
+
+const searchQuery = ref("");
+const currentView = ref<MainView>("playlists");
+const activeTab = ref<MainTab>("library");
+const selectedPlaylist = ref<PlaylistSelection | null>(null);
+const selectedLibrarySourceKey = ref<string | null>(null);
+const selectedLibraryPlaylistName = ref<string | null>(null);
+const localCollections = ref<StoredLocalCollection[]>([]);
+const sourceGroups = ref<LibrarySourceGroup[]>([]);
+const showFilterSheet = ref(false);
+const appliedSourceFilterKey = ref("all");
+const draftSourceFilterKey = ref("all");
+const appliedMediaTypes = ref<Array<"audio" | "video">>(["audio", "video"]);
+const draftMediaTypes = ref<Array<"audio" | "video">>(["audio", "video"]);
 
 const playbackSource = ref<"playlist" | "search">("playlist");
 const searchPlaybackSongs = ref<SongInfo[]>([]);
+const currentSongs = computed<MusicInfo[]>(
+  () => selectedPlaylist.value?.songs || [],
+);
+const collectionNames = computed(() =>
+  localCollections.value.map((collection) => collection.name),
+);
+const collectionPlaylists = computed<Record<string, SongInfo[]>>(() =>
+  Object.fromEntries(
+    localCollections.value.map((collection) => [
+      collection.name,
+      collection.songs,
+    ]),
+  ),
+);
+
+const filteredSourceGroups = computed<LibrarySourceGroup[]>(() =>
+  sourceGroups.value
+    .filter(
+      (group) =>
+        appliedSourceFilterKey.value === "all" ||
+        group.sourceKey === appliedSourceFilterKey.value,
+    )
+    .map((group) => ({
+      ...group,
+      playlists: group.playlists
+        .map((playlist) => ({
+          ...playlist,
+          songs: playlist.songs.filter((song) =>
+            appliedMediaTypes.value.includes(song.mediaType || "audio"),
+          ),
+        }))
+        .filter((playlist) => playlist.songs.length > 0 || !group.isOnline),
+    }))
+    .filter((group) => group.playlists.length > 0 || !group.isOnline),
+);
+
+const allLibrarySongs = computed<SongInfo[]>(() =>
+  filteredSourceGroups.value.flatMap((group) =>
+    group.playlists.flatMap((playlist) => playlist.songs),
+  ),
+);
+
+const libraryGroupSummaries = computed<LibrarySourceGroupSummary[]>(() =>
+  filteredSourceGroups.value.map((group) => ({
+    sourceKey: group.sourceKey,
+    name: group.name,
+    isOnline: group.isOnline,
+    playlists: group.playlists.map((playlist) => ({
+      name: playlist.name,
+      songCount: playlist.songs.length,
+    })),
+  })),
+);
+
+const searchResults = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) {
+    return [];
+  }
+
+  return allLibrarySongs.value.filter((song) =>
+    song.name.toLowerCase().includes(query),
+  );
+});
+
+const filterSources = computed(() =>
+  sourceGroups.value.map((group) => ({
+    sourceKey: group.sourceKey,
+    name: group.name,
+  })),
+);
 
 // Handler for song start event - trigger LUFS pre-caching for next song
 // Defined as ref to allow useAudioPlayer to reference it, but implemented below
@@ -411,17 +458,250 @@ const showSettings = ref(false);
 const showLufs = ref(getShowLufs());
 const showAddToCollection = ref(false);
 const selectedCollections = ref<number[]>([]);
+const pendingSongsForCollection = ref<MusicInfo[]>([]);
 const newCollectionName = ref("");
 const showCreateCollection = ref(false);
 const showUploadModal = ref(false);
 const showOnlineSearchModal = ref(false);
 const showActiveQueueModal = ref(false);
-const showLyric = ref(false);
-const lyricContainerRef = ref<HTMLElement | null>(null);
+const playerPanelMode = ref<PlayerPanelMode>("collapsed");
 const isWideLayout = ref(false);
 const hasUserToggledLyric = ref(false);
 const isScanning = ref(false);
+const failedCoverUrls = ref<Set<string>>(new Set());
+const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
+const selectedCollectionMenuName = ref<string | null>(null);
+const selectedSongMenuSong = ref<MusicInfo | null>(null);
+const uploadTargetApiBase = ref<string>(getApiBase());
 let androidBackListener: { unregister(): Promise<void> } | null = null;
+
+const LOCALHOST_API_BASE = "http://localhost:2080/api";
+const onlineSearchApiBase = ref<string>(LOCALHOST_API_BASE);
+
+const buildSongApiUrl = (apiBase: string, suffix: string): string => {
+  return `${apiBase}${suffix}`;
+};
+
+const buildSongRowKey = (song: {
+  id: number;
+  name: string;
+  source_key?: string | null;
+}): string => {
+  return `${song.source_key || "local"}:${song.id}:${song.name}`;
+};
+
+const resolveSongCoverUrl = (song: MusicInfo | null): string | null => {
+  if (!song) {
+    return null;
+  }
+
+  const coverUrl =
+    song.cover_url ||
+    buildSongApiUrl(getApiBase(), `/music/id/${song.id}/cover`);
+  return failedCoverUrls.value.has(coverUrl) ? null : coverUrl;
+};
+
+const getSongMenuIdentity = (song: {
+  id: number;
+  name: string;
+  stream_url?: string | null;
+  source_key?: string | null;
+}): string => {
+  return song.stream_url || buildSongRowKey(song);
+};
+
+const inferMediaType = (song: {
+  name: string;
+  path: string;
+}): "audio" | "video" => {
+  const candidate = `${song.name} ${song.path}`.toLowerCase();
+  const audioExtensions = [
+    ".mp3",
+    ".flac",
+    ".wav",
+    ".ogg",
+    ".m4a",
+    ".aac",
+    ".opus",
+  ];
+  return audioExtensions.some((extension) => candidate.includes(extension))
+    ? "audio"
+    : "video";
+};
+
+const buildSourceLabel = (apiBase: string): string => {
+  const manualMatch = getManualDevices().find(
+    (device) => device.api_url === apiBase,
+  );
+  if (manualMatch?.device_name?.trim()) {
+    return manualMatch.device_name.trim();
+  }
+
+  try {
+    const parsed = new URL(apiBase);
+    return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
+      ? "This Device"
+      : parsed.hostname;
+  } catch {
+    return apiBase;
+  }
+};
+
+const normalizeSourceSong = (
+  apiBase: string,
+  sourceLabel: string,
+  song: MusicInfo,
+): MusicInfo => ({
+  ...song,
+  stream_url:
+    song.stream_url || buildSongApiUrl(apiBase, `/music/id/${song.id}`),
+  cover_url:
+    (song as MusicInfo).cover_url ||
+    buildSongApiUrl(apiBase, `/music/id/${song.id}/cover`),
+  source_key: apiBase,
+  sourceLabel,
+  rowKey: `${apiBase}:${song.id}:${song.name}`,
+  mediaType: song.mediaType || inferMediaType(song),
+});
+
+const syncLocalCollections = () => {
+  setLocalCollections(localCollections.value);
+};
+
+const loadLocalCollections = () => {
+  localCollections.value = getLocalCollections().map((collection) => ({
+    ...collection,
+    songs: collection.songs.map((song) => ({
+      ...song,
+      rowKey: buildSongRowKey(song),
+      mediaType: song.mediaType || inferMediaType(song),
+    })),
+  }));
+};
+
+const getSourceApiBases = (): string[] => {
+  const manual = getManualDevices().map((device) => device.api_url);
+  return Array.from(new Set([getApiBase(), LOCALHOST_API_BASE, ...manual]));
+};
+
+const fetchSourceGroup = async (
+  apiBase: string,
+): Promise<LibrarySourceGroup> => {
+  const fallbackName = buildSourceLabel(apiBase);
+
+  try {
+    const [
+      selfResponse,
+      playlistsResponse,
+      directoryTreeResponse,
+      musicDirectoryResponse,
+    ] = await Promise.all([
+      fetch(buildSongApiUrl(apiBase, "/discovery/self"), {
+        cache: "no-store",
+      }),
+      fetch(buildSongApiUrl(apiBase, "/playlists"), {
+        cache: "no-store",
+      }),
+      fetch(buildSongApiUrl(apiBase, "/files/directory-tree"), {
+        cache: "no-store",
+      }).catch(() => null),
+      fetch(buildSongApiUrl(apiBase, "/settings/music-directory"), {
+        cache: "no-store",
+      }).catch(() => null),
+    ]);
+
+    if (!selfResponse.ok || !playlistsResponse.ok) {
+      throw new Error("source unavailable");
+    }
+
+    const selfData = await selfResponse.json();
+    const playlistMap = (await playlistsResponse.json()) as Record<
+      string,
+      SongInfo[]
+    >;
+    const sourceLabel = selfData.device_name || fallbackName;
+    const canUpload = !!directoryTreeResponse?.ok;
+    const canChangeDirectory = !!musicDirectoryResponse?.ok;
+    const isLocalDownloadTarget = apiBase === LOCALHOST_API_BASE;
+
+    const playlists = Object.entries(playlistMap).map(([name, songs]) => ({
+      name,
+      songs: songs.map((song) =>
+        normalizeSourceSong(apiBase, sourceLabel, song),
+      ),
+    }));
+
+    return {
+      sourceKey: apiBase,
+      apiBase,
+      name: sourceLabel,
+      isOnline: true,
+      isCurrent: apiBase === getApiBase(),
+      playlists,
+      capabilities: {
+        canRefresh: true,
+        canUpload,
+        canChangeDirectory,
+        canOnlineDownload: isLocalDownloadTarget && canUpload,
+        canRetryConnection: false,
+        canShowSourceDetails: true,
+      },
+    };
+  } catch (error) {
+    console.warn("Failed to load source group:", apiBase, error);
+    return {
+      sourceKey: apiBase,
+      apiBase,
+      name: fallbackName,
+      isOnline: false,
+      isCurrent: apiBase === getApiBase(),
+      playlists: [],
+      capabilities: {
+        canRefresh: false,
+        canUpload: false,
+        canChangeDirectory: false,
+        canOnlineDownload: false,
+        canRetryConnection: true,
+        canShowSourceDetails: true,
+      },
+    };
+  }
+};
+
+const syncSelectedLibraryPlaylist = () => {
+  if (
+    currentView.value !== "songs" ||
+    !selectedLibrarySourceKey.value ||
+    !selectedLibraryPlaylistName.value
+  ) {
+    return;
+  }
+
+  const source = sourceGroups.value.find(
+    (group) => group.sourceKey === selectedLibrarySourceKey.value,
+  );
+  const playlist = source?.playlists.find(
+    (item) => item.name === selectedLibraryPlaylistName.value,
+  );
+  if (!source || !playlist) {
+    return;
+  }
+
+  selectedPlaylist.value = {
+    name: `曲库 / ${playlist.name} [${source.name}]`,
+    songs: playlist.songs,
+  };
+};
+
+const refreshSourceGroups = async () => {
+  const groups = await Promise.all(getSourceApiBases().map(fetchSourceGroup));
+  sourceGroups.value = groups.sort((left, right) => {
+    if (left.isCurrent && !right.isCurrent) return -1;
+    if (!left.isCurrent && right.isCurrent) return 1;
+    return left.name.localeCompare(right.name);
+  });
+  syncSelectedLibraryPlaylist();
+};
 
 const triggerDatabaseUpdate = async () => {
   try {
@@ -469,22 +749,31 @@ const {
 } = useVolume(currentSong, playbackSongs);
 
 const showBackButton = computed(() => {
-  return showLyric.value || currentView.value !== "playlists";
+  return (
+    currentView.value === "search" ||
+    (playerPanelMode.value !== "collapsed" && !isWideLayout.value)
+  );
 });
 
-const showChooseButton = computed(() => {
-  if (showLyric.value) return false;
-  if (currentView.value === "playlists") return viewMode.value === "collection";
-  if (currentView.value === "songs") return true;
-  return false;
-});
+const showActionBar = computed(() => showBackButton.value);
+
+const isPlayerPanelVisible = computed(
+  () => isWideLayout.value || playerPanelMode.value !== "collapsed",
+);
+
+const isLyricPanelVisible = computed(() => playerPanelMode.value === "lyrics");
 
 const updateLayoutMode = () => {
   if (typeof window === "undefined") return;
   const isWide = window.matchMedia("(min-aspect-ratio: 1/1)").matches;
+  const wasWide = isWideLayout.value;
   isWideLayout.value = isWide;
-  if (isWide && !hasUserToggledLyric.value) {
-    showLyric.value = true;
+  if (isWide && (!wasWide || playerPanelMode.value === "collapsed")) {
+    playerPanelMode.value = "cover";
+    return;
+  }
+  if (!isWide && wasWide && !hasUserToggledLyric.value) {
+    playerPanelMode.value = "collapsed";
   }
 };
 
@@ -530,18 +819,35 @@ const patchSongLufs = (songId: number, lufs: number) => {
     };
   }
 
-  let playlistsChanged = false;
-  const nextPlaylists = Object.fromEntries(
-    Object.entries(playlists.value).map(([name, songs]) => {
-      const updatedSongs = patchSongLufsInList(songs, songId, lufs);
-      if (updatedSongs !== songs) {
-        playlistsChanged = true;
+  let groupsChanged = false;
+  const nextGroups = sourceGroups.value.map((group) => {
+    let groupChanged = false;
+    const playlists = group.playlists.map((playlist) => {
+      const updatedSongs = patchSongLufsInList(playlist.songs, songId, lufs);
+      if (updatedSongs !== playlist.songs) {
+        groupChanged = true;
       }
-      return [name, updatedSongs];
-    }),
-  );
-  if (playlistsChanged) {
-    playlists.value = nextPlaylists;
+      return groupChanged
+        ? {
+            ...playlist,
+            songs: updatedSongs,
+          }
+        : playlist;
+    });
+
+    if (!groupChanged) {
+      return group;
+    }
+
+    groupsChanged = true;
+    return {
+      ...group,
+      playlists,
+    };
+  });
+  if (groupsChanged) {
+    sourceGroups.value = nextGroups;
+    syncSelectedLibraryPlaylist();
   }
 };
 
@@ -725,42 +1031,32 @@ watch(
   },
 );
 
-// Watch for view mode changes
-watch(viewMode, async () => {
-  backToPlaylists();
-  await refreshData();
-});
-
-// Helper function to scroll to current lyric
-const scrollToCurrentLyric = () => {
-  if (!lyricContainerRef.value || currentLyricIndex.value < 0) return;
-
-  // Get all lyric line elements
-  const lyricLines = lyricContainerRef.value.querySelectorAll(".lyric-line");
-  if (lyricLines.length === 0) return;
-
-  const activeLine = lyricLines[currentLyricIndex.value] as HTMLElement;
-  if (!activeLine) return;
-
-  // Scroll the active line to center of container
-  activeLine.scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-  });
-};
-
-// Auto-scroll to current lyric when index changes
-watch(currentLyricIndex, scrollToCurrentLyric);
-
-// Scroll to current lyric when lyric panel is shown
-watch(showLyric, (isShown) => {
-  if (isShown) {
-    // Use setTimeout to ensure the DOM is rendered after v-show takes effect
-    setTimeout(scrollToCurrentLyric, 50);
+watch(activeTab, () => {
+  if (currentView.value !== "playlists") {
+    backToPlaylists();
   }
+  selectMode.value = false;
+  selectedSongs.value.clear();
+  collectionSelectMode.value = false;
+  selectedCollectionsList.value.clear();
 });
 
 // Event handlers
+const backToPlaylists = () => {
+  currentView.value = "playlists";
+  selectedPlaylist.value = null;
+  selectedLibrarySourceKey.value = null;
+  selectedLibraryPlaylistName.value = null;
+  searchQuery.value = "";
+};
+
+const showSearchResults = () => {
+  if (!searchQuery.value.trim()) {
+    return;
+  }
+  currentView.value = "search";
+};
+
 const handleLyricLineClick = async (time: number) => {
   if (!currentSong.value) {
     return;
@@ -781,14 +1077,57 @@ const handleSearch = () => {
   showSearchResults();
 };
 
-const handleSelectPlaylist = (name: string) => {
-  selectPlaylist(name);
+const trimmedSearchQuery = computed(() => searchQuery.value.trim());
+
+const openOnlineSearchFromQuery = () => {
+  if (!trimmedSearchQuery.value) {
+    return;
+  }
+  onlineSearchApiBase.value = LOCALHOST_API_BASE;
+  showOnlineSearchModal.value = true;
+};
+
+const handleSelectCollection = (name: string) => {
+  const songs = collectionPlaylists.value[name] || [];
+  selectedPlaylist.value = {
+    name,
+    songs,
+  };
+  selectedLibrarySourceKey.value = null;
+  selectedLibraryPlaylistName.value = null;
+  currentView.value = "songs";
+  playbackSource.value = "playlist";
+  searchPlaybackSongs.value = [];
+  resetPlaylist();
+};
+
+const handleSelectLibraryPlaylist = (
+  group: LibrarySourceGroupSummary,
+  playlistName: string,
+) => {
+  const source = sourceGroups.value.find(
+    (item) => item.sourceKey === group.sourceKey,
+  );
+  const playlist = source?.playlists.find((item) => item.name === playlistName);
+  if (!source || !playlist) {
+    return;
+  }
+
+  selectedPlaylist.value = {
+    name: `曲库 / ${playlistName} [${source.name}]`,
+    songs: playlist.songs,
+  };
+  selectedLibrarySourceKey.value = source.sourceKey;
+  selectedLibraryPlaylistName.value = playlistName;
+  currentView.value = "songs";
   playbackSource.value = "playlist";
   searchPlaybackSongs.value = [];
   resetPlaylist();
 };
 
 const handleBackToPlaylists = () => {
+  closeCollectionMenu();
+  closeSongMenu();
   backToPlaylists();
   selectMode.value = false;
   selectedSongs.value.clear();
@@ -797,15 +1136,34 @@ const handleBackToPlaylists = () => {
 };
 
 const handleActionBack = () => {
-  // In wide layout, lyrics are always visible - don't toggle them off
-  if (showLyric.value && !isWideLayout.value) {
-    showLyric.value = false;
+  if (playerPanelMode.value !== "collapsed" && !isWideLayout.value) {
+    playerPanelMode.value = "collapsed";
     return;
   }
   handleBackToPlaylists();
 };
 
 const closeTopOverlay = () => {
+  if (showFilterSheet.value) {
+    showFilterSheet.value = false;
+    return true;
+  }
+
+  if (selectedSourceMenuGroup.value) {
+    closeSourceMenu();
+    return true;
+  }
+
+  if (selectedCollectionMenuName.value) {
+    closeCollectionMenu();
+    return true;
+  }
+
+  if (selectedSongMenuSong.value) {
+    closeSongMenu();
+    return true;
+  }
+
   if (showActiveQueueModal.value) {
     showActiveQueueModal.value = false;
     return true;
@@ -857,8 +1215,8 @@ const handleAndroidBackPress = () => {
   }
 
   // Match the visible "返回" button behavior on mobile.
-  if (showLyric.value && !isWideLayout.value) {
-    showLyric.value = false;
+  if (playerPanelMode.value !== "collapsed" && !isWideLayout.value) {
+    playerPanelMode.value = "collapsed";
     return true;
   }
 
@@ -896,16 +1254,6 @@ const registerAndroidBackHandler = async () => {
     });
   } catch (error) {
     console.warn("[app] Failed to register Android back handler:", error);
-  }
-};
-
-const handleChooseAction = () => {
-  if (currentView.value === "playlists") {
-    toggleCollectionSelectMode();
-    return;
-  }
-  if (currentView.value === "songs") {
-    toggleSelectMode();
   }
 };
 
@@ -985,28 +1333,59 @@ const handleSongStart = async (
 handleSongStartRef.value = handleSongStart;
 
 const handleShowSettingsModal = () => {
+  closeSourceMenu();
+  closeCollectionMenu();
+  closeSongMenu();
   showSettings.value = true;
+};
+
+const handleManageCollections = () => {
+  hideSettingsModal();
+  activeTab.value = "collections";
+  currentView.value = "playlists";
+  selectedPlaylist.value = null;
+  selectedLibrarySourceKey.value = null;
+  selectedLibraryPlaylistName.value = null;
 };
 
 const handleShowActiveQueue = () => {
   showActiveQueueModal.value = true;
 };
 
-const handleToggleLyric = () => {
-  // In wide layout, lyrics are always visible - don't allow toggle
-  if (isWideLayout.value) {
+const togglePlayerPanelMode = () => {
+  if (!currentSong.value) {
     return;
   }
-  showLyric.value = !showLyric.value;
+
+  if (playerPanelMode.value === "collapsed") {
+    playerPanelMode.value = "cover";
+  } else if (playerPanelMode.value === "cover") {
+    playerPanelMode.value = "lyrics";
+  } else {
+    playerPanelMode.value = "cover";
+  }
+
+  hasUserToggledLyric.value = true;
+};
+
+const showCoverPanel = () => {
+  if (!currentSong.value) {
+    return;
+  }
+  playerPanelMode.value = "cover";
+  hasUserToggledLyric.value = true;
+};
+
+const showLyricsPanel = () => {
+  if (!currentSong.value) {
+    return;
+  }
+  playerPanelMode.value = "lyrics";
   hasUserToggledLyric.value = true;
 };
 
 const hideSettingsModal = () => {
   showSettings.value = false;
-};
-
-const handleToggleViewMode = () => {
-  playlistToggleViewMode();
 };
 
 const handleToggleVolumeMode = () => {
@@ -1034,14 +1413,12 @@ const handleCancelTimer = async () => {
 };
 
 const handleDirectoryChanged = () => {
-  // Refresh data when directory changes
-  refreshData();
+  void refreshSourceGroups();
   void refreshAndroidSession();
 };
 
 const handleDatabaseUpdated = async () => {
-  // Refresh data when database is updated
-  await refreshData();
+  await refreshSourceGroups();
   await refreshAndroidSession();
 };
 
@@ -1054,19 +1431,12 @@ const handleDatabaseUpdateEnd = () => {
 };
 
 const handleUploadComplete = async () => {
-  // Refresh data after upload completes
   showUploadModal.value = false;
-  await refreshData();
-
-  // If a playlist is currently selected, update its songs with the refreshed data
-  if (selectedPlaylist.value) {
-    const playlistName = selectedPlaylist.value.name;
-    selectPlaylist(playlistName);
-  }
+  await refreshSourceGroups();
 };
 
 const handleOnlineDownloadComplete = async () => {
-  await refreshData();
+  await refreshSourceGroups();
   await refreshAndroidSession();
 };
 
@@ -1076,15 +1446,339 @@ const handlePreviewTrack = async (song: MusicInfo) => {
   await playSongAtIndex(song, 0, [song]);
 };
 
+const openFilterSheet = () => {
+  draftSourceFilterKey.value = appliedSourceFilterKey.value;
+  draftMediaTypes.value = [...appliedMediaTypes.value];
+  showFilterSheet.value = true;
+};
+
+const toggleDraftMediaType = (
+  mediaType: "audio" | "video",
+  enabled: boolean,
+) => {
+  const next = new Set(draftMediaTypes.value);
+  if (enabled) {
+    next.add(mediaType);
+  } else if (next.size > 1) {
+    next.delete(mediaType);
+  }
+  draftMediaTypes.value = Array.from(next) as Array<"audio" | "video">;
+};
+
+const applyLibraryFilter = () => {
+  appliedSourceFilterKey.value = draftSourceFilterKey.value;
+  appliedMediaTypes.value =
+    draftMediaTypes.value.length > 0 ? [...draftMediaTypes.value] : ["audio"];
+  showFilterSheet.value = false;
+};
+
+const resetLibraryFilter = () => {
+  draftSourceFilterKey.value = "all";
+  draftMediaTypes.value = ["audio", "video"];
+  appliedSourceFilterKey.value = "all";
+  appliedMediaTypes.value = ["audio", "video"];
+  showFilterSheet.value = false;
+};
+
+const handleOpenSourceMenu = (group: LibrarySourceGroupSummary) => {
+  selectedSourceMenuGroup.value =
+    sourceGroups.value.find((item) => item.sourceKey === group.sourceKey) ||
+    null;
+};
+
+const closeSourceMenu = () => {
+  selectedSourceMenuGroup.value = null;
+};
+
+const openCollectionMenu = (collectionName: string) => {
+  if (!collectionName) {
+    return;
+  }
+  selectedSongMenuSong.value = null;
+  selectedCollectionMenuName.value = collectionName;
+};
+
+const closeCollectionMenu = () => {
+  selectedCollectionMenuName.value = null;
+};
+
+const renameCollection = () => {
+  const currentName = selectedCollectionMenuName.value;
+  if (!currentName) {
+    return;
+  }
+
+  const nextName = prompt("请输入新的收藏夹名称:", currentName);
+  if (nextName === null) {
+    return;
+  }
+
+  const trimmedName = nextName.trim();
+  if (!trimmedName) {
+    alert("请输入收藏夹名称");
+    return;
+  }
+
+  if (
+    trimmedName !== currentName &&
+    localCollections.value.some((collection) => collection.name === trimmedName)
+  ) {
+    alert("已存在同名收藏夹");
+    return;
+  }
+
+  localCollections.value = localCollections.value.map((collection) =>
+    collection.name === currentName
+      ? {
+          ...collection,
+          name: trimmedName,
+        }
+      : collection,
+  );
+  syncLocalCollections();
+  if (selectedPlaylist.value?.name === currentName) {
+    selectedPlaylist.value = {
+      ...selectedPlaylist.value,
+      name: trimmedName,
+    };
+  }
+  selectedCollectionMenuName.value = trimmedName;
+};
+
+const deleteCollectionByName = (collectionName: string) => {
+  const before = localCollections.value.length;
+  localCollections.value = localCollections.value.filter(
+    (collection) => collection.name !== collectionName,
+  );
+  if (localCollections.value.length === before) {
+    return false;
+  }
+
+  syncLocalCollections();
+  if (selectedPlaylist.value?.name === collectionName) {
+    handleBackToPlaylists();
+  }
+  return true;
+};
+
+const deleteCollectionFromMenu = () => {
+  const collectionName = selectedCollectionMenuName.value;
+  if (!collectionName) {
+    return;
+  }
+
+  if (!confirm(`确定要删除收藏夹 “${collectionName}” 吗？`)) {
+    return;
+  }
+
+  if (deleteCollectionByName(collectionName)) {
+    closeCollectionMenu();
+  }
+};
+
+const openSongMenu = (song: SongInfo) => {
+  selectedCollectionMenuName.value = null;
+  selectedSongMenuSong.value = song as MusicInfo;
+};
+
+const closeSongMenu = () => {
+  selectedSongMenuSong.value = null;
+};
+
+const buildQueueWithSongInserted = (song: MusicInfo, insertIndex: number) => {
+  const baseQueue =
+    activeQueue.value.length > 0
+      ? activeQueue.value.slice()
+      : playbackSongs.value.slice();
+  const songIdentity = getSongMenuIdentity(song);
+  const existingQueue = baseQueue.filter(
+    (item) => getSongMenuIdentity(item) !== songIdentity,
+  );
+
+  if (existingQueue.length === 0) {
+    return [song];
+  }
+
+  const safeInsertIndex = Math.max(
+    0,
+    Math.min(insertIndex, existingQueue.length),
+  );
+  existingQueue.splice(safeInsertIndex, 0, song);
+  return existingQueue;
+};
+
+const updateQueueState = async (nextQueue: MusicInfo[]) => {
+  activeQueue.value = nextQueue;
+  if (isAndroidPlayer.value) {
+    await syncAndroidQueueState();
+  }
+};
+
+const queueSongNextFromMenu = async () => {
+  const song = selectedSongMenuSong.value;
+  if (!song) {
+    return;
+  }
+
+  if (!currentSong.value) {
+    closeSongMenu();
+    await handlePlaySong(song);
+    return;
+  }
+
+  const currentQueue =
+    activeQueue.value.length > 0 ? activeQueue.value : playbackSongs.value;
+  const currentIndex = currentQueue.findIndex(
+    (item) =>
+      getSongMenuIdentity(item) ===
+      getSongMenuIdentity(currentSong.value as MusicInfo),
+  );
+  const nextQueue = buildQueueWithSongInserted(
+    song,
+    currentIndex >= 0 ? currentIndex + 1 : 1,
+  );
+  await updateQueueState(nextQueue);
+  closeSongMenu();
+};
+
+const addSongToQueueFromMenu = async () => {
+  const song = selectedSongMenuSong.value;
+  if (!song) {
+    return;
+  }
+
+  const nextQueue = buildQueueWithSongInserted(song, activeQueue.value.length);
+  await updateQueueState(nextQueue);
+  closeSongMenu();
+};
+
+const addSongToCollectionFromMenu = () => {
+  const song = selectedSongMenuSong.value;
+  if (!song) {
+    return;
+  }
+
+  selectedCollections.value = [];
+  pendingSongsForCollection.value = [song];
+  showAddToCollection.value = true;
+  closeSongMenu();
+};
+
+const removeSongFromCollectionFromMenu = () => {
+  const song = selectedSongMenuSong.value;
+  if (!song) {
+    return;
+  }
+
+  removeSingleSongFromCollection(song);
+  closeSongMenu();
+};
+
+const refreshSingleSource = async (apiBase: string) => {
+  const updated = await fetchSourceGroup(apiBase);
+  sourceGroups.value = sourceGroups.value
+    .map((group) => (group.sourceKey === apiBase ? updated : group))
+    .sort((left, right) => {
+      if (left.isCurrent && !right.isCurrent) return -1;
+      if (!left.isCurrent && right.isCurrent) return 1;
+      return left.name.localeCompare(right.name);
+    });
+  syncSelectedLibraryPlaylist();
+};
+
+const retrySourceConnection = async (apiBase: string) => {
+  await refreshSingleSource(apiBase);
+};
+
+const showSourceDetails = (group: LibrarySourceGroup) => {
+  const lines = [
+    `Name: ${group.name}`,
+    `API: ${group.apiBase}`,
+    `Status: ${group.isOnline ? "Online" : "Offline"}`,
+    `Playlists: ${group.playlists.length}`,
+  ];
+  closeSourceMenu();
+  alert(lines.join("\n"));
+};
+
+const handleCoverLoadError = (song: MusicInfo | null) => {
+  const coverUrl = resolveSongCoverUrl(song);
+  if (!coverUrl) {
+    return;
+  }
+
+  failedCoverUrls.value = new Set(failedCoverUrls.value).add(coverUrl);
+};
+
+const updateSourceDatabase = async (group: LibrarySourceGroup) => {
+  closeSourceMenu();
+  isScanning.value = true;
+  try {
+    const response = await fetch(`${group.apiBase}/database/update`, {
+      method: "POST",
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || "更新失败");
+    }
+    await refreshSingleSource(group.apiBase);
+  } catch (error) {
+    console.error("Failed to update source database:", error);
+    alert(`更新失败: ${error}`);
+  } finally {
+    isScanning.value = false;
+  }
+};
+
+const openUploadForSource = (group: LibrarySourceGroup) => {
+  uploadTargetApiBase.value = group.apiBase;
+  showUploadModal.value = true;
+  closeSourceMenu();
+};
+
+const openOnlineSearchForSource = (group: LibrarySourceGroup) => {
+  onlineSearchApiBase.value = group.apiBase;
+  closeSourceMenu();
+  showOnlineSearchModal.value = true;
+};
+
+const changeSourceDirectory = async (group: LibrarySourceGroup) => {
+  closeSourceMenu();
+  const newPath = prompt("请输入新的音乐目录路径:");
+  if (!newPath || !newPath.trim()) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${group.apiBase}/settings/music-directory`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ path: newPath.trim() }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || "更改目录失败");
+    }
+    await refreshSingleSource(group.apiBase);
+  } catch (error) {
+    console.error("Failed to change source directory:", error);
+    alert(`更改目录失败: ${error}`);
+  }
+};
+
 // Collection management handlers
 const handleShowAddToCollectionModal = () => {
   selectedCollections.value = [];
+  pendingSongsForCollection.value = [];
   showAddToCollection.value = true;
 };
 
 const hideAddToCollectionModal = () => {
   showAddToCollection.value = false;
   selectedCollections.value = [];
+  pendingSongsForCollection.value = [];
 };
 
 const handleToggleCollectionSelection = (id: number) => {
@@ -1102,70 +1796,118 @@ const addToCollection = async () => {
     return;
   }
 
-  const allMusic = await getAllMusic();
-  const selectedMusicIds = allMusic
-    .filter((m: { filename: string; id: number }) =>
-      selectedSongs.value.has(m.filename),
-    )
-    .map((m: { id: number }) => m.id);
+  const selectedVisibleSongs =
+    pendingSongsForCollection.value.length > 0
+      ? pendingSongsForCollection.value
+      : currentSongs.value.filter((song) =>
+          selectedSongs.value.has(song.rowKey || buildSongRowKey(song)),
+        );
 
-  if (selectedMusicIds.length === 0) {
+  if (selectedVisibleSongs.length === 0) {
     alert("没有选中的歌曲");
     return;
   }
 
-  for (const collectionId of selectedCollections.value) {
-    await apiAddToCollection(collectionId, selectedMusicIds);
-  }
+  localCollections.value = localCollections.value.map((collection) => {
+    if (!selectedCollections.value.includes(collection.id)) {
+      return collection;
+    }
+
+    const existingKeys = new Set(
+      collection.songs.map(
+        (song) => `${song.source_key || "local"}:${song.id}:${song.name}`,
+      ),
+    );
+    const nextSongs = collection.songs.slice();
+
+    for (const song of selectedVisibleSongs) {
+      const songKey = `${(song as MusicInfo).source_key || "local"}:${song.id}:${song.name}`;
+      const normalizedSong = {
+        ...(song as MusicInfo),
+        rowKey: song.rowKey || songKey,
+      };
+      if (existingKeys.has(songKey)) {
+        continue;
+      }
+      existingKeys.add(songKey);
+      nextSongs.push(normalizedSong);
+    }
+
+    return {
+      ...collection,
+      songs: nextSongs,
+    };
+  });
+  syncLocalCollections();
 
   alert("添加成功");
   hideAddToCollectionModal();
   selectMode.value = false;
   selectedSongs.value.clear();
-  await refreshData();
 };
 
 const handleRemoveFromCollection = async () => {
   if (!selectedPlaylist.value) return;
 
-  const collection = collections.value.find(
-    (c: { id: number; name: string }) =>
-      c.name === selectedPlaylist.value?.name,
-  );
-  if (!collection || collection.id === -1) {
-    alert('无法从"所有音乐"中移除');
-    return;
-  }
-
-  const allMusic = await getAllMusic();
-  const selectedMusicIds = allMusic
-    .filter((m: { filename: string; id: number }) =>
-      selectedSongs.value.has(m.filename),
-    )
-    .map((m: { id: number }) => m.id);
-
-  if (selectedMusicIds.length === 0) {
+  const selectedNames = new Set(selectedSongs.value);
+  if (selectedNames.size === 0) {
     alert("没有选中的歌曲");
     return;
   }
 
-  const success = await apiRemoveFromCollection(
-    collection.id,
-    selectedMusicIds,
-  );
-  if (success) {
-    alert("移除成功");
-    selectMode.value = false;
-    selectedSongs.value.clear();
-    await refreshData();
-  } else {
-    alert("移除失败");
+  localCollections.value = localCollections.value.map((collection) => {
+    if (collection.name !== selectedPlaylist.value?.name) {
+      return collection;
+    }
+
+    return {
+      ...collection,
+      songs: collection.songs.filter(
+        (song) => !selectedNames.has(song.rowKey || buildSongRowKey(song)),
+      ),
+    };
+  });
+  syncLocalCollections();
+  handleSelectCollection(selectedPlaylist.value.name);
+  alert("移除成功");
+  selectMode.value = false;
+  selectedSongs.value.clear();
+};
+
+const removeSingleSongFromCollection = (song: MusicInfo) => {
+  if (!selectedPlaylist.value) {
+    return;
   }
+
+  const songKey = song.rowKey || buildSongRowKey(song);
+  localCollections.value = localCollections.value.map((collection) => {
+    if (collection.name !== selectedPlaylist.value?.name) {
+      return collection;
+    }
+
+    return {
+      ...collection,
+      songs: collection.songs.filter(
+        (item) => (item.rowKey || buildSongRowKey(item)) !== songKey,
+      ),
+    };
+  });
+  syncLocalCollections();
+  handleSelectCollection(selectedPlaylist.value.name);
+};
+
+const handleSongCollectionAction = (song: SongInfo) => {
+  openSongMenu(song);
 };
 
 const handleShowCreateModal = () => {
   newCollectionName.value = "";
   showCreateCollection.value = true;
+};
+
+const handleCreateCollectionFromAddModal = () => {
+  showAddToCollection.value = false;
+  handleShowCreateModal();
 };
 
 const hideCreateCollectionModal = () => {
@@ -1179,8 +1921,21 @@ const handleCreateCollection = async () => {
     return;
   }
 
-  await apiCreateCollection(newCollectionName.value.trim());
+  const shouldReturnToAddModal = pendingSongsForCollection.value.length > 0;
+  localCollections.value = [
+    ...localCollections.value,
+    {
+      id: Date.now(),
+      name: newCollectionName.value.trim(),
+      created_at: new Date().toISOString(),
+      songs: [],
+    },
+  ];
+  syncLocalCollections();
   hideCreateCollectionModal();
+  if (shouldReturnToAddModal) {
+    showAddToCollection.value = true;
+  }
 };
 
 const handleDeleteSelectedCollections = async () => {
@@ -1199,21 +1954,14 @@ const handleDeleteSelectedCollections = async () => {
 
   let deletedCount = 0;
   for (const collectionName of selectedCollectionsList.value) {
-    if (collectionName === "所有音乐") continue;
-
-    const collection = collections.value.find(
-      (c: { id: number; name: string }) => c.name === collectionName,
-    );
-    if (collection) {
-      const success = await deleteCollection(collection.id);
-      if (success) deletedCount++;
+    if (deleteCollectionByName(collectionName)) {
+      deletedCount += 1;
     }
   }
 
   alert(`已删除 ${deletedCount} 个收藏夹`);
   collectionSelectMode.value = false;
   selectedCollectionsList.value.clear();
-  await refreshData();
 };
 
 // Initialize
@@ -1221,7 +1969,8 @@ onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
   await triggerDatabaseUpdate();
 
-  await refreshData();
+  loadLocalCollections();
+  await refreshSourceGroups();
   await initAudio();
   await registerAndroidBackHandler();
   updateLayoutMode();
@@ -1308,6 +2057,12 @@ onBeforeUnmount(() => {
   padding: 12px;
 }
 
+.icon-action-btn {
+  font-size: 22px;
+  line-height: 1;
+  color: #31414f;
+}
+
 .scanning-message {
   display: flex;
   align-items: center;
@@ -1333,124 +2088,6 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   background-color: #fff;
-}
-
-.right-panel {
-  flex: 1;
-  min-height: 0;
-  background-color: #fafafa;
-  border-left: 1px solid #eee;
-}
-
-.empty-state {
-  padding: 24px 16px;
-  text-align: center;
-  color: #888;
-  font-size: 14px;
-}
-
-.right-panel-content {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-.lyric-panel {
-  flex: 1;
-  overflow-y: auto;
-  background-color: #fafafa;
-}
-
-.lyric-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  font-size: 16px;
-  color: #999;
-}
-
-.lyric-container {
-  padding: 40px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  align-items: center;
-}
-
-.lyric-line {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  text-align: center;
-  transition: all 0.3s ease;
-  padding: 8px 16px;
-  border-radius: 12px;
-  cursor: pointer;
-  outline: none;
-}
-
-.lyric-text {
-  font-size: 16px;
-  color: #999;
-  line-height: 1.6;
-}
-
-/* Original language (first text) */
-.lyric-lang-0 {
-  font-weight: 500;
-}
-
-/* Translation language (second text) - smaller */
-.lyric-lang-1 {
-  font-size: 14px;
-  opacity: 0.8;
-}
-
-.lyric-line.active .lyric-text {
-  color: #1db954;
-  font-weight: 600;
-}
-
-.lyric-line.active .lyric-lang-0 {
-  font-size: 20px;
-}
-
-.lyric-line.active .lyric-lang-1 {
-  font-size: 16px;
-  opacity: 0.9;
-}
-
-.cover-panel {
-  flex: 1;
-  width: 100%;
-  border-top: 1px solid #eee;
-  border-bottom: 1px solid #eee;
-  background-color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.cover-image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
-
-.content-area {
-  height: 100%;
-  overflow-y: auto;
-  padding: 0 15px;
-  background-color: #fff;
-  position: relative;
-  box-sizing: border-box;
 }
 
 @media (min-width: 900px) and (min-aspect-ratio: 1/1) {
