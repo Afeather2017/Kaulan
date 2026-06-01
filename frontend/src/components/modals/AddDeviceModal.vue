@@ -107,7 +107,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { normalizeApiBase, setApiBase } from "@/utils/api";
+import { normalizeApiBase } from "@/utils/api";
 import {
   getManualDevices,
   setManualDevices,
@@ -119,8 +119,9 @@ import {
   type DiscoveredDevice,
 } from "@/composables/useDeviceDiscovery";
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "close"): void;
+  (e: "sourcesUpdated"): void;
 }>();
 
 const {
@@ -129,7 +130,6 @@ const {
   error: discoveryError,
   fetchDevices,
   refreshDevices,
-  connectToDevice,
   formatLastSeen,
 } = useDeviceDiscovery();
 
@@ -218,6 +218,34 @@ const removeManualDevice = (url: string) => {
     (device) => device.api_url !== url,
   );
   saveManualDevices();
+  emit("sourcesUpdated");
+};
+
+const connectToDevice = (device: DiscoveredDevice) => {
+  if (isLocalhostDevice(device)) {
+    emit("close");
+    return;
+  }
+
+  const existing = manualDevices.value.find(
+    (item) => item.api_url === device.api_url,
+  );
+
+  if (!existing) {
+    manualDevices.value = [
+      ...manualDevices.value,
+      {
+        api_url: device.api_url,
+        device_name: device.device_name,
+        added_at: Date.now(),
+        last_fetched: Date.now(),
+      },
+    ];
+    saveManualDevices();
+  }
+
+  emit("sourcesUpdated");
+  emit("close");
 };
 
 const connectManualDevice = async () => {
@@ -256,8 +284,8 @@ const connectManualDevice = async () => {
     }
 
     saveManualDevices();
-    setApiBase(normalizedUrl);
-    window.location.reload();
+    emit("sourcesUpdated");
+    emit("close");
   } catch (error) {
     console.error("Failed to connect manual device:", error);
     manualAddressMessage.value = `连接设备失败: ${error}`;

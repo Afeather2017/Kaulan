@@ -125,7 +125,6 @@ interface LibrarySourceGroup {
   name: string;
   isLoading: boolean;
   isOnline: boolean;
-  isCurrent: boolean;
   playlists: Array<{ name: string; songs: MusicInfo[] }>;
   capabilities: SourceCapabilities;
 }

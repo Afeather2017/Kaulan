@@ -18,7 +18,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { getApiBase } from "@/utils/api";
+import { getLocalApiBase } from "@/utils/api";
 
 const songCount = ref(0);
 const playlistCount = ref(0);
@@ -26,8 +26,8 @@ const playlistCount = ref(0);
 onMounted(async () => {
   try {
     const [songsRes, playlistsRes] = await Promise.all([
-      fetch(`${getApiBase()}/music/songs`),
-      fetch(`${getApiBase()}/music/playlists`),
+      fetch(`${getLocalApiBase()}/music/songs`),
+      fetch(`${getLocalApiBase()}/music/playlists`),
     ]);
 
     const songs = await songsRes.json();

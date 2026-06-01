@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { getApiBase, normalizeApiBase, setApiBase } from "@/utils/api";
+import { getLocalApiBase } from "@/utils/api";
 
 export interface DiscoveredDevice {
   device_id: string;
@@ -43,7 +43,7 @@ export function useDeviceDiscovery() {
    * Fetch all discovered devices from the server.
    */
   const fetchDevices = async (): Promise<void> => {
-    const response = await fetch(`${getApiBase()}/discovery/devices`);
+    const response = await fetch(`${getLocalApiBase()}/discovery/devices`);
     if (!response.ok) {
       throw new Error(`Failed to fetch devices: ${response.statusText}`);
     }
@@ -67,7 +67,7 @@ export function useDeviceDiscovery() {
 
     try {
       const startResponse = await fetch(
-        `${getApiBase()}/discovery/scan/start`,
+        `${getLocalApiBase()}/discovery/scan/start`,
         {
           method: "POST",
         },
@@ -79,7 +79,7 @@ export function useDeviceDiscovery() {
 
       for (let i = 0; i < SCAN_SECONDS; i += 1) {
         const requestResponse = await fetch(
-          `${getApiBase()}/discovery/request`,
+          `${getLocalApiBase()}/discovery/request`,
           {
             method: "POST",
           },
@@ -102,7 +102,7 @@ export function useDeviceDiscovery() {
       }
 
       const finishResponse = await fetch(
-        `${getApiBase()}/discovery/scan/finish`,
+        `${getLocalApiBase()}/discovery/scan/finish`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -121,7 +121,7 @@ export function useDeviceDiscovery() {
 
       if (scanStarted) {
         try {
-          await fetch(`${getApiBase()}/discovery/scan/finish`, {
+          await fetch(`${getLocalApiBase()}/discovery/scan/finish`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ success: false }),
@@ -140,7 +140,7 @@ export function useDeviceDiscovery() {
    */
   const fetchSelfDevice = async (): Promise<void> => {
     try {
-      const response = await fetch(`${getApiBase()}/discovery/self`);
+      const response = await fetch(`${getLocalApiBase()}/discovery/self`);
       if (!response.ok) {
         throw new Error(`Failed to fetch self device: ${response.statusText}`);
       }
@@ -156,7 +156,7 @@ export function useDeviceDiscovery() {
    */
   const setDeviceName = async (name: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${getApiBase()}/discovery/name`, {
+      const response = await fetch(`${getLocalApiBase()}/discovery/name`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -178,14 +178,6 @@ export function useDeviceDiscovery() {
     }
   };
 
-  /**
-   * Connect to a discovered device.
-   */
-  const connectToDevice = (device: DiscoveredDevice): void => {
-    setApiBase(normalizeApiBase(device.api_url));
-    window.location.reload();
-  };
-
   const formatLastSeen = (secs: number): string => {
     if (secs < 60) return `${secs}秒前`;
     if (secs < 3600) return `${Math.floor(secs / 60)}分钟前`;
@@ -201,7 +193,6 @@ export function useDeviceDiscovery() {
     refreshDevices,
     fetchSelfDevice,
     setDeviceName,
-    connectToDevice,
     formatLastSeen,
   };
 }

@@ -4,14 +4,12 @@
  * In development, the Vite proxy forwards /api to the backend
  * In production (Tauri build), we need to use the full URL
  *
- * The server URL can be configured by the user and is stored in cookies.
+ * Multi-source routing helpers for local and remote API bases.
  *
  * @module utils/api
  */
 
-import { getServerUrl, setServerUrl, removeServerUrl } from "./storage";
-
-const DEFAULT_API_BASE = "http://localhost:2080/api";
+export const LOCALHOST_API_BASE = "http://localhost:2080/api";
 
 function hasExplicitScheme(url: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(url);
@@ -68,35 +66,27 @@ export function normalizeApiBase(input: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-/**
- * Get the current API base URL
- * Returns the user-configured URL if set, otherwise the default
- * @returns The API base URL
- */
-export function getApiBase(): string {
-  const saved = getServerUrl();
-  return saved || DEFAULT_API_BASE;
+export function getLocalApiBase(): string {
+  return LOCALHOST_API_BASE;
 }
 
-/**
- * Set and normalize the API base URL
- * Automatically appends '/api' if not present
- * @param url - The URL to set as API base
- */
-export function setApiBase(url: string): void {
-  const normalized = normalizeApiBase(url);
-  setServerUrl(normalized);
+export function isAbsoluteHttpApiBase(
+  value: string | null | undefined,
+): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
-/**
- * Reset the API base URL to default
- */
-export function resetApiBase(): void {
-  removeServerUrl();
+export function resolveSourceApiBase(
+  sourceKey: string | null | undefined,
+): string {
+  return isAbsoluteHttpApiBase(sourceKey) ? sourceKey! : LOCALHOST_API_BASE;
 }
-
-/**
- * Default API base URL for backwards compatibility
- * Use getApiBase() for new code to get the user-configured URL
- */
-export const API_BASE = getApiBase();

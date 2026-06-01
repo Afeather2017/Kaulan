@@ -236,7 +236,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
-import { getApiBase } from "@/utils/api";
+import { getLocalApiBase } from "@/utils/api";
 import {
   getMediaTypes,
   setMediaTypes,
@@ -392,7 +392,7 @@ const loadMediaTypes = async () => {
   mediaTypesError.value = false;
 
   try {
-    const response = await fetch(`${getApiBase()}/settings/media-types`);
+    const response = await fetch(`${getLocalApiBase()}/settings/media-types`);
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`);
     }
@@ -419,7 +419,7 @@ const saveMediaTypes = async () => {
   mediaTypesError.value = false;
 
   try {
-    const response = await fetch(`${getApiBase()}/settings/media-types`, {
+    const response = await fetch(`${getLocalApiBase()}/settings/media-types`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

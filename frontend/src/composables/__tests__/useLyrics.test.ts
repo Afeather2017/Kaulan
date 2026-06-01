@@ -12,7 +12,8 @@ import { nextTick, ref } from "vue";
 import { parseLrc, parseLyrics, parseVtt, useLyrics } from "../useLyrics";
 
 vi.mock("@/utils/api", () => ({
-  getApiBase: () => "http://localhost:2080/api",
+  resolveSourceApiBase: (sourceKey?: string | null) =>
+    sourceKey || "http://localhost:2080/api",
 }));
 
 async function flushLyricsLoad(): Promise<void> {

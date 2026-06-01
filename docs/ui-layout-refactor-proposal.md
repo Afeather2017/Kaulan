@@ -46,6 +46,24 @@ Collections are shared with everyone.
 
 ## Main Concepts
 
+### Source Resolution Rules
+
+The frontend should not keep a global "current source" for normal operation.
+
+Instead:
+
+- local maintenance actions always target `http://localhost:2080/api`
+- source-browsing actions use the explicit source URL stored on the item being acted on
+- a source key that is an absolute `http://` or `https://` URL is treated as a remote API base
+- any non-HTTP source key is treated as local and resolved to `http://localhost:2080/api`
+
+This means:
+
+- startup scan is localhost-only
+- discovery scan and local device naming are localhost-only
+- playlist, song, lyrics, cover, and LUFS requests are routed by the song or source group itself
+- adding a device should add a source to the library, not replace an app-global active server
+
 ### 1. Shared Library
 
 The visible library is an aggregated view of folder-based playlists returned by all reachable servers and local sources.
@@ -117,7 +135,7 @@ Recommended user-facing labels:
 | Technical Term | User-facing Label |
 |---|---|
 | Server | Music Source or Device |
-| Active Server | Remove from normal UI |
+| Active Server | Remove from normal UI and internal architecture |
 | Source List | Music Sources |
 | Database Update | Refresh Library |
 | Collection | My Collection |

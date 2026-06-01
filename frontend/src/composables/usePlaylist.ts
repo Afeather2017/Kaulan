@@ -1,5 +1,5 @@
 import { ref, computed } from "vue";
-import { getApiBase } from "@/utils/api";
+import { getLocalApiBase } from "@/utils/api";
 import { checkIsAndroid } from "@/utils/platform";
 
 export interface MusicInfo {
@@ -28,7 +28,7 @@ async function streamParam(): Promise<string> {
   }
 
   try {
-    const apiBase = new URL(getApiBase());
+    const apiBase = new URL(getLocalApiBase());
     return isLoopbackHostname(apiBase.hostname) ? "?stream=content" : "";
   } catch {
     return "";
@@ -68,7 +68,7 @@ export function usePlaylist() {
   const fetchPlaylists = async () => {
     try {
       const response = await fetch(
-        `${getApiBase()}/playlists${await streamParam()}`,
+        `${getLocalApiBase()}/playlists${await streamParam()}`,
       );
       if (response.ok) {
         playlists.value = await response.json();
@@ -102,7 +102,7 @@ export function usePlaylist() {
   };
 
   const getAllMusic = async (): Promise<any[]> => {
-    const response = await fetch(`${getApiBase()}/music`);
+    const response = await fetch(`${getLocalApiBase()}/music`);
     if (response.ok) {
       return await response.json();
     }
