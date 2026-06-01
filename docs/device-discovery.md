@@ -66,6 +66,7 @@ If scan fails, frontend calls `POST /api/discovery/scan/finish` with `{ "success
   - Full HTTP/HTTPS URL, which is normalized to end with `/api`
 - Manual address save updates server URL and reloads the app to connect to that target.
 - In the device list, `last seen` and manual remove action are shown on the same row as the device name, while long API URLs wrap inside the card instead of overflowing.
+- The library source page resolves each configured server independently. `localhost` can appear immediately while slow or dead manual servers continue in parallel and fall back to `Offline` after a short request timeout.
 
 ## API Endpoints
 
