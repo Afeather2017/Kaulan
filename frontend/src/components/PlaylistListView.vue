@@ -14,26 +14,37 @@
       v-for="playlistName in playlistNames"
       :key="playlistName"
       class="playlist-item"
-      @click="
-        selectMode
-          ? $emit('toggleSelection', playlistName)
-          : $emit('select', playlistName)
-      "
     >
-      <div v-if="selectMode" class="playlist-checkbox">
-        <input
-          type="checkbox"
-          :checked="selectedPlaylists.has(playlistName)"
-          @click.stop="$emit('toggleSelection', playlistName)"
-        />
-      </div>
-      <div class="playlist-cover">
-        <i class="fas fa-music"></i>
-      </div>
-      <div class="playlist-info">
-        <h3>{{ playlistName }}</h3>
-        <p>{{ playlists[playlistName]?.length || 0 }} 首歌曲</p>
-      </div>
+      <button
+        class="playlist-main-button"
+        @click="
+          selectMode
+            ? $emit('toggleSelection', playlistName)
+            : $emit('select', playlistName)
+        "
+      >
+        <div v-if="selectMode" class="playlist-checkbox">
+          <input
+            type="checkbox"
+            :checked="selectedPlaylists.has(playlistName)"
+            @click.stop="$emit('toggleSelection', playlistName)"
+          />
+        </div>
+        <div class="playlist-cover">
+          <i class="fas fa-music"></i>
+        </div>
+        <div class="playlist-info">
+          <h3>{{ playlistName }}</h3>
+          <p>{{ playlists[playlistName]?.length || 0 }} 首歌曲</p>
+        </div>
+      </button>
+      <button
+        v-if="!selectMode && showPlaylistActionButton"
+        class="playlist-action-btn"
+        @click.stop="$emit('playlistAction', playlistName)"
+      >
+        {{ playlistActionLabel }}
+      </button>
     </div>
 
     <!-- Collection Management Actions (floating) -->
@@ -64,9 +75,13 @@ withDefaults(
     showSelectButton: boolean;
     hasSelectedNonAllMusic: boolean;
     showHeader?: boolean;
+    showPlaylistActionButton?: boolean;
+    playlistActionLabel?: string;
   }>(),
   {
     showHeader: true,
+    showPlaylistActionButton: false,
+    playlistActionLabel: "⋮",
   },
 );
 
@@ -76,6 +91,7 @@ defineEmits<{
   (e: "select", name: string): void;
   (e: "showCreateModal"): void;
   (e: "deleteSelected"): void;
+  (e: "playlistAction", name: string): void;
 }>();
 </script>
 
@@ -122,15 +138,26 @@ defineEmits<{
 }
 
 .playlist-item {
-  padding: 12px 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   border-bottom: 1px solid #f0f0f0;
+}
+
+.playlist-main-button {
+  flex: 1;
+  padding: 12px 15px;
   cursor: pointer;
   display: flex;
   align-items: center;
+  width: 100%;
+  border: none;
+  background: transparent;
   transition: background-color 0.2s;
+  text-align: left;
 }
 
-.playlist-item:hover {
+.playlist-main-button:hover {
   background-color: #f9f9f9;
 }
 
@@ -157,6 +184,7 @@ defineEmits<{
 }
 
 .playlist-info {
+  flex: 1;
   min-width: 0;
 }
 
@@ -172,6 +200,20 @@ defineEmits<{
   margin: 0;
   color: #666;
   font-size: 12px;
+}
+
+.playlist-action-btn {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  margin-right: 12px;
+  border: none;
+  border-radius: 10px;
+  background: #f0f0f0;
+  color: #333;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .collection-actions-floating {

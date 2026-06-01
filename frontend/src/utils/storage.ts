@@ -14,7 +14,36 @@ export const STORAGE_KEYS = {
   MEDIA_TYPES: "kaulan_media_types",
   PLAYBACK_SESSION: "kaulan_playback_session",
   DISABLE_HEADSET_MEDIA_BUTTON: "kaulan_disable_headset_media_button",
+  MANUAL_DEVICES: "kaulan_manual_devices",
+  LOCAL_COLLECTIONS: "kaulan_local_collections",
 } as const;
+
+export interface ManualDevice {
+  api_url: string;
+  device_name?: string;
+  added_at: number;
+  last_fetched?: number;
+}
+
+export interface StoredCollectionSong {
+  id: number;
+  name: string;
+  lufs: number | null;
+  path: string;
+  stream_url?: string | null;
+  cover_url?: string | null;
+  source_key?: string | null;
+  sourceLabel?: string;
+  rowKey?: string;
+  mediaType?: "audio" | "video";
+}
+
+export interface StoredLocalCollection {
+  id: number;
+  name: string;
+  created_at: string;
+  songs: StoredCollectionSong[];
+}
 
 export interface StoredPlaybackQueueSong {
   id: number;
@@ -23,10 +52,12 @@ export interface StoredPlaybackQueueSong {
   url: string;
   lufs: number | null;
   coverUrl?: string | null;
+  sourceKey?: string | null;
 }
 
 export interface StoredPlaybackSession {
   currentSongId: number | null;
+  currentSongUrl?: string | null;
   queue: StoredPlaybackQueueSong[];
   timestamp: number;
 }
@@ -164,6 +195,110 @@ export function setMediaTypes(mediaTypes: string[]): void {
   setStorageValue(STORAGE_KEYS.MEDIA_TYPES, JSON.stringify(mediaTypes));
 }
 
+export function getManualDevices(): ManualDevice[] {
+  const stored = getStorageValue(STORAGE_KEYS.MANUAL_DEVICES);
+  if (!stored) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((item): item is ManualDevice => {
+      if (!item || typeof item !== "object") {
+        return false;
+      }
+
+      const device = item as Record<string, unknown>;
+      return (
+        typeof device.api_url === "string" &&
+        typeof device.added_at === "number" &&
+        (typeof device.device_name === "string" ||
+          typeof device.device_name === "undefined") &&
+        (typeof device.last_fetched === "number" ||
+          typeof device.last_fetched === "undefined")
+      );
+    });
+  } catch (error) {
+    console.error("Failed to parse manual devices:", error);
+    return [];
+  }
+}
+
+export function setManualDevices(devices: ManualDevice[]): void {
+  setStorageValue(STORAGE_KEYS.MANUAL_DEVICES, JSON.stringify(devices));
+}
+
+function isStoredCollectionSong(value: unknown): value is StoredCollectionSong {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const song = value as Record<string, unknown>;
+  return (
+    typeof song.id === "number" &&
+    typeof song.name === "string" &&
+    (typeof song.lufs === "number" || song.lufs === null) &&
+    typeof song.path === "string" &&
+    (typeof song.stream_url === "string" ||
+      song.stream_url === null ||
+      typeof song.stream_url === "undefined") &&
+    (typeof song.cover_url === "string" ||
+      song.cover_url === null ||
+      typeof song.cover_url === "undefined") &&
+    (typeof song.source_key === "string" ||
+      song.source_key === null ||
+      typeof song.source_key === "undefined") &&
+    (typeof song.sourceLabel === "string" ||
+      typeof song.sourceLabel === "undefined") &&
+    (typeof song.rowKey === "string" || typeof song.rowKey === "undefined") &&
+    (song.mediaType === "audio" ||
+      song.mediaType === "video" ||
+      typeof song.mediaType === "undefined")
+  );
+}
+
+export function getLocalCollections(): StoredLocalCollection[] {
+  const stored = getStorageValue(STORAGE_KEYS.LOCAL_COLLECTIONS);
+  if (!stored) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((value): value is StoredLocalCollection => {
+      if (!value || typeof value !== "object") {
+        return false;
+      }
+
+      const collection = value as Record<string, unknown>;
+      return (
+        typeof collection.id === "number" &&
+        typeof collection.name === "string" &&
+        typeof collection.created_at === "string" &&
+        Array.isArray(collection.songs) &&
+        collection.songs.every(isStoredCollectionSong)
+      );
+    });
+  } catch (error) {
+    console.error("Failed to parse local collections:", error);
+    return [];
+  }
+}
+
+export function setLocalCollections(
+  collections: StoredLocalCollection[],
+): void {
+  setStorageValue(STORAGE_KEYS.LOCAL_COLLECTIONS, JSON.stringify(collections));
+}
+
 function isStoredPlaybackQueueSong(
   value: unknown,
 ): value is StoredPlaybackQueueSong {
@@ -180,7 +315,10 @@ function isStoredPlaybackQueueSong(
     (typeof song.lufs === "number" || song.lufs === null) &&
     (typeof song.coverUrl === "string" ||
       song.coverUrl === null ||
-      typeof song.coverUrl === "undefined")
+      typeof song.coverUrl === "undefined") &&
+    (typeof song.sourceKey === "string" ||
+      song.sourceKey === null ||
+      typeof song.sourceKey === "undefined")
   );
 }
 
@@ -207,9 +345,12 @@ export function getStoredPlaybackSession(): StoredPlaybackSession | null {
 
     const currentSongId =
       typeof parsed.currentSongId === "number" ? parsed.currentSongId : null;
+    const currentSongUrl =
+      typeof parsed.currentSongUrl === "string" ? parsed.currentSongUrl : null;
 
     return {
       currentSongId,
+      currentSongUrl,
       queue,
       timestamp: parsed.timestamp,
     };

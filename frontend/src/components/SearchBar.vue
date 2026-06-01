@@ -6,8 +6,9 @@
         $emit('update:modelValue', ($event.target as HTMLInputElement).value)
       "
       type="text"
-      placeholder="搜索歌曲或歌单"
+      placeholder="搜索所有音乐来源..."
       class="search-input"
+      name="library-search"
       @keyup.enter="$emit('search')"
     />
     <button class="search-button" @click="$emit('search')">搜索</button>

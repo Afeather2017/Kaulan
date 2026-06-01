@@ -19,11 +19,11 @@ export function useVolume(
   currentSongs: Ref<MusicInfo[]>,
 ) {
   // State
-  const volumeMode = ref<VolumeMode>("auto");
+  const volumeMode = ref<VolumeMode>("fixed");
   const manualVolume = ref(0.5);
   const manualVolumeInput = ref(0.5);
-  const fixedLufs = ref(-27);
-  const fixedLufsInput = ref(-27);
+  const fixedLufs = ref(-28);
+  const fixedLufsInput = ref(-28);
 
   // Calculate volume based on current mode
   const calculateVolume = (): number => {

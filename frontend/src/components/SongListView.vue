@@ -1,36 +1,63 @@
 <template>
   <div class="song-list">
     <div v-if="showHeader" class="list-header">
-      <button class="back-button" @click="$emit('back')">← 返回</button>
+      <button v-if="showBackButton" class="back-button" @click="$emit('back')">
+        ← 返回
+      </button>
       <h2>{{ title }}</h2>
-      <button class="select-mode-btn" @click="$emit('toggleSelectMode')">
+      <button
+        v-if="showHeaderActionButton"
+        class="header-action-btn"
+        @click="$emit('headerAction')"
+      >
+        {{ headerActionLabel }}
+      </button>
+      <button
+        v-if="showSelectButton"
+        class="select-mode-btn"
+        @click="$emit('toggleSelectMode')"
+      >
         {{ selectMode ? "取消勾选" : "选择" }}
       </button>
     </div>
     <div
       v-for="(song, index) in songs"
-      :key="song.name"
+      :key="song.rowKey || `${song.id}:${song.name}`"
       class="song-item"
       :class="{ active: currentSongName === song.name }"
       @click="
         selectMode
-          ? $emit('toggleSelection', song.name)
+          ? $emit('toggleSelection', song.rowKey || `${song.id}:${song.name}`)
           : $emit('play', song, index)
       "
     >
       <div v-if="selectMode" class="song-checkbox">
         <input
           type="checkbox"
-          :checked="selectedSongs.has(song.name)"
-          @click.stop="$emit('toggleSelection', song.name)"
+          :checked="selectedSongs.has(song.rowKey || `${song.id}:${song.name}`)"
+          @click.stop="
+            $emit('toggleSelection', song.rowKey || `${song.id}:${song.name}`)
+          "
         />
       </div>
       <div class="song-info">
-        <h3>{{ song.name }}</h3>
+        <div class="song-top-row">
+          <h3>{{ song.name }}</h3>
+          <span v-if="song.sourceLabel" class="song-source-badge">
+            {{ song.sourceLabel }}
+          </span>
+        </div>
         <span v-if="showLufs" class="song-lufs">
           {{ song.lufs !== null ? `${song.lufs} LUFS` : "-" }}
         </span>
       </div>
+      <button
+        v-if="!selectMode && showSongActionButton"
+        class="song-action-btn"
+        @click.stop="$emit('songAction', song)"
+      >
+        {{ songActionLabel || "⋮" }}
+      </button>
     </div>
 
     <!-- Selection Mode Actions -->
@@ -59,6 +86,8 @@ export interface SongInfo {
   name: string;
   lufs: number | null;
   path: string;
+  sourceLabel?: string;
+  rowKey?: string;
 }
 
 withDefaults(
@@ -70,12 +99,24 @@ withDefaults(
     currentSongName?: string;
     showRemoveButton: boolean;
     showAddButton: boolean;
+    showSongActionButton?: boolean;
+    songActionLabel?: string;
     showHeader?: boolean;
     showLufs?: boolean;
+    showBackButton?: boolean;
+    showSelectButton?: boolean;
+    showHeaderActionButton?: boolean;
+    headerActionLabel?: string;
   }>(),
   {
     showHeader: true,
     showLufs: false,
+    showSongActionButton: false,
+    songActionLabel: "⋮",
+    showBackButton: true,
+    showSelectButton: true,
+    showHeaderActionButton: false,
+    headerActionLabel: "⋮",
   },
 );
 
@@ -86,6 +127,8 @@ defineEmits<{
   (e: "play", song: SongInfo, index: number): void;
   (e: "remove"): void;
   (e: "showAddModal"): void;
+  (e: "songAction", song: SongInfo): void;
+  (e: "headerAction"): void;
 }>();
 </script>
 
@@ -114,6 +157,8 @@ defineEmits<{
   font-weight: bold;
   color: #333;
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .back-button {
@@ -139,6 +184,19 @@ defineEmits<{
 
 .select-mode-btn:hover {
   background-color: #1ed760;
+}
+
+.header-action-btn {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 10px;
+  background: #f0f0f0;
+  color: #333;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .song-item {
@@ -173,6 +231,12 @@ defineEmits<{
   min-width: 0;
 }
 
+.song-top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .song-info h3 {
   margin: 0;
   font-size: 16px;
@@ -181,12 +245,41 @@ defineEmits<{
   word-break: break-word;
 }
 
+.song-source-badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f0f5ff;
+  color: #3157a5;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .song-lufs {
-  margin-left: 10px;
+  display: inline-block;
+  margin-top: 4px;
   font-size: 13px;
   color: #999;
   font-weight: 400;
   white-space: nowrap;
+}
+
+.song-action-btn {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 10px;
+  background: #f0f0f0;
+  color: #333;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.song-action-btn:hover {
+  background: #e4e4e4;
 }
 
 .selection-actions {

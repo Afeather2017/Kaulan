@@ -2,7 +2,16 @@
   <div class="modal-overlay" @click="$emit('close')">
     <div class="modal-content" @click.stop>
       <h3>添加到收藏夹</h3>
-      <div class="collection-select-list">
+      <div
+        v-if="collections.filter((c) => c.name !== '所有音乐').length === 0"
+        class="empty-state"
+      >
+        <div>还没有可用的收藏夹</div>
+        <button class="create-btn" @click="$emit('createNew')">
+          新建收藏夹
+        </button>
+      </div>
+      <div v-else class="collection-select-list">
         <div
           v-for="collection in collections.filter((c) => c.name !== '所有音乐')"
           :key="collection.id"
@@ -44,6 +53,7 @@ defineEmits<{
   (e: "close"): void;
   (e: "confirm"): void;
   (e: "toggleSelection", id: number): void;
+  (e: "createNew"): void;
 }>();
 </script>
 
@@ -88,6 +98,15 @@ defineEmits<{
   margin-bottom: 20px;
 }
 
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0 24px;
+  color: #556372;
+}
+
 .collection-checkbox-item {
   display: flex;
   align-items: center;
@@ -121,7 +140,8 @@ defineEmits<{
 }
 
 .confirm-btn,
-.cancel-btn {
+.cancel-btn,
+.create-btn {
   padding: 10px 20px;
   border: none;
   border-radius: 5px;
@@ -137,6 +157,15 @@ defineEmits<{
 }
 
 .confirm-btn:hover {
+  background-color: #1ed760;
+}
+
+.create-btn {
+  background-color: #1db954;
+  color: white;
+}
+
+.create-btn:hover {
   background-color: #1ed760;
 }
 

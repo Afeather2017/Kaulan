@@ -27,6 +27,7 @@ describe("useAudioPlayer - duration loading", () => {
     pause: ReturnType<typeof vi.fn>;
     addEventListener: ReturnType<typeof vi.fn>;
     removeEventListener: ReturnType<typeof vi.fn>;
+    src?: string;
   };
 
   beforeEach(() => {
@@ -46,6 +47,10 @@ describe("useAudioPlayer - duration loading", () => {
 
     // Mock global Audio constructor
     global.Audio = vi.fn(() => audioMock) as unknown as typeof Audio;
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({}),
+    })) as unknown as typeof fetch;
 
     const storage = new Map<string, string>();
     Object.defineProperty(globalThis, "localStorage", {
@@ -208,6 +213,7 @@ describe("useAudioPlayer - duration loading", () => {
 
     expect(getStoredPlaybackSession()).toEqual({
       currentSongId: 2,
+      currentSongUrl: "http://localhost:2080/api/music/id/2",
       queue: [
         {
           id: 1,
@@ -216,6 +222,7 @@ describe("useAudioPlayer - duration loading", () => {
           url: "http://localhost:2080/api/music/id/1",
           lufs: -12,
           coverUrl: "http://localhost:2080/api/music/id/1/cover",
+          sourceKey: "http://localhost:2080/api",
         },
         {
           id: 2,
@@ -224,6 +231,7 @@ describe("useAudioPlayer - duration loading", () => {
           url: "http://localhost:2080/api/music/id/2",
           lufs: null,
           coverUrl: "http://localhost:2080/api/music/id/2/cover",
+          sourceKey: "http://localhost:2080/api",
         },
       ],
       timestamp: expect.any(Number),
@@ -258,6 +266,7 @@ describe("useAudioPlayer - duration loading", () => {
   it("should restore queue and current song from stored playback session on init", async () => {
     setStoredPlaybackSession({
       currentSongId: 2,
+      currentSongUrl: "http://localhost:2080/api/music/id/2",
       queue: [
         {
           id: 1,
@@ -265,6 +274,7 @@ describe("useAudioPlayer - duration loading", () => {
           path: "/test/song1.mp3",
           url: "http://localhost:2080/api/music/id/1",
           lufs: -12,
+          sourceKey: "http://localhost:2080/api",
         },
         {
           id: 2,
@@ -272,6 +282,7 @@ describe("useAudioPlayer - duration loading", () => {
           path: "/test/song2.mp3",
           url: "http://localhost:2080/api/music/id/2",
           lufs: null,
+          sourceKey: "http://localhost:2080/api",
         },
       ],
       timestamp: Date.now(),
@@ -287,5 +298,43 @@ describe("useAudioPlayer - duration loading", () => {
     expect(activeQueue.value.map((song) => song.id)).toEqual([1, 2]);
     expect(currentSong.value?.id).toBe(2);
     expect(currentIndex.value).toBe(1);
+  });
+
+  it("should prune unreachable source items from the active queue", async () => {
+    const queue = [
+      {
+        id: 1,
+        name: "Remote Song",
+        lufs: -12,
+        path: "/remote/song1.mp3",
+        stream_url: "http://offline.example:2080/api/music/id/1",
+      },
+      {
+        id: 2,
+        name: "Local Song",
+        lufs: -10,
+        path: "/local/song2.mp3",
+        stream_url: "http://localhost:2080/api/music/id/2",
+      },
+    ] satisfies MusicInfo[];
+
+    vi.mocked(global.fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      return {
+        ok: !url.startsWith("http://offline.example:2080/api"),
+        json: async () => ({}),
+      } as Response;
+    });
+
+    const { playSongAtIndex, activeQueue, currentSong, reconcileQueueSources } =
+      useAudioPlayer({
+        songs: () => queue,
+      });
+
+    await playSongAtIndex(queue[0], 0, queue);
+    await reconcileQueueSources();
+
+    expect(activeQueue.value.map((song) => song.name)).toEqual(["Local Song"]);
+    expect(currentSong.value?.name).toBe("Local Song");
   });
 });
