@@ -545,9 +545,9 @@ Wide mode can show browsing and playback together, but the library should still 
 | Driving                               |              [ Cover ]                           |
 |                                       |              [ Cover ]                           |
 | Favorites Contents                    |--------------------------------------------------|
-| Song A                   [This Device]| [Cover] Song Name                                |
-| Song C                   [Downloads]  | [Cover]      progress bar                        |
-| Song F                   [Living Room]| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
+| Song A                                | [Cover] Song Name                                |
+| Song C                                | [Cover]      progress bar                        |
+| Song F                                | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
 +---------------------------------------+--------------------------------------------------+
 ```
 
@@ -569,7 +569,8 @@ Living Room                    [Offline]   [⋮]
 Recommended badge behavior:
 
 - always visible in server group headers
-- always visible in search results
+- always visible in search results (because search is cross-source)
+- not shown on song rows in library detail or collection detail — the top bar already identifies the source
 - optional in queue and now playing
 - tap or click badge to filter by that source
 
@@ -674,7 +675,7 @@ Collection editing should feel like a normal song action, not a special operatin
 
 ```text
 +--------------------------------------------------+
-| Song A                              [Source] [⋮]|
+| Song A                                      [⋮]|
 +--------------------------------------------------+
 | Play next                                        |
 | Add to queue                                     |
@@ -719,9 +720,9 @@ Collection editing should feel like a normal song action, not a special operatin
 +--------------------------------------------------+
 | [< Back] Favorites                         [⋮]   |
 +--------------------------------------------------+
-| Song A                              [This Device]|
-| Song C                              [Downloads]  |
-| Song F                              [Living Room]|
+| Song A                                           |
+| Song C                                           |
+| Song F                                           |
 +--------------------------------------------------+
 ```
 
