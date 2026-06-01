@@ -5,9 +5,22 @@
         <div class="source-title">
           <div class="source-name">{{ group.name }}</div>
           <div
-            :class="['source-status', group.isOnline ? 'online' : 'offline']"
+            :class="[
+              'source-status',
+              group.isLoading
+                ? 'loading'
+                : group.isOnline
+                  ? 'online'
+                  : 'offline',
+            ]"
           >
-            {{ group.isOnline ? "Online" : "Offline" }}
+            {{
+              group.isLoading
+                ? "Loading"
+                : group.isOnline
+                  ? "Online"
+                  : "Offline"
+            }}
           </div>
         </div>
         <button class="source-menu-btn" @click="$emit('openMenu', group)">
@@ -15,7 +28,11 @@
         </button>
       </div>
 
-      <div v-if="group.isOnline" class="playlist-list">
+      <div v-if="group.isLoading" class="loading-card">
+        <div>Checking this source...</div>
+      </div>
+
+      <div v-else-if="group.isOnline" class="playlist-list">
         <button
           v-for="playlist in group.playlists"
           :key="`${group.sourceKey}:${playlist.name}`"
@@ -44,6 +61,7 @@ export interface LibrarySourcePlaylistSummary {
 export interface LibrarySourceGroupSummary {
   sourceKey: string;
   name: string;
+  isLoading: boolean;
   isOnline: boolean;
   playlists: LibrarySourcePlaylistSummary[];
 }
@@ -113,6 +131,11 @@ defineEmits<{
   background: #e8f7ee;
 }
 
+.source-status.loading {
+  color: #7a5a00;
+  background: #fff4d6;
+}
+
 .source-status.offline {
   color: #9d2b2b;
   background: #fdecec;
@@ -132,6 +155,11 @@ defineEmits<{
 .playlist-list {
   display: flex;
   flex-direction: column;
+}
+
+.loading-card {
+  padding: 16px;
+  color: #8a6a00;
 }
 
 .playlist-row {

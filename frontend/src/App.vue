@@ -240,6 +240,7 @@ import {
   type StoredLocalCollection,
 } from "@/utils/storage";
 import { checkIsAndroid } from "@/utils/platform";
+import { loadItemsIncrementally, upsertSortedItem } from "@/utils/sourceGroups";
 
 type MainView = "playlists" | "songs" | "search";
 type MainTab = "library" | "collections";
@@ -268,6 +269,7 @@ interface LibrarySourceGroup {
   apiBase: string;
   sourceKey: string;
   name: string;
+  isLoading: boolean;
   isOnline: boolean;
   isCurrent: boolean;
   playlists: LibraryPlaylistGroup[];
@@ -336,6 +338,7 @@ const libraryGroupSummaries = computed<LibrarySourceGroupSummary[]>(() =>
   filteredSourceGroups.value.map((group) => ({
     sourceKey: group.sourceKey,
     name: group.name,
+    isLoading: group.isLoading,
     isOnline: group.isOnline,
     playlists: group.playlists.map((playlist) => ({
       name: playlist.name,
@@ -476,7 +479,9 @@ const uploadTargetApiBase = ref<string>(getApiBase());
 let androidBackListener: { unregister(): Promise<void> } | null = null;
 
 const LOCALHOST_API_BASE = "http://localhost:2080/api";
+const SOURCE_REQUEST_TIMEOUT_MS = 3000;
 const onlineSearchApiBase = ref<string>(LOCALHOST_API_BASE);
+let sourceRefreshToken = 0;
 
 const buildSongApiUrl = (apiBase: string, suffix: string): string => {
   return `${apiBase}${suffix}`;
@@ -584,6 +589,52 @@ const getSourceApiBases = (): string[] => {
   return Array.from(new Set([getApiBase(), LOCALHOST_API_BASE, ...manual]));
 };
 
+const sortSourceGroups = (groups: LibrarySourceGroup[]): LibrarySourceGroup[] =>
+  [...groups].sort((left, right) => {
+    if (left.isCurrent && !right.isCurrent) return -1;
+    if (!left.isCurrent && right.isCurrent) return 1;
+    if (left.isLoading && !right.isLoading) return -1;
+    if (!left.isLoading && right.isLoading) return 1;
+    return left.name.localeCompare(right.name);
+  });
+
+const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
+  sourceKey: apiBase,
+  apiBase,
+  name: buildSourceLabel(apiBase),
+  isLoading: true,
+  isOnline: false,
+  isCurrent: apiBase === getApiBase(),
+  playlists: [],
+  capabilities: {
+    canRefresh: false,
+    canUpload: false,
+    canChangeDirectory: false,
+    canOnlineDownload: false,
+    canRetryConnection: false,
+    canShowSourceDetails: true,
+  },
+});
+
+const fetchWithTimeout = async (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    controller.abort();
+  }, SOURCE_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
 const fetchSourceGroup = async (
   apiBase: string,
 ): Promise<LibrarySourceGroup> => {
@@ -596,16 +647,16 @@ const fetchSourceGroup = async (
       directoryTreeResponse,
       musicDirectoryResponse,
     ] = await Promise.all([
-      fetch(buildSongApiUrl(apiBase, "/discovery/self"), {
+      fetchWithTimeout(buildSongApiUrl(apiBase, "/discovery/self"), {
         cache: "no-store",
       }),
-      fetch(buildSongApiUrl(apiBase, "/playlists"), {
+      fetchWithTimeout(buildSongApiUrl(apiBase, "/playlists"), {
         cache: "no-store",
       }),
-      fetch(buildSongApiUrl(apiBase, "/files/directory-tree"), {
+      fetchWithTimeout(buildSongApiUrl(apiBase, "/files/directory-tree"), {
         cache: "no-store",
       }).catch(() => null),
-      fetch(buildSongApiUrl(apiBase, "/settings/music-directory"), {
+      fetchWithTimeout(buildSongApiUrl(apiBase, "/settings/music-directory"), {
         cache: "no-store",
       }).catch(() => null),
     ]);
@@ -635,6 +686,7 @@ const fetchSourceGroup = async (
       sourceKey: apiBase,
       apiBase,
       name: sourceLabel,
+      isLoading: false,
       isOnline: true,
       isCurrent: apiBase === getApiBase(),
       playlists,
@@ -653,6 +705,7 @@ const fetchSourceGroup = async (
       sourceKey: apiBase,
       apiBase,
       name: fallbackName,
+      isLoading: false,
       isOnline: false,
       isCurrent: apiBase === getApiBase(),
       playlists: [],
@@ -694,13 +747,22 @@ const syncSelectedLibraryPlaylist = () => {
 };
 
 const refreshSourceGroups = async () => {
-  const groups = await Promise.all(getSourceApiBases().map(fetchSourceGroup));
-  sourceGroups.value = groups.sort((left, right) => {
-    if (left.isCurrent && !right.isCurrent) return -1;
-    if (!left.isCurrent && right.isCurrent) return 1;
-    return left.name.localeCompare(right.name);
+  const apiBases = getSourceApiBases();
+  const refreshToken = sourceRefreshToken + 1;
+  sourceRefreshToken = refreshToken;
+
+  await loadItemsIncrementally({
+    keys: apiBases,
+    buildLoadingItem: buildLoadingSourceGroup,
+    fetchItem: fetchSourceGroup,
+    getItemKey: (group) => group.sourceKey,
+    sortItems: sortSourceGroups,
+    isActive: () => sourceRefreshToken === refreshToken,
+    onUpdate: (groups) => {
+      sourceGroups.value = groups;
+      syncSelectedLibraryPlaylist();
+    },
   });
-  syncSelectedLibraryPlaylist();
 };
 
 const triggerDatabaseUpdate = async () => {
@@ -1675,14 +1737,21 @@ const removeSongFromCollectionFromMenu = () => {
 };
 
 const refreshSingleSource = async (apiBase: string) => {
+  sourceGroups.value = upsertSortedItem(
+    sourceGroups.value,
+    buildLoadingSourceGroup(apiBase),
+    (group) => group.sourceKey,
+    sortSourceGroups,
+  );
+  syncSelectedLibraryPlaylist();
+
   const updated = await fetchSourceGroup(apiBase);
-  sourceGroups.value = sourceGroups.value
-    .map((group) => (group.sourceKey === apiBase ? updated : group))
-    .sort((left, right) => {
-      if (left.isCurrent && !right.isCurrent) return -1;
-      if (!left.isCurrent && right.isCurrent) return 1;
-      return left.name.localeCompare(right.name);
-    });
+  sourceGroups.value = upsertSortedItem(
+    sourceGroups.value,
+    updated,
+    (group) => group.sourceKey,
+    sortSourceGroups,
+  );
   syncSelectedLibraryPlaylist();
 };
 
