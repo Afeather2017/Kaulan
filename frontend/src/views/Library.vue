@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { getApiBase } from "@/utils/api";
+import { getLocalApiBase } from "@/utils/api";
 
 interface Song {
   id: number;
@@ -36,7 +36,7 @@ const formatDuration = (seconds: number): string => {
 
 onMounted(async () => {
   try {
-    const response = await fetch(`${getApiBase()}/music/songs`);
+    const response = await fetch(`${getLocalApiBase()}/music/songs`);
     songs.value = await response.json();
   } catch (error) {
     console.error("Failed to fetch songs:", error);

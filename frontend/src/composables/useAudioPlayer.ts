@@ -1,5 +1,5 @@
 import { ref, watch, getCurrentScope, onScopeDispose } from "vue";
-import { getApiBase } from "@/utils/api";
+import { resolveSourceApiBase } from "@/utils/api";
 import { checkIsAndroid } from "@/utils/platform";
 import {
   getStoredPlaybackSession,
@@ -64,7 +64,6 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const currentIndex = ref(-1);
   const activeQueue = ref<MusicInfo[]>([]);
   const isAndroidPlayer = ref(false);
-  const apiBase = getApiBase();
 
   const POLL_INTERVAL_MS = 1000;
   const SOURCE_POLL_INTERVAL_MS = 5000;
@@ -85,7 +84,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     return pluginApiPromise;
   };
 
-  const buildAudioUrl = (songId: number, seekTime?: number): string => {
+  const buildAudioUrl = (
+    songId: number,
+    sourceKey?: string | null,
+    seekTime?: number,
+  ): string => {
+    const apiBase = resolveSourceApiBase(sourceKey);
     let url: URL;
     try {
       url = new URL(`${apiBase}/music/id/${songId}`);
@@ -99,10 +103,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     return url.toString();
   };
 
-  const buildCoverUrl = (songId: number): string | null => {
+  const buildCoverUrl = (
+    songId: number,
+    sourceKey?: string | null,
+  ): string | null => {
     if (songId <= 0) {
       return null;
     }
+    const apiBase = resolveSourceApiBase(sourceKey);
     try {
       return new URL(`${apiBase}/music/id/${songId}/cover`).toString();
     } catch {
@@ -114,7 +122,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   };
 
   const buildSongPlaybackUrl = (song: MusicInfo, seekTime?: number): string => {
-    return song.stream_url ?? buildAudioUrl(song.id, seekTime);
+    return song.stream_url ?? buildAudioUrl(song.id, song.source_key, seekTime);
   };
 
   const deriveSourceKeyFromUrl = (url: string): string | null => {
@@ -158,7 +166,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     path: song.path,
     url: buildSongPlaybackUrl(song),
     lufs: song.lufs,
-    coverUrl: song.cover_url ?? buildCoverUrl(song.id),
+    coverUrl: song.cover_url ?? buildCoverUrl(song.id, getSongSourceKey(song)),
   });
 
   const toMusicInfo = (song: {
@@ -175,7 +183,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     path: song.path,
     lufs: song.lufs,
     stream_url: song.url ?? null,
-    cover_url: song.coverUrl ?? buildCoverUrl(song.id),
+    cover_url:
+      song.coverUrl ??
+      buildCoverUrl(
+        song.id,
+        song.sourceKey ?? deriveSourceKeyFromUrl(song.url ?? ""),
+      ),
     source_key: song.sourceKey ?? deriveSourceKeyFromUrl(song.url ?? ""),
   });
 
@@ -187,7 +200,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     path: song.path,
     url: buildSongPlaybackUrl(song),
     lufs: song.lufs,
-    coverUrl: song.cover_url ?? buildCoverUrl(song.id),
+    coverUrl: song.cover_url ?? buildCoverUrl(song.id, getSongSourceKey(song)),
     sourceKey: getSongSourceKey(song),
   });
 
@@ -816,7 +829,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         url: buildSongPlaybackUrl(targetSong),
         title: targetSong.name,
         coverUrl:
-          targetSong.cover_url ?? buildCoverUrl(targetSong.id) ?? undefined,
+          targetSong.cover_url ??
+          buildCoverUrl(targetSong.id, getSongSourceKey(targetSong)) ??
+          undefined,
       });
     }
 
@@ -1005,7 +1020,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
             title: currentSong.value.name,
             coverUrl:
               currentSong.value.cover_url ??
-              buildCoverUrl(currentSong.value.id) ??
+              buildCoverUrl(
+                currentSong.value.id,
+                getSongSourceKey(currentSong.value),
+              ) ??
               undefined,
           });
         }

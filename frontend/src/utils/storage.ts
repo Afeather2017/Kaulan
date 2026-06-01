@@ -8,7 +8,6 @@
  * Storage keys used throughout the application
  */
 export const STORAGE_KEYS = {
-  SERVER_URL: "kaulan_server_url",
   VIEW_MODE: "kaulan_view_mode",
   SHOW_LUFS: "kaulan_show_lufs",
   MEDIA_TYPES: "kaulan_media_types",
@@ -86,29 +85,6 @@ function removeStorageValue(key: string): void {
   } catch (error) {
     console.error(`Failed to remove localStorage key ${key}:`, error);
   }
-}
-
-/**
- * Get the stored server URL from localStorage
- * @returns The server URL or empty string if not set
- */
-export function getServerUrl(): string {
-  return getStorageValue(STORAGE_KEYS.SERVER_URL);
-}
-
-/**
- * Save the server URL to localStorage
- * @param url - The server URL to save
- */
-export function setServerUrl(url: string): void {
-  setStorageValue(STORAGE_KEYS.SERVER_URL, url);
-}
-
-/**
- * Remove the stored server URL from localStorage
- */
-export function removeServerUrl(): void {
-  removeStorageValue(STORAGE_KEYS.SERVER_URL);
 }
 
 /**

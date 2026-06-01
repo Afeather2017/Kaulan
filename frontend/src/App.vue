@@ -134,6 +134,7 @@
     <AddDeviceModal
       v-if="showAddDeviceModal"
       @close="showAddDeviceModal = false"
+      @sources-updated="refreshSourceGroups"
     />
 
     <!-- Add to Collection Modal -->
@@ -238,7 +239,11 @@ import { useSelection } from "@/composables/useSelection";
 import { useTimer } from "@/composables/useTimer";
 import { useVolume } from "@/composables/useVolume";
 import { useLyrics } from "@/composables/useLyrics";
-import { getApiBase } from "@/utils/api";
+import {
+  LOCALHOST_API_BASE,
+  getLocalApiBase,
+  resolveSourceApiBase,
+} from "@/utils/api";
 import {
   getLocalCollections,
   getManualDevices,
@@ -278,7 +283,6 @@ interface LibrarySourceGroup {
   name: string;
   isLoading: boolean;
   isOnline: boolean;
-  isCurrent: boolean;
   playlists: LibraryPlaylistGroup[];
   capabilities: SourceCapabilities;
 }
@@ -483,10 +487,9 @@ const failedCoverUrls = ref<Set<string>>(new Set());
 const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
 const selectedCollectionMenuName = ref<string | null>(null);
 const selectedSongMenuSong = ref<MusicInfo | null>(null);
-const uploadTargetApiBase = ref<string>(getApiBase());
+const uploadTargetApiBase = ref<string>(LOCALHOST_API_BASE);
 let androidBackListener: { unregister(): Promise<void> } | null = null;
 
-const LOCALHOST_API_BASE = "http://localhost:2080/api";
 const SOURCE_REQUEST_TIMEOUT_MS = 3000;
 const onlineSearchApiBase = ref<string>(LOCALHOST_API_BASE);
 let sourceRefreshToken = 0;
@@ -510,7 +513,10 @@ const resolveSongCoverUrl = (song: MusicInfo | null): string | null => {
 
   const coverUrl =
     song.cover_url ||
-    buildSongApiUrl(getApiBase(), `/music/id/${song.id}/cover`);
+    buildSongApiUrl(
+      resolveSourceApiBase(song.source_key),
+      `/music/id/${song.id}/cover`,
+    );
   return failedCoverUrls.value.has(coverUrl) ? null : coverUrl;
 };
 
@@ -594,13 +600,11 @@ const loadLocalCollections = () => {
 
 const getSourceApiBases = (): string[] => {
   const manual = getManualDevices().map((device) => device.api_url);
-  return Array.from(new Set([getApiBase(), LOCALHOST_API_BASE, ...manual]));
+  return Array.from(new Set([LOCALHOST_API_BASE, ...manual]));
 };
 
 const sortSourceGroups = (groups: LibrarySourceGroup[]): LibrarySourceGroup[] =>
   [...groups].sort((left, right) => {
-    if (left.isCurrent && !right.isCurrent) return -1;
-    if (!left.isCurrent && right.isCurrent) return 1;
     if (left.isLoading && !right.isLoading) return -1;
     if (!left.isLoading && right.isLoading) return 1;
     return left.name.localeCompare(right.name);
@@ -612,7 +616,6 @@ const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
   name: buildSourceLabel(apiBase),
   isLoading: true,
   isOnline: false,
-  isCurrent: apiBase === getApiBase(),
   playlists: [],
   capabilities: {
     canRefresh: false,
@@ -696,7 +699,6 @@ const fetchSourceGroup = async (
       name: sourceLabel,
       isLoading: false,
       isOnline: true,
-      isCurrent: apiBase === getApiBase(),
       playlists,
       capabilities: {
         canRefresh: true,
@@ -715,7 +717,6 @@ const fetchSourceGroup = async (
       name: fallbackName,
       isLoading: false,
       isOnline: false,
-      isCurrent: apiBase === getApiBase(),
       playlists: [],
       capabilities: {
         canRefresh: false,
@@ -778,7 +779,7 @@ const triggerDatabaseUpdate = async () => {
     isScanning.value = true;
     console.log("[app] onMounted: triggering startup database scan");
     const response = await fetch(
-      `${getApiBase()}/database/update?startup=true`,
+      `${getLocalApiBase()}/database/update?startup=true`,
       { method: "POST" },
     );
     if (!response.ok) {
@@ -934,7 +935,11 @@ const pendingLufsPolls = new Set<number>();
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const pollSongLufs = async (songId: number, context: "current" | "next") => {
+const pollSongLufs = async (
+  songId: number,
+  sourceKey: string | null | undefined,
+  context: "current" | "next",
+) => {
   if (pendingLufsPolls.has(songId)) {
     console.log(
       `[app] LUFS ${context} poll already in flight for song ID:`,
@@ -955,7 +960,7 @@ const pollSongLufs = async (songId: number, context: "current" | "next") => {
           songId,
         );
         const response = await fetch(
-          `${getApiBase()}/music/${songId}/precache-lufs`,
+          `${resolveSourceApiBase(sourceKey)}/music/${songId}/precache-lufs`,
           {
             method: "POST",
           },
@@ -996,9 +1001,9 @@ const pollSongLufs = async (songId: number, context: "current" | "next") => {
 };
 
 const requestSongLufs = async (
-  song: SongInfo,
+  song: MusicInfo,
   context: "current" | "next",
-): Promise<SongInfo> => {
+): Promise<MusicInfo> => {
   if (song.lufs !== null) {
     console.log(
       `[app] LUFS ${context} already cached for song ID:`,
@@ -1012,7 +1017,7 @@ const requestSongLufs = async (
   try {
     console.log(`[app] LUFS ${context} request for song ID:`, song.id);
     const response = await fetch(
-      `${getApiBase()}/music/${song.id}/precache-lufs`,
+      `${resolveSourceApiBase(song.source_key)}/music/${song.id}/precache-lufs`,
       {
         method: "POST",
       },
@@ -1038,7 +1043,7 @@ const requestSongLufs = async (
 
     if (result.success && result.cached === false) {
       console.log(`[app] LUFS ${context} started in background (non-blocking)`);
-      void pollSongLufs(song.id, context);
+      void pollSongLufs(song.id, song.source_key, context);
     }
   } catch (error) {
     console.error(`[app] LUFS ${context} pre-cache error:`, error);
@@ -1554,6 +1559,7 @@ const handleAddDevice = () => {
   closeSourceMenu();
   closeCollectionMenu();
   closeSongMenu();
+  void refreshSourceGroups();
   showAddDeviceModal.value = true;
 };
 

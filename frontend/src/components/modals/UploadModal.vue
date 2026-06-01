@@ -107,7 +107,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { getApiBase } from "@/utils/api";
+import { getLocalApiBase } from "@/utils/api";
 
 interface DirectoryNode {
   name: string;
@@ -132,7 +132,7 @@ const emit = defineEmits<{
   (e: "uploadComplete"): void;
 }>();
 
-const resolvedApiBase = () => props.apiBase || getApiBase();
+const resolvedApiBase = () => props.apiBase || getLocalApiBase();
 
 const directoryTree = ref<DirectoryNode | null>(null);
 const selectedPath = ref<string>("");

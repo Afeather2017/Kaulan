@@ -1,155 +1,98 @@
-# Configurable Server URL
+# Source API Routing
+
+Related source files:
+- `frontend/src/utils/api.ts`
+- `frontend/src/App.vue`
+- `frontend/src/components/modals/AddDeviceModal.vue`
+- `frontend/src/composables/useDeviceDiscovery.ts`
+- `frontend/src/composables/useAudioPlayer.ts`
+- `frontend/src/composables/useLyrics.ts`
+- `frontend/src/components/modals/SettingsModal.vue`
 
 ## Overview
 
-The configurable server URL feature allows users to specify a custom backend server address through the settings panel. This is useful for:
+Kaulan no longer uses a single saved "server URL" as the app-wide backend target.
 
-- Connecting to a remote server instead of localhost
-- Development environments with different backend addresses
-- Testing against staging/production servers
+The frontend now routes requests with two explicit rules:
 
-The server URL is saved to browser localStorage and persists across page reloads.
+- local maintenance actions always use `http://localhost:2080/api`
+- source-bound actions use the source URL carried by the selected source, playlist, or song
 
-## User Instructions
+This matches the multi-source library model. Adding a device adds a source to the library. It does not replace a global active server.
 
-### Setting a Custom Server URL
+## Routing Rules
 
-1. Open the Settings panel (齿轮 icon)
-2. Scroll to the "服务器地址" (Server Address) section
-3. Enter one of these forms:
-   - `192.168.1.23` or `music-box.local`
-   - `192.168.1.23:3090` or `music-box.local:3090`
-   - Full HTTP/HTTPS URL such as `http://your-server:port/api`
-4. Click "保存地址" (Save Address)
-5. The page will reload and connect to your custom server
+### Local-only actions
 
-### Resetting to Default
+These always target localhost:
 
-1. Open the Settings panel
-2. In the Server Address section, click "重置为默认" (Reset to Default)
-3. Confirm the reset
-4. The page will reload and connect to `http://localhost:2080/api`
+- startup scan
+- local discovery scan
+- local device naming
+- local media-type settings
+- default local upload target
 
-## Validation Behavior
+Implementation entry point:
+- `getLocalApiBase()` in `frontend/src/utils/api.ts`
 
-The URL input validates the format as you type:
+### Source-bound actions
 
-- **Empty input**: Allowed and falls back to the default server URL
-- **IP or domain without protocol**: Converted to `http://host:2080/api`
-- **IP or domain with port**: Converted to `http://host:port/api`
-- **Full HTTP/HTTPS URL**: Preserved and normalized to end with `/api`
-- **Non-HTTP/HTTPS protocol**: Shows an error
-- **Missing host or malformed value**: Shows an error
+These resolve from the item being acted on:
 
-## Technical Details
+- folder playlist fetches for a source group
+- song stream URLs
+- cover requests
+- lyrics requests
+- LUFS precache requests
 
-### Data Flow
+Implementation entry point:
+- `resolveSourceApiBase(sourceKey)`
+
+Resolution rule:
+
+- absolute `http://` or `https://` source key -> use that URL directly
+- any non-HTTP source key or missing source key -> fall back to localhost
+
+## Add Device Behavior
+
+The add-device flow now works like this:
+
+1. Discover or manually enter a device URL
+2. Normalize it to a full API base URL
+3. Save it into the local manual-source list
+4. Refresh the aggregated source list
+
+It does not:
+
+- set a global current server
+- reload the app
+- redirect startup scan or discovery to that remote source
+
+## Sequence
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant SettingsModal
-    participant StorageUtils
-    participant ApiUtils
-    participant Browser
+    participant App
+    participant Api as api.ts
+    participant Local as Local Backend
+    participant Remote as Remote Source
 
-    User->>SettingsModal: Opens settings
-    SettingsModal->>ApiUtils: getApiBase()
-    ApiUtils->>StorageUtils: getServerUrl()
-    StorageUtils->>Browser: Read localStorage 'kaulan_server_url'
-    Browser-->>StorageUtils: Return value or empty
-    StorageUtils-->>ApiUtils: Return URL or default
-    ApiUtils-->>SettingsModal: Display URL
+    App->>Api: getLocalApiBase()
+    Api-->>App: http://localhost:2080/api
+    App->>Local: POST /database/update?startup=true
 
-    User->>SettingsModal: Enters custom URL
-    User->>SettingsModal: Clicks Save
-    SettingsModal->>SettingsModal: validateServerUrl()
-    SettingsModal->>ApiUtils: setApiBase(url)
-    ApiUtils->>StorageUtils: setServerUrl(url)
-    StorageUtils->>Browser: Set localStorage 'kaulan_server_url'
-    SettingsModal->>Browser: window.location.reload()
-
-    Browser->>ApiUtils: getApiBase()
-    ApiUtils->>StorageUtils: getServerUrl()
-    StorageUtils->>Browser: Read localStorage 'kaulan_server_url'
-    Browser-->>StorageUtils: Return saved URL
-    StorageUtils-->>ApiUtils: Return saved URL
-    ApiUtils-->>Browser: Use saved URL for all API calls
+    App->>Api: resolveSourceApiBase(song.source_key)
+    alt remote source key
+        Api-->>App: http://192.168.1.20:2080/api
+        App->>Remote: GET /lyrics/id/{id}
+    else local or missing source key
+        Api-->>App: http://localhost:2080/api
+        App->>Local: GET /lyrics/id/{id}
+    end
 ```
 
-### LocalStorage
+## Notes
 
-| Property | Value |
-|----------|-------|
-| Storage Key | `kaulan_server_url` |
-| Expiration | Persistent (until cleared by user) |
-| Storage | Browser localStorage |
-
-### File Structure
-
-```
-frontend/src/
-├── utils/
-│   ├── api.ts           # Dynamic API base with localStorage support
-│   ├── storage.ts       # LocalStorage operations
-│   └── validation.ts    # URL validation logic
-├── components/modals/
-│   └── SettingsModal.vue   # UI for server URL configuration
-└── composables/
-    ├── useAudioPlayer.ts    # Uses getApiBase()
-    └── usePlaylist.ts       # Uses getApiBase()
-```
-
-### API Changes
-
-All API consumers now use `getApiBase()` instead of the static `API_BASE` constant:
-
-**Before:**
-```typescript
-import { API_BASE } from '@/utils/api'
-const response = await fetch(`${API_BASE}/music`)
-```
-
-**After:**
-```typescript
-import { getApiBase } from '@/utils/api'
-const response = await fetch(`${getApiBase()}/music`)
-```
-
-### Related Source Files
-
-- `frontend/src/utils/api.ts` - API base URL configuration
-- `frontend/src/utils/storage.ts` - LocalStorage operations
-- `frontend/src/utils/validation.ts` - URL validation
-- `frontend/src/components/modals/SettingsModal.vue` - Settings UI
-- `frontend/src/composables/useAudioPlayer.ts` - Audio player API calls
-- `frontend/src/composables/usePlaylist.ts` - Playlist API calls
-- `frontend/src/components/modals/UploadModal.vue` - Upload API calls
-- `frontend/src/views/Home.vue` - Home API calls
-- `frontend/src/views/Library.vue` - Library API calls
-- `frontend/src/views/Playlists.vue` - Playlists API calls
-
-## Android Cleartext Traffic
-
-To support HTTP URLs (not just HTTPS) on Android, the network security configuration has been updated:
-
-**File:** `frontend/src-tauri/gen/android/app/src/main/res/xml/network_security_config.xml`
-
-The `base-config` now has `cleartextTrafficPermitted="true"` to allow HTTP traffic to any domain.
-
-**Security Note:** This configuration allows cleartext HTTP traffic to all domains. For production releases, consider restricting this to specific domains or enforcing HTTPS.
-
-## Default URL
-
-- **Default**: `http://localhost:2080/api`
-- **Fallback**: If no localStorage value is set, uses default automatically
-
-## API Endpoints
-
-All API endpoints are relative to the configured base URL:
-
-- `GET /api/music` - Get all music
-- `GET /api/music/{filename}` - Stream audio
-- `GET /api/playlists` - Get playlists
-- `POST /api/database/update` - Refresh the backend music index
-- other music/library endpoints under `/api`
+- `normalizeApiBase()` is still used for manual device input normalization.
+- The old single-server storage key `kaulan_server_url` is no longer part of active frontend routing.
+- The old `getApiBase()` model has been removed from runtime source selection.

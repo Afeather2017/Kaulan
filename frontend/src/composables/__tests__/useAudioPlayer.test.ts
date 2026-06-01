@@ -15,9 +15,11 @@ import {
   setStoredPlaybackSession,
 } from "@/utils/storage";
 
-// Mock the getApiBase function to avoid cookie access in tests
+// Mock API routing helpers to keep tests deterministic.
 vi.mock("@/utils/api", () => ({
-  getApiBase: () => "http://localhost:2080/api",
+  getLocalApiBase: () => "http://localhost:2080/api",
+  resolveSourceApiBase: (sourceKey?: string | null) =>
+    sourceKey || "http://localhost:2080/api",
 }));
 
 describe("useAudioPlayer - duration loading", () => {

@@ -18,7 +18,9 @@ const plugin = {
 };
 
 vi.mock("@/utils/api", () => ({
-  getApiBase: () => "http://localhost:2080/api",
+  getLocalApiBase: () => "http://localhost:2080/api",
+  resolveSourceApiBase: (sourceKey?: string | null) =>
+    sourceKey || "http://localhost:2080/api",
 }));
 
 vi.mock("@/utils/platform", () => ({

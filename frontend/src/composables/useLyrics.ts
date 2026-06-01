@@ -18,7 +18,7 @@ import {
   getCurrentScope,
   type Ref,
 } from "vue";
-import { getApiBase } from "@/utils/api";
+import { resolveSourceApiBase } from "@/utils/api";
 
 /**
  * Represents a single lyric line with timestamp and text(s)
@@ -38,6 +38,7 @@ export interface SongInfo {
   name: string;
   lufs: number | null;
   path: string;
+  source_key?: string | null;
 }
 
 const LYRIC_RESYNC_THRESHOLD_SECONDS = 0.1;
@@ -267,9 +268,12 @@ export function findLyricIndex(lines: LyricLine[], time: number): number {
  * @param id - Music ID
  * @returns Promise resolving to the raw lyric content, or null if not found
  */
-async function loadLyrics(id: number): Promise<string | null> {
+async function loadLyrics(
+  id: number,
+  sourceKey?: string | null,
+): Promise<string | null> {
   try {
-    const apiBase = getApiBase();
+    const apiBase = resolveSourceApiBase(sourceKey);
     const response = await fetch(`${apiBase}/lyrics/id/${id}`);
 
     if (response.status === 404) {
@@ -398,7 +402,10 @@ export function useLyrics(
     }
 
     isLoading.value = true;
-    const content = await loadLyrics(currentSong.value.id);
+    const content = await loadLyrics(
+      currentSong.value.id,
+      currentSong.value.source_key,
+    );
 
     if (content) {
       lyrics.value = parseLyrics(content);
