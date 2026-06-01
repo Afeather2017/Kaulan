@@ -32,10 +32,8 @@ pub use log_broadcast::{create_broadcast_layer, start_log_server, LogBroadcaster
 
 // Re-export all handlers for integration tests
 pub use server::{
-    add_to_collection, create_collection, delete_collection, get_all_collections, get_all_music,
-    get_all_playlists, get_collection, get_collection_items, get_directory_tree, get_lyrics,
-    get_music, get_music_by_id, get_music_directory, get_playlist, get_playlists_collection_mode,
-    remove_from_collection, set_music_directory, update_database_endpoint, upload_files,
+    get_all_music, get_all_playlists, get_directory_tree, get_lyrics, get_music, get_music_by_id,
+    get_music_directory, get_playlist, set_music_directory, update_database_endpoint, upload_files,
 };
 
 /// Global broadcaster for log streaming (initialized once)

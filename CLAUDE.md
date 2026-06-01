@@ -113,7 +113,6 @@ backend/src/
 │   ├── mod.rs       # Handler exports
 │   ├── music.rs     # Music API endpoints
 │   ├── playlists.rs # Playlist API endpoints (folder-based)
-│   ├── collections.rs # Collection API endpoints
 │   ├── settings.rs  # Settings API endpoints
 │   ├── upload.rs    # File upload API endpoints
 │   └── database.rs  # Database update API endpoints
@@ -189,11 +188,10 @@ frontend/src-tauri/src/
 5. LUFS values are stored in DB
 
 **Collection Mode:**
-1. Frontend calls `GET /api/collections` → gets all user-defined collections
-2. Frontend calls `GET /api/playlists/collection-mode` → gets playlists keyed by collection names
-3. Frontend calls `GET /api/collections/{id}/items` → gets songs in a specific collection
-4. Users can create/delete collections via `POST /api/collections` and `DELETE /api/collections/{id}`
-5. Users can add/remove songs via `POST /api/collections/{id}/items` and `DELETE /api/collections/{id}/items`
+1. Frontend reads user-defined collections from browser localStorage
+2. Frontend builds collection playlists locally, including a virtual "所有音乐" entry when needed
+3. Users create, rename, delete, and update collections entirely on the client
+4. Playback still uses the backend music streaming endpoints for the selected songs
 
 ## Code Standards (from AGENTS.md)
 
@@ -242,20 +240,6 @@ frontend/src-tauri/src/
 ### Playlist Endpoints (Folder-based)
 - `GET /api/playlists` - Get all playlists (folder-based)
 - `GET /api/playlists/{name}` - Get specific playlist by name
-
-### Collection Endpoints
-- `GET /api/collections` - Get all collections
-- `GET /api/collections/{id}` - Get single collection metadata (without songs)
-- `GET /api/collections/{id}/items` - Get collection with its songs
-- `POST /api/collections` - Create new collection
-- `DELETE /api/collections/{id}` - Delete collection (also removes all associated items)
-- `POST /api/collections/{id}/items` - Add songs to collection
-- `DELETE /api/collections/{id}/items` - Remove songs from collection
-
-### Collection Mode Endpoints
-- `GET /api/playlists/collection-mode` - Get playlists in collection mode (returns HashMap with collection names as keys)
-
-**Note:** Route order matters in Actix-web. Specific routes like `/api/playlists/collection-mode` and `/api/collections/{id}/items` must be registered before parameterized routes like `/api/playlists/{name}` and `/api/collections/{id}`.
 
 ### Settings Endpoints
 - `GET /api/settings/music-directory` - Get current music directory path
