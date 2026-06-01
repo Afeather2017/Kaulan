@@ -47,6 +47,7 @@
             :search-results="searchResults"
             @set-active-tab="activeTab = $event"
             @open-filter-sheet="openFilterSheet"
+            @add-device="handleAddDevice"
             @select-library-playlist="handleSelectLibraryPlaylist"
             @open-source-menu="handleOpenSourceMenu"
             @retry-source-connection="retrySourceConnection"
@@ -128,6 +129,11 @@
       @database-update-end="handleDatabaseUpdateEnd"
       @open-upload-modal="showUploadModal = true"
       @manage-collections="handleManageCollections"
+    />
+
+    <AddDeviceModal
+      v-if="showAddDeviceModal"
+      @close="showAddDeviceModal = false"
     />
 
     <!-- Add to Collection Modal -->
@@ -220,6 +226,7 @@ import AppPlayerView from "@/components/AppPlayerView.vue";
 import { type LibrarySourceGroupSummary } from "@/components/LibrarySourceListView.vue";
 import LibraryFilterSheet from "@/components/LibraryFilterSheet.vue";
 import { type SongInfo } from "@/components/SongListView.vue";
+import AddDeviceModal from "@/components/modals/AddDeviceModal.vue";
 import SettingsModal from "@/components/modals/SettingsModal.vue";
 import ActiveQueueModal from "@/components/modals/ActiveQueueModal.vue";
 import AddToCollectionModal from "@/components/modals/AddToCollectionModal.vue";
@@ -458,6 +465,7 @@ const { lyrics, currentLyricIndex, hasLyrics } = useLyrics(
 
 // Additional state
 const showSettings = ref(false);
+const showAddDeviceModal = ref(false);
 const showLufs = ref(getShowLufs());
 const showAddToCollection = ref(false);
 const selectedCollections = ref<number[]>([]);
@@ -1540,6 +1548,13 @@ const resetLibraryFilter = () => {
   appliedSourceFilterKey.value = "all";
   appliedMediaTypes.value = ["audio", "video"];
   showFilterSheet.value = false;
+};
+
+const handleAddDevice = () => {
+  closeSourceMenu();
+  closeCollectionMenu();
+  closeSongMenu();
+  showAddDeviceModal.value = true;
 };
 
 const handleOpenSourceMenu = (group: LibrarySourceGroupSummary) => {

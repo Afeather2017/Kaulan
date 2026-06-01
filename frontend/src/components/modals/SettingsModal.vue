@@ -159,59 +159,6 @@
               </button>
             </div>
           </div>
-          <div class="setting-item">
-            <label class="setting-label">局域网中的设备</label>
-            <div v-if="isLoadingDevices" class="loading-state">扫描中...</div>
-            <div v-else-if="displayDevices.length === 0" class="empty-state">
-              未发现其他设备
-            </div>
-            <div v-else class="device-list">
-              <div
-                v-for="device in displayDevices"
-                :key="device.device_id"
-                class="device-item"
-                @click="connectToDevice(device)"
-              >
-                <div class="device-info">
-                  <div class="device-header">
-                    <div class="device-name-row">
-                      <div class="device-name">{{ device.device_name }}</div>
-                      <span v-if="device.isManual" class="manual-badge"
-                        >手动添加</span
-                      >
-                    </div>
-                    <div class="device-actions">
-                      <div class="device-last-seen">
-                        {{
-                          isLocalhostDevice(device)
-                            ? "本机"
-                            : formatLastSeen(device.last_seen_secs_ago)
-                        }}
-                      </div>
-                      <button
-                        v-if="device.isManual"
-                        class="remove-device-btn"
-                        @click.stop="removeManualDevice(device.api_url)"
-                      >
-                        <i class="fas fa-times"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="device-url">{{ device.api_url }}</div>
-                </div>
-              </div>
-            </div>
-            <div class="url-actions">
-              <button @click="refreshDevices" class="refresh-devices-btn">
-                刷新设备
-              </button>
-              <button @click="openManualAddressDialog" class="manual-url-btn">
-                手动指定地址
-              </button>
-            </div>
-          </div>
-
-          <hr class="settings-divider" />
           <div class="mode-toggle">
             <div class="mode-label">媒体类型过滤</div>
           </div>
@@ -289,21 +236,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
-import { getApiBase, normalizeApiBase, setApiBase } from "@/utils/api";
-import { validateServerUrl } from "@/utils/validation";
+import { getApiBase } from "@/utils/api";
 import {
   getMediaTypes,
   setMediaTypes,
   getDisableHeadsetMediaButton,
   setDisableHeadsetMediaButton,
-  getManualDevices,
-  setManualDevices,
-  type ManualDevice,
 } from "@/utils/storage";
-import {
-  useDeviceDiscovery,
-  type DiscoveredDevice,
-} from "@/composables/useDeviceDiscovery";
+import { useDeviceDiscovery } from "@/composables/useDeviceDiscovery";
 
 type VolumeMode = "auto" | "manual" | "fixed";
 
@@ -340,92 +280,10 @@ const emit = defineEmits<{
   (e: "manageCollections"): void;
 }>();
 
-// Server URL configuration state
-const serverUrlInput = ref<string>("");
-
-// Device discovery state
-const {
-  devices: discoveredDevices,
-  selfDevice,
-  isLoading: isLoadingDevices,
-  fetchDevices,
-  refreshDevices: runDiscoveryRefresh,
-  fetchSelfDevice,
-  setDeviceName,
-  connectToDevice,
-  formatLastSeen,
-} = useDeviceDiscovery();
+const { selfDevice, fetchSelfDevice, setDeviceName } = useDeviceDiscovery();
 
 const deviceNameInput = ref<string>("");
 const isSavingDeviceName = ref<boolean>(false);
-const LOCALHOST_API_URL = "http://localhost:2080/api";
-
-const manualDevices = ref<ManualDevice[]>([]);
-
-// Fetch device name from a manual device by calling its API
-const fetchDeviceName = async (url: string): Promise<string | null> => {
-  try {
-    const normalizedUrl = normalizeApiBase(url);
-    const response = await fetch(`${normalizedUrl}/discovery/self`);
-    if (response.ok) {
-      const data = await response.json();
-      return data.device_name || null;
-    }
-  } catch (e) {
-    console.warn(`Failed to fetch device name from ${url}:`, e);
-  }
-  return null;
-};
-
-// Refresh names for all manual devices
-const refreshManualDeviceNames = async () => {
-  const promises = manualDevices.value.map(async (device) => {
-    const name = await fetchDeviceName(device.api_url);
-    if (name) {
-      device.device_name = name;
-      device.last_fetched = Date.now();
-    }
-  });
-  await Promise.all(promises);
-  saveManualDevices();
-};
-
-const loadManualDevices = () => {
-  manualDevices.value = getManualDevices();
-  if (manualDevices.value.length > 0) {
-    void refreshManualDeviceNames();
-  }
-};
-
-const saveManualDevices = () => {
-  setManualDevices(manualDevices.value);
-};
-
-const addManualDevice = async (url: string) => {
-  const normalizedUrl = normalizeApiBase(url);
-
-  // Check if already exists
-  const existing = manualDevices.value.find((m) => m.api_url === normalizedUrl);
-  if (existing) {
-    return; // Already exists, don't add duplicate
-  }
-
-  // Fetch device name
-  const deviceName = await fetchDeviceName(normalizedUrl);
-
-  manualDevices.value.push({
-    api_url: normalizedUrl,
-    device_name: deviceName || undefined,
-    added_at: Date.now(),
-    last_fetched: deviceName ? Date.now() : undefined,
-  });
-  saveManualDevices();
-};
-
-const removeManualDevice = (url: string) => {
-  manualDevices.value = manualDevices.value.filter((m) => m.api_url !== url);
-  saveManualDevices();
-};
 
 const selectedMediaTypes = ref<string[]>(getMediaTypes());
 const isLoadingMediaTypes = ref<boolean>(false);
@@ -587,41 +445,6 @@ const saveMediaTypes = async () => {
   }
 };
 
-const localhostDevice = computed<DiscoveredDevice>(() => ({
-  device_id: "localhost-self",
-  device_name: "localhost(self)",
-  api_url: LOCALHOST_API_URL,
-  last_seen_secs_ago: 0,
-}));
-
-const displayDevices = computed<DiscoveredDevice[]>(() => {
-  const manualDeviceEntries: DiscoveredDevice[] = manualDevices.value.map(
-    (m, idx) => ({
-      device_id: `manual-${idx}-${m.added_at}`,
-      device_name: m.device_name || "手动添加",
-      api_url: m.api_url,
-      last_seen_secs_ago: 0,
-      isManual: true,
-    }),
-  );
-
-  const merged = [
-    localhostDevice.value,
-    ...discoveredDevices.value,
-    ...manualDeviceEntries,
-  ];
-  const unique = new Map<string, DiscoveredDevice>();
-  for (const device of merged) {
-    if (!unique.has(device.api_url)) {
-      unique.set(device.api_url, device);
-    }
-  }
-  return Array.from(unique.values());
-});
-
-const isLocalhostDevice = (device: DiscoveredDevice): boolean =>
-  device.api_url === LOCALHOST_API_URL;
-
 // Temporary state for user input (before blur/commit)
 const timerMinutesInputTemp = ref("");
 
@@ -664,12 +487,6 @@ const handleTimerMinutesBlur = () => {
 };
 
 onMounted(async () => {
-  // Initialize server URL input
-  serverUrlInput.value = getApiBase();
-
-  // Load manual devices from localStorage
-  loadManualDevices();
-
   // Initialize device name from localStorage first (local device's name)
   const localDeviceName = localStorage.getItem("kaulan_local_device_name");
   if (localDeviceName) {
@@ -684,13 +501,6 @@ onMounted(async () => {
         selfDevice.value.device_name,
       );
     }
-  }
-
-  // Load current committed discovery list.
-  try {
-    await fetchDevices();
-  } catch (err) {
-    console.error("Failed to load discovered devices:", err);
   }
 
   await loadMediaTypes();
@@ -749,32 +559,6 @@ const saveDeviceName = async () => {
   } else {
     alert("保存设备名称失败");
   }
-};
-
-const refreshDevices = async () => {
-  await runDiscoveryRefresh();
-};
-
-const openManualAddressDialog = async () => {
-  const input = prompt(
-    "请输入服务器地址，可直接填写 IP、域名或带端口地址:",
-    serverUrlInput.value,
-  );
-  if (input === null) return;
-
-  const trimmed = input.trim();
-  serverUrlInput.value = trimmed;
-
-  // Add to manual devices list before connecting (fetches device name)
-  await addManualDevice(trimmed);
-  const validation = validateServerUrl(trimmed);
-  if (!validation.valid) {
-    alert(validation.error || "地址无效");
-    return;
-  }
-
-  setApiBase(trimmed);
-  window.location.reload();
 };
 </script>
 
@@ -1332,186 +1116,12 @@ const openManualAddressDialog = async () => {
   color: #176b3a;
 }
 
-.reset-url-btn {
-  flex: 1;
-  padding: 10px 20px;
-  border: 1px solid #e74c3c;
-  border-radius: 5px;
-  background-color: #fff;
-  color: #e74c3c;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.reset-url-btn:hover {
-  background-color: #e74c3c;
-  color: white;
-}
-
-.manual-url-btn {
-  flex: 1;
-  padding: 10px 20px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  background-color: #fff;
-  color: #555;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.manual-url-btn:hover {
-  background-color: #f0f0f0;
-  border-color: #ccc;
-}
-
-.manual-address-panel {
-  margin-top: 10px;
-}
-
-.url-changed {
-  color: #e67e22 !important;
-}
-
 .mode-value {
   font-size: 16px;
   color: #1db954;
   font-weight: 500;
   min-width: 100px;
   text-align: right;
-}
-
-/* Device discovery styles */
-.loading-state,
-.empty-state {
-  color: #777;
-  font-size: 14px;
-  padding: 10px 0;
-  text-align: center;
-}
-
-.device-list {
-  margin-bottom: 10px;
-}
-
-.device-item {
-  display: flex;
-  align-items: flex-start;
-  padding: 12px 15px;
-  background-color: #f9f9f9;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.device-item:hover {
-  background-color: #f0f0f0;
-  border-color: #1db954;
-}
-
-.device-item:last-child {
-  margin-bottom: 0;
-}
-
-.device-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.device-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.device-name-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.device-name {
-  font-size: 15px;
-  font-weight: 500;
-  color: #333;
-  min-width: 0;
-}
-
-.device-url {
-  font-size: 12px;
-  color: #777;
-  font-family: monospace;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.device-last-seen {
-  font-size: 12px;
-  color: #999;
-  white-space: nowrap;
-}
-
-.manual-badge {
-  font-size: 11px;
-  background-color: #ff9800;
-  color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-left: 6px;
-}
-
-.device-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.remove-device-btn {
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 50%;
-  background-color: #e74c3c;
-  color: white;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-
-.remove-device-btn:hover {
-  background-color: #c0392b;
-  transform: scale(1.1);
-}
-
-.refresh-devices-btn {
-  flex: 1;
-  padding: 8px 15px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  background-color: #fff;
-  color: #555;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.refresh-devices-btn:hover {
-  background-color: #f0f0f0;
-  border-color: #ccc;
 }
 
 /* Checkbox styles */
