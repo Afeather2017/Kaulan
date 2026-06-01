@@ -2,6 +2,7 @@
 
 Related source files:
 - `frontend/src/App.vue`
+- `frontend/src/components/modals/AddDeviceModal.vue`
 - `frontend/src/components/modals/SettingsModal.vue`
 - `frontend/src/components/SearchBar.vue`
 - `frontend/src/components/PlaylistListView.vue`
@@ -81,9 +82,33 @@ That means:
 - family members do not overwrite each other
 - a collection can mix songs from multiple servers
 
-### 3. Advanced Settings
+### 3. Add Device Flow
 
-Server addresses, discovery, source details, and scan internals should stay under `高级设置`.
+Source onboarding should be a first-class library action, not hidden in settings.
+
+That means:
+
+- `Library` shows an `Add device` action in the top action row
+- tapping it opens a dedicated device sheet or modal
+- the sheet includes both nearby-device discovery and manual address entry
+- tapping a discovered device connects immediately
+- manual devices remain stored locally for the current browser/user
+
+### 4. Advanced Settings
+
+Advanced settings should keep low-frequency admin controls only.
+
+That means:
+
+- local device name
+- scan file types
+- playback and Android-specific toggles
+- source diagnostics or advanced details
+
+Not:
+
+- nearby-device discovery
+- manual source onboarding
 
 ## Terminology
 
@@ -111,11 +136,13 @@ The main screen should focus on:
 
 ### Mobile Main Screen
 
+`Library` tab:
+
 ```text
 +--------------------------------------------------+
 | Kaulan                             [Search] [⋮] |
 +--------------------------------------------------+
-| [Library] [My Collections] [Filter]             |
+| [Library] [My Collections] [Filter] [Add device] |
 +--------------------------------------------------+
 | This Device                      [Online]    [⋮]|
 |  所有音乐                                        |
@@ -131,6 +158,23 @@ The main screen should focus on:
 | [Cover]      progress bar                        |
 | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
 +--------------------------------------------------+
+```
+
+`My Collections` tab:
+
+```text
++------------------------------------------------------+
+| Kaulan                               [Search] [⋮]   |
++------------------------------------------------------+
+| [Library] [My Collections] [Filter] [New Collection] |
++------------------------------------------------------+
+| No personal collections yet.                         |
+| Tap "New Collection" to create one.                  |
++------------------------------------------------------+
+| [Cover] Song Name                                    |
+| [Cover]      progress bar                            |
+| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue]     |
++------------------------------------------------------+
 ```
 
 ### Mobile Expanded Player
@@ -178,6 +222,8 @@ Lyric state:
 - `Library` shows server-grouped folder-based playlists from all servers
 - `My Collections` shows only local personal collections
 - `Filter` opens a sheet, not a full new permanent panel
+- `Add device` is shown only while `Library` is active
+- `New collection` is shown only while `My Collections` is active
 - only one of these is active at a time
 - lyrics should open in the expandable upper player panel
 - the lower player block should keep the same layout in cover and lyric states
@@ -215,6 +261,32 @@ Lyric state:
 | [Reset]                              [Apply]     |
 +--------------------------------------------------+
 ```
+
+### Mobile Add Device Sheet
+
+```text
++--------------------------------------------------+
+| Add Device                                       |
++--------------------------------------------------+
+| Manual address                                   |
+| [ 192.168.1.10:2080                        ] [Connect] |
+|                                                  |
+| Nearby devices                          [Refresh] |
+|                                                  |
+| localhost(self)                         [This Device] |
+| http://localhost:2080/api                          |
+|                                                  |
+| Kaulan Player b31a7e                    [0 sec ago]  |
+| http://192.168.136.124:2080/api                    |
++--------------------------------------------------+
+```
+
+Rules:
+
+- show both discovered and manually added devices in one list
+- manual address connect and discovery connect should share the same destination flow
+- manual devices can be removed from the sheet
+- this sheet replaces device onboarding inside settings
 
 ### Mobile Search
 
@@ -371,11 +443,13 @@ Wide mode can show browsing and playback together, but the library should still 
 
 ### Desktop Main Screen
 
+`Library` tab:
+
 ```text
 +----------------------------------------------------------------------------------+
 | Kaulan                  [ Search all music sources...                 ] [⋮]      |
 +----------------------------------------------------------------------------------+
-| [Library] [My Collections] [Filter]   | Now Playing / Lyrics                     |
+| [Library] [My Collections] [Filter] [Add device] | Now Playing / Lyrics          |
 +---------------------------------------+------------------------------------------+
 | This Device          [Online]    [⋮]  |              [ Cover ]                   |
 |  所有音乐                             |              [ Cover ]                   |
@@ -386,6 +460,19 @@ Wide mode can show browsing and playback together, but the library should still 
 |  Downloads                            | [Cover]      progress bar                        |
 |  Anime                                | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
 +---------------------------------------+------------------------------------------+
+```
+
+`My Collections` tab:
+
+```text
++------------------------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮]              |
++------------------------------------------------------------------------------------------+
+| [Library] [My Collections] [Filter] [New Collection] | Now Playing / Queue               |
++------------------------------------------------------+-----------------------------------+
+| No personal collections yet.                                                            |
+| Use "New Collection" to create your first one.                                          |
++------------------------------------------------------+-----------------------------------+
 ```
 
 ### Desktop Offline Example

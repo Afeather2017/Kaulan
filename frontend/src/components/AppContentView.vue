@@ -16,6 +16,20 @@
       <button class="content-tab filter-tab" @click="$emit('openFilterSheet')">
         筛选
       </button>
+      <button
+        v-if="activeTab === 'library'"
+        class="content-tab"
+        @click="$emit('addDevice')"
+      >
+        添加设备
+      </button>
+      <button
+        v-if="activeTab === 'collections'"
+        class="content-tab"
+        @click="$emit('showCreateModal')"
+      >
+        新建收藏夹
+      </button>
     </div>
 
     <LibrarySourceListView
@@ -74,14 +88,6 @@
       @playlist-action="$emit('openCollectionMenu', $event)"
     />
     <div
-      v-if="currentView === 'playlists' && activeTab === 'collections'"
-      class="collection-actions-bar"
-    >
-      <button class="collection-create-btn" @click="$emit('showCreateModal')">
-        新建收藏夹
-      </button>
-    </div>
-    <div
       v-if="
         currentView === 'playlists' &&
         activeTab === 'collections' &&
@@ -89,10 +95,7 @@
       "
       class="empty-state"
     >
-      <div>还没有个人收藏夹</div>
-      <button class="empty-online-search-btn" @click="$emit('showCreateModal')">
-        创建第一个收藏夹
-      </button>
+      <div>还没有个人收藏夹，点击上方“新建收藏夹”开始。</div>
     </div>
 
     <SongListView
@@ -185,6 +188,7 @@ defineProps<{
 defineEmits<{
   (e: "setActiveTab", tab: "library" | "collections"): void;
   (e: "openFilterSheet"): void;
+  (e: "addDevice"): void;
   (
     e: "selectLibraryPlaylist",
     group: LibrarySourceGroupSummary,
@@ -263,13 +267,6 @@ defineEmits<{
   padding: 16px 0 8px;
 }
 
-.collection-actions-bar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 12px 0 8px;
-}
-
-.collection-create-btn,
 .online-search-entry,
 .empty-online-search-btn {
   border: 1px solid #1db954;
@@ -280,10 +277,6 @@ defineEmits<{
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-}
-
-.collection-create-btn {
-  padding: 10px 14px;
 }
 
 .online-search-entry {
