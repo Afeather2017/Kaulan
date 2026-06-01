@@ -41,12 +41,7 @@
         />
       </div>
       <div class="song-info">
-        <div class="song-top-row">
-          <h3>{{ song.name }}</h3>
-          <span v-if="song.sourceLabel" class="song-source-badge">
-            {{ song.sourceLabel }}
-          </span>
-        </div>
+        <h3>{{ song.name }}</h3>
         <span v-if="showLufs" class="song-lufs">
           {{ song.lufs !== null ? `${song.lufs} LUFS` : "-" }}
         </span>
@@ -231,29 +226,12 @@ defineEmits<{
   min-width: 0;
 }
 
-.song-top-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .song-info h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 500;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.song-source-badge {
-  flex: none;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: #f0f5ff;
-  color: #3157a5;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 .song-lufs {
