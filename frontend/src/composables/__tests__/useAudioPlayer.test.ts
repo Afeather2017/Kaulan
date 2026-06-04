@@ -15,6 +15,22 @@ import {
   setStoredPlaybackSession,
 } from "@/utils/storage";
 
+vi.mock("@/utils/platform", () => ({
+  checkIsAndroid: () => Promise.resolve(false),
+  isLocalhostApiBase: (apiBase: string) => {
+    try {
+      const hostname = new URL(apiBase).hostname;
+      return (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "::1"
+      );
+    } catch {
+      return false;
+    }
+  },
+}));
+
 // Mock API routing helpers to keep tests deterministic.
 vi.mock("@/utils/api", () => ({
   getLocalApiBase: () => "http://localhost:2080/api",
@@ -338,5 +354,47 @@ describe("useAudioPlayer - duration loading", () => {
 
     expect(activeQueue.value.map((song) => song.name)).toEqual(["Local Song"]);
     expect(currentSong.value?.name).toBe("Local Song");
+  });
+
+  it("should keep remote playback URLs when restoring Android-originated queue data", async () => {
+    setStoredPlaybackSession({
+      currentSongId: 2,
+      currentSongUrl: "http://192.168.1.10:2080/api/music/id/2",
+      queue: [
+        {
+          id: 1,
+          name: "Remote Song 1",
+          path: "content://media/external/audio/media/1",
+          url: "http://192.168.1.10:2080/api/music/id/1",
+          lufs: -12,
+          sourceKey: "http://192.168.1.10:2080/api",
+        },
+        {
+          id: 2,
+          name: "Remote Song 2",
+          path: "content://media/external/audio/media/2",
+          url: "http://192.168.1.10:2080/api/music/id/2",
+          lufs: -10,
+          sourceKey: "http://192.168.1.10:2080/api",
+        },
+      ],
+      timestamp: Date.now(),
+    });
+
+    const { initAudio, activeQueue, currentSong, currentIndex } =
+      useAudioPlayer({
+        songs: () => mockSongs,
+      });
+
+    await initAudio();
+
+    expect(activeQueue.value.map((song) => song.stream_url)).toEqual([
+      "http://192.168.1.10:2080/api/music/id/1",
+      "http://192.168.1.10:2080/api/music/id/2",
+    ]);
+    expect(currentSong.value?.stream_url).toBe(
+      "http://192.168.1.10:2080/api/music/id/2",
+    );
+    expect(currentIndex.value).toBe(1);
   });
 });

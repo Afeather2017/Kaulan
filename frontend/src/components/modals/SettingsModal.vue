@@ -142,7 +142,8 @@
               </button>
             </div>
             <p class="setting-hint">
-              自动模式按当前列表 LUFS 平衡音量，固定模式使用目标 LUFS，手动模式直接使用固定音量。
+              自动模式按当前列表 LUFS 平衡音量，固定模式使用目标
+              LUFS，手动模式直接使用固定音量。
             </p>
           </div>
           <div v-if="volumeMode === 'fixed'" class="setting-item">
@@ -231,9 +232,7 @@
               />
               <span>显示歌曲 LUFS 数值</span>
             </label>
-            <p class="setting-hint">
-              仅用于查看响度数据，不影响播放音量计算。
-            </p>
+            <p class="setting-hint">仅用于查看响度数据，不影响播放音量计算。</p>
           </div>
           <div class="mode-toggle">
             <div class="mode-label">设备与来源</div>

@@ -2,6 +2,20 @@ import { invoke } from "@tauri-apps/api/core";
 
 let cachedIsAndroid: boolean | null = null;
 
+export function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  );
+}
+
+export function isLocalhostApiBase(apiBase: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(apiBase).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Check if the current platform is Android
  * @returns true if running on Android, false otherwise

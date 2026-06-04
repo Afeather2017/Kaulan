@@ -254,7 +254,7 @@ import {
   setShowLufs,
   type StoredLocalCollection,
 } from "@/utils/storage";
-import { checkIsAndroid } from "@/utils/platform";
+import { checkIsAndroid, isLocalhostApiBase } from "@/utils/platform";
 import { loadItemsIncrementally, upsertSortedItem } from "@/utils/sourceGroups";
 
 type MainView = "playlists" | "songs" | "search";
@@ -491,6 +491,7 @@ const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
 const selectedCollectionMenuName = ref<string | null>(null);
 const selectedSongMenuSong = ref<MusicInfo | null>(null);
 const uploadTargetApiBase = ref<string>(LOCALHOST_API_BASE);
+const isAndroidRuntime = ref(false);
 let androidBackListener: { unregister(): Promise<void> } | null = null;
 
 const SOURCE_REQUEST_TIMEOUT_MS = 3000;
@@ -586,6 +587,14 @@ const normalizeSourceSong = (
   mediaType: song.mediaType || inferMediaType(song),
 });
 
+const buildPlaylistRequestUrl = (apiBase: string): string => {
+  const shouldRequestRawPlaybackPath =
+    isAndroidRuntime.value && isLocalhostApiBase(apiBase);
+  return shouldRequestRawPlaybackPath
+    ? buildSongApiUrl(apiBase, "/playlists?stream=content")
+    : buildSongApiUrl(apiBase, "/playlists");
+};
+
 const syncLocalCollections = () => {
   setLocalCollections(localCollections.value);
 };
@@ -664,7 +673,7 @@ const fetchSourceGroup = async (
       fetchWithTimeout(buildSongApiUrl(apiBase, "/discovery/self"), {
         cache: "no-store",
       }),
-      fetchWithTimeout(buildSongApiUrl(apiBase, "/playlists"), {
+      fetchWithTimeout(buildPlaylistRequestUrl(apiBase), {
         cache: "no-store",
       }),
       fetchWithTimeout(buildSongApiUrl(apiBase, "/files/directory-tree"), {
@@ -2062,6 +2071,7 @@ onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
   await triggerDatabaseUpdate();
 
+  isAndroidRuntime.value = await checkIsAndroid();
   loadLocalCollections();
   await refreshSourceGroups();
   await initAudio();

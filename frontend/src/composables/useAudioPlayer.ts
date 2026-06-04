@@ -1,6 +1,6 @@
 import { ref, watch, getCurrentScope, onScopeDispose } from "vue";
 import { resolveSourceApiBase } from "@/utils/api";
-import { checkIsAndroid } from "@/utils/platform";
+import { checkIsAndroid, isLocalhostApiBase } from "@/utils/platform";
 import {
   getStoredPlaybackSession,
   removeStoredPlaybackSession,
@@ -121,7 +121,20 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
   };
 
+  const shouldUseRawPlaybackPath = (song: MusicInfo): boolean => {
+    if (!isAndroidPlayer.value) {
+      return false;
+    }
+
+    const sourceApiBase = resolveSourceApiBase(song.source_key);
+    return isLocalhostApiBase(sourceApiBase) && song.path.length > 0;
+  };
+
   const buildSongPlaybackUrl = (song: MusicInfo, seekTime?: number): string => {
+    if (shouldUseRawPlaybackPath(song) && seekTime === undefined) {
+      return song.path;
+    }
+
     return song.stream_url ?? buildAudioUrl(song.id, song.source_key, seekTime);
   };
 
