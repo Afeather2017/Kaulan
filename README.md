@@ -266,6 +266,7 @@ curl "http://localhost:2080/api/music/id/25?position=0.1"
 ```
 
 See [`docs/position-based-streaming.md`](docs/position-based-streaming.md) for detailed documentation.
+See [`docs/streaming-flow.md`](docs/streaming-flow.md) for the full playback, cover art, and lyric request flow across desktop, Android localhost, and remote clients.
 
 #### GET /api/playlists
 
@@ -293,6 +294,7 @@ Get all playlists with their songs.
 ```
 
 Note: "所有音乐" (All Music) is a special playlist containing all songs.
+See [`docs/streaming-flow.md`](docs/streaming-flow.md) for how playlist metadata is converted into playback URLs.
 
 #### GET /api/playlists/{name}
 

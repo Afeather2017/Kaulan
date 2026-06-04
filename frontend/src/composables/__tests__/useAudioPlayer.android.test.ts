@@ -25,6 +25,18 @@ vi.mock("@/utils/api", () => ({
 
 vi.mock("@/utils/platform", () => ({
   checkIsAndroid: () => Promise.resolve(true),
+  isLocalhostApiBase: (apiBase: string) => {
+    try {
+      const hostname = new URL(apiBase).hostname;
+      return (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "::1"
+      );
+    } catch {
+      return false;
+    }
+  },
 }));
 
 vi.mock("music-notification-api", () => plugin);
@@ -106,5 +118,44 @@ describe("useAudioPlayer - Android correction guard", () => {
 
     await refreshAndroidSession("confirmed-seek");
     expect(currentTime.value).toBe(50);
+  });
+
+  it("should persist raw playback paths for localhost Android queues", async () => {
+    const songs = [
+      {
+        id: 1,
+        name: "Test Song",
+        lufs: -12,
+        path: "content://media/external/audio/media/1",
+        stream_url: "content://media/external/audio/media/1",
+        source_key: "http://localhost:2080/api",
+      },
+    ];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [], currentIndex: null },
+      currentSongId: null,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 0 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex } = useAudioPlayer({
+      songs: () => songs,
+    });
+
+    await initAudio();
+    await playSongAtIndex(songs[0], 0, songs);
+
+    expect(plugin.setPlayingQueue).toHaveBeenCalled();
+    const queueCalls = plugin.setPlayingQueue.mock.calls as Array<
+      Array<unknown>
+    >;
+    const latestCall = queueCalls[queueCalls.length - 1];
+    const latestQueue = (latestCall?.[0] ?? undefined) as
+      | { songs?: Array<{ url?: string | null }> }
+      | undefined;
+    expect(latestQueue?.songs?.[0]?.url).toBe(
+      "content://media/external/audio/media/1",
+    );
   });
 });

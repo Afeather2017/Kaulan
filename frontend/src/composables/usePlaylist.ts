@@ -1,6 +1,6 @@
 import { ref, computed } from "vue";
 import { getLocalApiBase } from "@/utils/api";
-import { checkIsAndroid } from "@/utils/platform";
+import { checkIsAndroid, isLocalhostApiBase } from "@/utils/platform";
 
 export interface MusicInfo {
   id: number;
@@ -15,12 +15,6 @@ export interface Playlist {
   songs: MusicInfo[];
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-  );
-}
-
 /** Query string to request content:// stream URLs from backend */
 async function streamParam(): Promise<string> {
   if (!(await checkIsAndroid())) {
@@ -28,8 +22,7 @@ async function streamParam(): Promise<string> {
   }
 
   try {
-    const apiBase = new URL(getLocalApiBase());
-    return isLoopbackHostname(apiBase.hostname) ? "?stream=content" : "";
+    return isLocalhostApiBase(getLocalApiBase()) ? "?stream=content" : "";
   } catch {
     return "";
   }
