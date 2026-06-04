@@ -107,17 +107,19 @@
       :manual-volume-input="manualVolumeInput"
       :fixed-lufs="fixedLufs"
       :fixed-lufs-input="fixedLufsInput"
+      :show-lufs="showLufs"
       :timer-minutes="timerMinutes"
       :timer-minutes-input="timerMinutesInput"
       :timer-active="timerActive"
       :timer-status-display="timerStatusDisplay"
       :volume-mode-labels="volumeModeLabels"
       @close="hideSettingsModal"
-      @toggle-volume-mode="handleToggleVolumeMode"
+      @update:volume-mode="volumeMode = $event"
       @update:manual-volume="manualVolume = $event"
       @update:manual-volume-input="manualVolumeInput = $event"
       @update:fixed-lufs="fixedLufs = $event"
       @update:fixed-lufs-input="fixedLufsInput = $event"
+      @update:show-lufs="handleShowLufsChange"
       @update:timer-minutes="timerMinutes = $event"
       @update:timer-minutes-input="timerMinutesInput = $event"
       @set-timer-preset="handleSetTimerPreset"
@@ -249,6 +251,7 @@ import {
   getManualDevices,
   getShowLufs,
   setLocalCollections,
+  setShowLufs,
   type StoredLocalCollection,
 } from "@/utils/storage";
 import { checkIsAndroid } from "@/utils/platform";
@@ -816,7 +819,6 @@ const {
   fixedLufsInput,
   volumeModeLabels,
   calculateVolume,
-  toggleVolumeMode,
 } = useVolume(currentSong, playbackSongs);
 
 const showBackButton = computed(() => {
@@ -1463,8 +1465,9 @@ const hideSettingsModal = () => {
   showSettings.value = false;
 };
 
-const handleToggleVolumeMode = () => {
-  toggleVolumeMode();
+const handleShowLufsChange = (value: boolean) => {
+  showLufs.value = value;
+  setShowLufs(value);
 };
 
 const handleStartTimer = async () => {

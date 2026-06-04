@@ -762,6 +762,8 @@ Normal settings should be short and non-technical.
 | Settings                                         |
 +--------------------------------------------------+
 | Playback                                         |
+|  - Loudness mode                                 |
+|  - Target LUFS / manual volume                   |
 |  - Lyrics on/off                                 |
 |  - Sleep timer                                   |
 |                                                  |
@@ -778,22 +780,28 @@ Normal settings should be short and non-technical.
 +--------------------------------------------------+
 | Advanced Settings                                |
 +--------------------------------------------------+
-| Music Sources                                    |
-|  - Device discovery                              |
-|  - Manual server address                         |
+| Device / source                                  |
+|  - Local device name                             |
 |  - Connected sources list                        |
+|  - Source diagnostics                            |
 |                                                  |
 | Scan / backend                                   |
-|  - Music directory                               |
 |  - Media type filter                             |
 |  - Refresh internals                             |
 |                                                  |
-| Playback internals                               |
-|  - LUFS display                                  |
-|  - Target loudness                               |
-|  - Manual volume tuning                          |
+| Android / device integration                     |
+|  - Local lyrics permission                       |
+|  - Headset media button toggle                   |
 +--------------------------------------------------+
 ```
+
+Playback detail for LUFS-related controls:
+
+- loudness mode stays in normal settings because it directly changes playback behavior
+- `Auto` uses the current playlist LUFS values to normalize against the quietest track
+- `Fixed LUFS` exposes a target loudness numeric input
+- `Manual` exposes direct volume tuning when LUFS normalization is not wanted
+- optional per-song LUFS number display remains advanced because it is diagnostic, not a primary playback control
 
 ## What Moves Out Of The Main Screen
 
