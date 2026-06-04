@@ -50,12 +50,14 @@ Current provider availability checks:
 - The frontend replaces the current playback queue with a single temporary track.
 - Temporary preview tracks are not inserted into the main library database.
 - On Android, preview files are stored in the app download root under `.preview-cache`.
+- On Android, Bilibili preview downloads keep the provider's raw DASH audio container instead of running FFmpeg conversion. Related source: `backend/src/handlers/download.rs`.
 
 ### Download behavior
 
 - Full downloads are saved under the configured online download root.
 - On Android, Kaulan uses the app external files music directory:
   - `/sdcard/Android/data/afeather.kaulan/files/Music`
+- On Android, Bilibili full downloads are saved as raw DASH audio files with the `.m4s` extension because FFmpeg is not integrated in the Android path yet. Related source: `backend/src/handlers/download.rs`.
 - If the user selected a lyric candidate, Kaulan tries to save a matching `.lrc` file beside the audio file.
 - After a successful full download, Kaulan refreshes the music database across both library roots:
   - the configured music directory

@@ -26,6 +26,7 @@ use crate::types::{
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
 const NETEASE_QUALITY_FALLBACKS: [Quality; 3] =
     [Quality::Exhigh, Quality::Higher, Quality::Standard];
+const BILIBILI_RAW_AUDIO_EXTENSION: &str = "m4s";
 
 #[post("/api/download/search")]
 pub async fn search_online(body: web::Json<OnlineSearchRequest>) -> HttpResponse {
@@ -497,14 +498,15 @@ async fn build_preview(
             let bvid = request.id.clone();
             let preview_root_clone = preview_root.clone();
             task::spawn_blocking(move || -> Result<PreviewBuildResult, String> {
-                setup_ffmpeg_path();
                 let client = BilibiliClient::new().map_err(|e| e.to_string())?;
                 let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
-                let final_name = format!("{token}.mp3");
+                let final_name = if should_skip_bilibili_ffmpeg() {
+                    format!("{token}.{BILIBILI_RAW_AUDIO_EXTENSION}")
+                } else {
+                    format!("{token}.mp3")
+                };
                 let final_path = preview_root_clone.join(&final_name);
-                client
-                    .download_audio(&bvid, &final_path, bilibili_api::types::AudioFormat::Mp3)
-                    .map_err(|e| e.to_string())?;
+                download_bilibili_audio(&client, &bvid, &final_path).map_err(|e| e.to_string())?;
 
                 Ok(PreviewBuildResult {
                     source: DownloadSource::Bilibili,
@@ -586,16 +588,21 @@ async fn download_bilibili_full(
     let title = request.title.clone();
     let target_dir = target_dir.to_path_buf();
     task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
-        setup_ffmpeg_path();
         let client = BilibiliClient::new().map_err(|e| e.to_string())?;
-        let filename = format!("{}.mp3", sanitize_filename(&title));
+        let filename = if should_skip_bilibili_ffmpeg() {
+            format!(
+                "{}.{}",
+                sanitize_filename(&title),
+                BILIBILI_RAW_AUDIO_EXTENSION
+            )
+        } else {
+            format!("{}.mp3", sanitize_filename(&title))
+        };
         let final_path = target_dir.join(filename);
-        client
-            .download_audio(&bvid, &final_path, bilibili_api::types::AudioFormat::Mp3)
-            .map_err(|e| match e {
-                BilibiliError::Ffmpeg(message) => format!("FFmpeg 错误: {message}"),
-                other => other.to_string(),
-            })?;
+        download_bilibili_audio(&client, &bvid, &final_path).map_err(|e| match e {
+            BilibiliError::Ffmpeg(message) => format!("FFmpeg 错误: {message}"),
+            other => other.to_string(),
+        })?;
         Ok(FullDownloadResult { final_path })
     })
     .await
@@ -1021,6 +1028,23 @@ fn youtube_cookie_file_path() -> Option<String> {
     }
 }
 
+fn should_skip_bilibili_ffmpeg() -> bool {
+    cfg!(target_os = "android")
+}
+
+fn download_bilibili_audio(
+    client: &BilibiliClient,
+    bvid: &str,
+    output: &Path,
+) -> Result<u64, BilibiliError> {
+    if should_skip_bilibili_ffmpeg() {
+        client.download_audio_raw(bvid, output)
+    } else {
+        setup_ffmpeg_path();
+        client.download_audio(bvid, output, bilibili_api::types::AudioFormat::Mp3)
+    }
+}
+
 fn setup_ffmpeg_path() {
     if cfg!(target_os = "android") {
         if let Ok(data_dir) = std::env::var("TAURI_ANDROID_DATA_DIR") {
@@ -1048,7 +1072,8 @@ impl DownloadSource {
 mod tests {
     use super::{
         create_download_staging_dir, finalize_youtube_audio, merge_lyric_content,
-        resolve_target_dir, sanitize_filename,
+        resolve_target_dir, sanitize_filename, should_skip_bilibili_ffmpeg,
+        BILIBILI_RAW_AUDIO_EXTENSION,
     };
     use std::fs;
 
@@ -1103,5 +1128,16 @@ mod tests {
         assert_eq!(file_name, "preview-token.webm");
         assert_eq!(final_path, temp_dir.path().join("preview-token.webm"));
         assert_eq!(fs::read(final_path).unwrap(), b"webm");
+    }
+
+    #[test]
+    fn bilibili_android_downloads_keep_raw_extension() {
+        let extension = if should_skip_bilibili_ffmpeg() {
+            BILIBILI_RAW_AUDIO_EXTENSION
+        } else {
+            "mp3"
+        };
+
+        assert!(!extension.is_empty());
     }
 }
