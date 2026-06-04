@@ -112,13 +112,6 @@
         <button class="advanced-toggle-btn" @click="toggleAdvancedSettings">
           <span class="advanced-toggle-copy">
             <span class="advanced-toggle-title">高级设置</span>
-            <span class="advanced-toggle-hint">
-              {{
-                showAdvancedSettings
-                  ? "收起设备与来源设置"
-                  : "展开设备与来源设置"
-              }}
-            </span>
           </span>
           <span class="advanced-toggle-state">
             {{ showAdvancedSettings ? "收起" : "展开" }}
@@ -132,6 +125,116 @@
         </button>
 
         <div v-if="showAdvancedSettings" class="advanced-settings-panel">
+          <div class="mode-toggle">
+            <div class="mode-label">播放与响度</div>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">音量模式</label>
+            <div class="mode-option-group">
+              <button
+                v-for="mode in volumeModeOptions"
+                :key="mode.value"
+                class="mode-option-btn"
+                :class="{ active: volumeMode === mode.value }"
+                @click="$emit('update:volumeMode', mode.value)"
+              >
+                {{ mode.label }}
+              </button>
+            </div>
+            <p class="setting-hint">
+              自动模式按当前列表 LUFS 平衡音量，固定模式使用目标 LUFS，手动模式直接使用固定音量。
+            </p>
+          </div>
+          <div v-if="volumeMode === 'fixed'" class="setting-item">
+            <label class="setting-label">目标 LUFS</label>
+            <div class="slider-container">
+              <input
+                type="range"
+                class="volume-slider"
+                :value="fixedLufs"
+                @input="
+                  $emit(
+                    'update:fixedLufs',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+                min="-40"
+                max="-5"
+                step="1"
+              />
+              <input
+                type="number"
+                class="value-input"
+                :value="fixedLufsInput"
+                @input="
+                  $emit(
+                    'update:fixedLufsInput',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+                min="-40"
+                max="-5"
+                step="1"
+              />
+              <span class="value-suffix">LUFS</span>
+            </div>
+          </div>
+          <div v-else-if="volumeMode === 'manual'" class="setting-item">
+            <label class="setting-label">手动音量</label>
+            <div class="slider-container">
+              <input
+                type="range"
+                class="volume-slider"
+                :value="manualVolume"
+                @input="
+                  $emit(
+                    'update:manualVolume',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+                min="0"
+                max="1"
+                step="0.01"
+              />
+              <input
+                type="number"
+                class="value-input"
+                :value="manualVolumeInput"
+                @input="
+                  $emit(
+                    'update:manualVolumeInput',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+                min="0"
+                max="1"
+                step="0.01"
+              />
+              <span class="value-suffix">x</span>
+            </div>
+          </div>
+          <div class="mode-toggle">
+            <div class="mode-label">播放诊断</div>
+          </div>
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                :checked="showLufs"
+                @change="
+                  $emit(
+                    'update:showLufs',
+                    ($event.target as HTMLInputElement).checked,
+                  )
+                "
+                class="setting-checkbox"
+              />
+              <span>显示歌曲 LUFS 数值</span>
+            </label>
+            <p class="setting-hint">
+              仅用于查看响度数据，不影响播放音量计算。
+            </p>
+          </div>
           <div class="mode-toggle">
             <div class="mode-label">设备与来源</div>
           </div>
@@ -253,6 +356,7 @@ const props = defineProps<{
   manualVolumeInput: number;
   fixedLufs: number;
   fixedLufsInput: number;
+  showLufs: boolean;
   timerMinutes: number;
   timerMinutesInput: number;
   timerActive: boolean;
@@ -262,11 +366,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void;
-  (e: "toggleVolumeMode"): void;
+  (e: "update:volumeMode", value: VolumeMode): void;
   (e: "update:manualVolume", value: number): void;
   (e: "update:manualVolumeInput", value: number): void;
   (e: "update:fixedLufs", value: number): void;
   (e: "update:fixedLufsInput", value: number): void;
+  (e: "update:showLufs", value: boolean): void;
   (e: "update:timerMinutes", value: number): void;
   (e: "update:timerMinutesInput", value: number): void;
   (e: "setTimerPreset", minutes: number): void;
@@ -303,6 +408,11 @@ const disableHeadsetMediaButton = ref<boolean>(false);
 // Check if running on Android
 const isAndroid = ref<boolean>(false);
 const showAdvancedSettings = ref<boolean>(false);
+const volumeModeOptions: Array<{ value: VolumeMode; label: string }> = [
+  { value: "auto", label: "自动" },
+  { value: "fixed", label: "固定 LUFS" },
+  { value: "manual", label: "手动" },
+];
 
 const toggleAdvancedSettings = () => {
   showAdvancedSettings.value = !showAdvancedSettings.value;
@@ -727,6 +837,51 @@ const saveDeviceName = async () => {
   align-items: center;
   gap: 15px;
   min-width: 0;
+}
+
+.mode-option-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mode-option-btn {
+  border: 1px solid #d6d6d6;
+  background-color: #fff;
+  color: #333;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    color 0.2s,
+    box-shadow 0.2s;
+}
+
+.mode-option-btn.active {
+  border-color: #1db954;
+  background-color: #eaf8ef;
+  color: #169344;
+  box-shadow: 0 0 0 1px rgba(29, 185, 84, 0.12);
+}
+
+.value-input {
+  width: 88px;
+  border: 1px solid #d6d6d6;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: #333;
+  background-color: #fff;
+}
+
+.value-suffix {
+  min-width: 44px;
+  font-size: 14px;
+  color: #666;
 }
 
 .volume-slider {
