@@ -1,5 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-
 let cachedIsAndroid: boolean | null = null;
 
 export function isLoopbackHostname(hostname: string): boolean {
@@ -26,6 +24,7 @@ export async function checkIsAndroid(): Promise<boolean> {
   }
 
   try {
+    const { invoke } = await import("@tauri-apps/api/core");
     const platform = await invoke<string>("get_platform");
     cachedIsAndroid = platform === "android";
     return cachedIsAndroid;

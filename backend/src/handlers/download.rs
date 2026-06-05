@@ -11,6 +11,7 @@ use netease_api::{NeteaseClient, NeteaseError};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+#[cfg(not(target_os = "android"))]
 use std::process::Command;
 use tokio::task;
 use tracing::{error, info, warn};
