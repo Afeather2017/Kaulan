@@ -18,11 +18,15 @@
               type="text"
               class="url-input"
               placeholder="192.168.1.10:2080"
+              @input="
+                manualAddressMessage = '';
+                manualAddressError = false;
+              "
               @keyup.enter="connectManualDevice"
             />
             <button
               class="primary-btn"
-              :disabled="isConnectingManualDevice"
+              :disabled="isConnectingManualDevice || !hasManualAddressInput"
               @click="connectManualDevice"
             >
               {{ isConnectingManualDevice ? "连接中..." : "连接设备" }}
@@ -44,7 +48,7 @@
           <button
             class="secondary-btn"
             :disabled="isLoadingDevices"
-            @click="refreshDevices"
+            @click="handleRefreshDevices"
           >
             {{ isLoadingDevices ? "扫描中..." : "刷新" }}
           </button>
@@ -109,15 +113,17 @@
 import { computed, onMounted, ref } from "vue";
 import { normalizeApiBase } from "@/utils/api";
 import {
+  type DiscoveredDevice,
+  fetchSelfDeviceInfo,
+  refreshStoredManualDevices,
+} from "@/utils/discovery";
+import {
   getManualDevices,
   setManualDevices,
   type ManualDevice,
 } from "@/utils/storage";
-import { validateServerUrl } from "@/utils/validation";
-import {
-  useDeviceDiscovery,
-  type DiscoveredDevice,
-} from "@/composables/useDeviceDiscovery";
+import { validateRequiredServerUrl } from "@/utils/validation";
+import { useDeviceDiscovery } from "@/composables/useDeviceDiscovery";
 
 const emit = defineEmits<{
   (e: "close"): void;
@@ -128,7 +134,6 @@ const {
   devices: discoveredDevices,
   isLoading: isLoadingDevices,
   error: discoveryError,
-  fetchDevices,
   refreshDevices,
   formatLastSeen,
 } = useDeviceDiscovery();
@@ -139,6 +144,9 @@ const manualAddressInput = ref("");
 const manualAddressMessage = ref("");
 const manualAddressError = ref(false);
 const isConnectingManualDevice = ref(false);
+const hasManualAddressInput = computed(
+  () => manualAddressInput.value.trim().length > 0,
+);
 
 const localhostDevice = computed<DiscoveredDevice>(() => ({
   device_id: "localhost-self",
@@ -183,34 +191,15 @@ const loadManualDevices = () => {
   manualDevices.value = getManualDevices();
 };
 
-const fetchDeviceName = async (url: string): Promise<string | null> => {
-  try {
-    const normalizedUrl = normalizeApiBase(url);
-    const response = await fetch(`${normalizedUrl}/discovery/self`);
-    if (!response.ok) {
-      return null;
-    }
-    const data = await response.json();
-    return typeof data.device_name === "string" ? data.device_name : null;
-  } catch (error) {
-    console.warn(`Failed to fetch device name from ${url}:`, error);
-    return null;
-  }
+const refreshManualDeviceNames = async () => {
+  manualDevices.value = await refreshStoredManualDevices(
+    discoveredDevices.value,
+  );
 };
 
-const refreshManualDeviceNames = async () => {
-  const updated = await Promise.all(
-    manualDevices.value.map(async (device) => {
-      const deviceName = await fetchDeviceName(device.api_url);
-      return {
-        ...device,
-        device_name: deviceName || device.device_name,
-        last_fetched: deviceName ? Date.now() : device.last_fetched,
-      };
-    }),
-  );
-  manualDevices.value = updated;
-  saveManualDevices();
+const handleRefreshDevices = async () => {
+  await refreshDevices();
+  await refreshManualDeviceNames();
 };
 
 const removeManualDevice = (url: string) => {
@@ -228,7 +217,8 @@ const connectToDevice = (device: DiscoveredDevice) => {
   }
 
   const existing = manualDevices.value.find(
-    (item) => item.api_url === device.api_url,
+    (item) =>
+      item.api_url === device.api_url || item.device_id === device.device_id,
   );
 
   if (!existing) {
@@ -236,11 +226,18 @@ const connectToDevice = (device: DiscoveredDevice) => {
       ...manualDevices.value,
       {
         api_url: device.api_url,
+        device_id: device.device_id,
         device_name: device.device_name,
         added_at: Date.now(),
         last_fetched: Date.now(),
       },
     ];
+    saveManualDevices();
+  } else {
+    existing.api_url = device.api_url;
+    existing.device_id = device.device_id;
+    existing.device_name = device.device_name;
+    existing.last_fetched = Date.now();
     saveManualDevices();
   }
 
@@ -250,7 +247,7 @@ const connectToDevice = (device: DiscoveredDevice) => {
 
 const connectManualDevice = async () => {
   const trimmed = manualAddressInput.value.trim();
-  const validation = validateServerUrl(trimmed);
+  const validation = validateRequiredServerUrl(trimmed);
   if (!validation.valid) {
     manualAddressMessage.value = validation.error || "地址无效";
     manualAddressError.value = true;
@@ -266,19 +263,21 @@ const connectManualDevice = async () => {
     const existing = manualDevices.value.find(
       (device) => device.api_url === normalizedUrl,
     );
-    const deviceName = await fetchDeviceName(normalizedUrl);
+    const selfInfo = await fetchSelfDeviceInfo(normalizedUrl);
 
     if (existing) {
-      existing.device_name = deviceName || existing.device_name;
-      existing.last_fetched = deviceName ? Date.now() : existing.last_fetched;
+      existing.device_id = selfInfo?.device_id || existing.device_id;
+      existing.device_name = selfInfo?.device_name || existing.device_name;
+      existing.last_fetched = selfInfo ? Date.now() : existing.last_fetched;
     } else {
       manualDevices.value = [
         ...manualDevices.value,
         {
           api_url: normalizedUrl,
-          device_name: deviceName || undefined,
+          device_id: selfInfo?.device_id,
+          device_name: selfInfo?.device_name || undefined,
           added_at: Date.now(),
-          last_fetched: deviceName ? Date.now() : undefined,
+          last_fetched: selfInfo ? Date.now() : undefined,
         },
       ];
     }
@@ -297,7 +296,7 @@ const connectManualDevice = async () => {
 
 onMounted(async () => {
   loadManualDevices();
-  await Promise.allSettled([fetchDevices(), refreshManualDeviceNames()]);
+  await handleRefreshDevices();
 });
 </script>
 

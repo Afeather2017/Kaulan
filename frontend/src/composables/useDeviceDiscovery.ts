@@ -1,36 +1,16 @@
 import { ref } from "vue";
 import { getLocalApiBase } from "@/utils/api";
-
-export interface DiscoveredDevice {
-  device_id: string;
-  device_name: string;
-  api_url: string;
-  last_seen_secs_ago: number;
-  isManual?: boolean;
-}
-
-export interface SelfDevice {
-  device_id: string;
-  device_name: string;
-}
+import {
+  fetchDiscoveredDevices,
+  fetchSelfDeviceInfo,
+  refreshDiscoveredDevices,
+  type DiscoveredDevice,
+  type SelfDevice,
+} from "@/utils/discovery";
 
 export interface SetDeviceNameResponse {
   success: boolean;
   message: string;
-}
-
-interface OperationResponse {
-  success: boolean;
-  message: string;
-}
-
-const SCAN_SECONDS = 3;
-const SCAN_INTERVAL_MS = 1000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 export function useDeviceDiscovery() {
@@ -43,11 +23,7 @@ export function useDeviceDiscovery() {
    * Fetch all discovered devices from the server.
    */
   const fetchDevices = async (): Promise<void> => {
-    const response = await fetch(`${getLocalApiBase()}/discovery/devices`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch devices: ${response.statusText}`);
-    }
-    devices.value = await response.json();
+    devices.value = await fetchDiscoveredDevices();
   };
 
   /**
@@ -63,73 +39,11 @@ export function useDeviceDiscovery() {
     isLoading.value = true;
     error.value = null;
 
-    let scanStarted = false;
-
     try {
-      const startResponse = await fetch(
-        `${getLocalApiBase()}/discovery/scan/start`,
-        {
-          method: "POST",
-        },
-      );
-      if (!startResponse.ok) {
-        throw new Error(`Failed to start scan: ${startResponse.statusText}`);
-      }
-      scanStarted = true;
-
-      for (let i = 0; i < SCAN_SECONDS; i += 1) {
-        const requestResponse = await fetch(
-          `${getLocalApiBase()}/discovery/request`,
-          {
-            method: "POST",
-          },
-        );
-
-        if (!requestResponse.ok) {
-          throw new Error(
-            `Failed to send discovery request: ${requestResponse.statusText}`,
-          );
-        }
-
-        const requestResult: OperationResponse = await requestResponse.json();
-        if (!requestResult.success) {
-          throw new Error(requestResult.message);
-        }
-
-        if (i < SCAN_SECONDS - 1) {
-          await sleep(SCAN_INTERVAL_MS);
-        }
-      }
-
-      const finishResponse = await fetch(
-        `${getLocalApiBase()}/discovery/scan/finish`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ success: true }),
-        },
-      );
-
-      if (!finishResponse.ok) {
-        throw new Error(`Failed to finish scan: ${finishResponse.statusText}`);
-      }
-
-      await fetchDevices();
+      devices.value = await refreshDiscoveredDevices();
     } catch (err) {
       error.value = err instanceof Error ? err.message : "Unknown error";
       console.error("Failed to refresh discovered devices:", err);
-
-      if (scanStarted) {
-        try {
-          await fetch(`${getLocalApiBase()}/discovery/scan/finish`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ success: false }),
-          });
-        } catch (rollbackError) {
-          console.error("Failed to rollback discovery scan:", rollbackError);
-        }
-      }
     } finally {
       isLoading.value = false;
     }
@@ -140,12 +54,7 @@ export function useDeviceDiscovery() {
    */
   const fetchSelfDevice = async (): Promise<void> => {
     try {
-      const response = await fetch(`${getLocalApiBase()}/discovery/self`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch self device: ${response.statusText}`);
-      }
-
-      selfDevice.value = await response.json();
+      selfDevice.value = await fetchSelfDeviceInfo(getLocalApiBase());
     } catch (err) {
       console.error("Failed to fetch self device info:", err);
     }
