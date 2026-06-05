@@ -247,6 +247,10 @@ import {
   resolveSourceApiBase,
 } from "@/utils/api";
 import {
+  refreshDiscoveredDevices,
+  refreshStoredManualDevices,
+} from "@/utils/discovery";
+import {
   getLocalCollections,
   getManualDevices,
   getShowLufs,
@@ -829,6 +833,15 @@ const triggerDatabaseUpdate = async () => {
     console.error("[app] onMounted: database update error:", error);
   } finally {
     isScanning.value = false;
+  }
+};
+
+const refreshDiscoveryState = async () => {
+  try {
+    const discoveredDevices = await refreshDiscoveredDevices();
+    await refreshStoredManualDevices(discoveredDevices);
+  } catch (error) {
+    console.warn("[app] startup discovery refresh failed:", error);
   }
 };
 
@@ -2102,6 +2115,7 @@ const handleDeleteSelectedCollections = async () => {
 onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
   await triggerDatabaseUpdate();
+  await refreshDiscoveryState();
 
   isAndroidRuntime.value = await checkIsAndroid();
   loadLocalCollections();

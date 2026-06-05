@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
 
 export interface ManualDevice {
   api_url: string;
+  device_id?: string;
   device_name?: string;
   added_at: number;
   last_fetched?: number;
@@ -204,6 +205,8 @@ export function getManualDevices(): ManualDevice[] {
       return (
         typeof device.api_url === "string" &&
         typeof device.added_at === "number" &&
+        (typeof device.device_id === "string" ||
+          typeof device.device_id === "undefined") &&
         (typeof device.device_name === "string" ||
           typeof device.device_name === "undefined") &&
         (typeof device.last_fetched === "number" ||

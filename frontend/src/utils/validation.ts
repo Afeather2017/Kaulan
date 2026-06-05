@@ -36,3 +36,19 @@ export function validateServerUrl(url: string): UrlValidationResult {
     };
   }
 }
+
+/**
+ * Validate a required server URL for manual device entry.
+ * @param url - The URL to validate
+ * @returns Validation result with error message if invalid
+ */
+export function validateRequiredServerUrl(url: string): UrlValidationResult {
+  if (!url.trim()) {
+    return {
+      valid: false,
+      error: "请输入设备地址",
+    };
+  }
+
+  return validateServerUrl(url);
+}
