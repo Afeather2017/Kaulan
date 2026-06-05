@@ -843,9 +843,42 @@ const triggerDatabaseUpdate = async () => {
 };
 
 const refreshDiscoveryState = async () => {
+  const previousManualDevices = getManualDevices();
+
   try {
     const discoveredDevices = await refreshDiscoveredDevices();
-    await refreshStoredManualDevices(discoveredDevices);
+    const updatedManualDevices =
+      await refreshStoredManualDevices(discoveredDevices);
+
+    const previousByDeviceId = new Map(
+      previousManualDevices
+        .filter((device) => device.device_id)
+        .map((device) => [device.device_id!, device.api_url]),
+    );
+
+    const previousByApiUrl = new Map(
+      previousManualDevices.map((device) => [device.api_url, device.api_url]),
+    );
+
+    for (const device of updatedManualDevices) {
+      const previousApiBase = device.device_id
+        ? previousByDeviceId.get(device.device_id)
+        : previousByApiUrl.get(device.api_url);
+
+      if (!previousApiBase || previousApiBase === device.api_url) {
+        continue;
+      }
+
+      sourceGroups.value = sourceGroups.value.filter(
+        (group) => group.sourceKey !== previousApiBase,
+      );
+
+      if (selectedLibrarySourceKey.value === previousApiBase) {
+        selectedLibrarySourceKey.value = device.api_url;
+      }
+
+      await refreshSingleSource(device.api_url);
+    }
   } catch (error) {
     console.warn("[app] startup discovery refresh failed:", error);
   }
@@ -2148,10 +2181,10 @@ const handleDeleteSelectedCollections = async () => {
 onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
   await triggerDatabaseUpdate();
-  await refreshDiscoveryState();
 
   isAndroidRuntime.value = await checkIsAndroid();
   loadLocalCollections();
+  void refreshDiscoveryState();
   await refreshSourceGroups();
   await initAudio();
   await registerAndroidBackHandler();

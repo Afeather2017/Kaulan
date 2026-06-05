@@ -20,9 +20,10 @@ This document explains the unified startup scan flow for both desktop and Androi
 2. Backend reads `initial_scan_done` from `db_meta`.
 3. If already done, the backend skips the scan.
 4. If not done, the backend runs `initialize_database()` and sets `initial_scan_done = true` on success.
-5. Frontend runs a local-network discovery refresh and reconciles saved manual devices before refreshing library source groups.
-6. If permissions are denied or the scan fails, the flag is not set, allowing a retry on next launch.
-7. The frontend shows `扫描中...` while the update request is in flight.
+5. Frontend starts a local-network discovery refresh in background while refreshing library source groups from the currently saved source URLs.
+6. When discovery finishes, the frontend reconciles saved manual devices and refetches only sources whose API URL changed.
+7. If permissions are denied or the scan fails, the flag is not set, allowing a retry on next launch.
+8. The frontend shows `扫描中...` while the update request is in flight.
 
 Relevant code:
 - `frontend/src/App.vue`
