@@ -13,6 +13,7 @@ export const STORAGE_KEYS = {
   MEDIA_TYPES: "kaulan_media_types",
   PLAYBACK_SESSION: "kaulan_playback_session",
   DISABLE_HEADSET_MEDIA_BUTTON: "kaulan_disable_headset_media_button",
+  TIMER_EXIT_APP_ON_ANDROID: "kaulan_timer_exit_app_on_android",
   MANUAL_DEVICES: "kaulan_manual_devices",
   LOCAL_COLLECTIONS: "kaulan_local_collections",
 } as const;
@@ -134,6 +135,17 @@ export function setDisableHeadsetMediaButton(disabled: boolean): void {
   setStorageValue(
     STORAGE_KEYS.DISABLE_HEADSET_MEDIA_BUTTON,
     disabled ? "true" : "false",
+  );
+}
+
+export function getTimerExitAppOnAndroid(): boolean {
+  return getStorageValue(STORAGE_KEYS.TIMER_EXIT_APP_ON_ANDROID) === "true";
+}
+
+export function setTimerExitAppOnAndroid(enabled: boolean): void {
+  setStorageValue(
+    STORAGE_KEYS.TIMER_EXIT_APP_ON_ANDROID,
+    enabled ? "true" : "false",
   );
 }
 

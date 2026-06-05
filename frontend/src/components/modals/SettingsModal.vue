@@ -57,6 +57,20 @@
               开始定时
             </button>
           </div>
+          <div v-if="isAndroid" class="timer-option">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                :checked="timerExitAppOnAndroid"
+                @change="handleTimerExitAppOnAndroidChange"
+                class="setting-checkbox"
+              />
+              <span>定时关闭程序</span>
+            </label>
+            <p class="setting-hint">
+              启用后，定时器触发时会直接退出 Android 应用，而不仅是停止播放。
+            </p>
+          </div>
         </div>
 
         <hr class="settings-divider" />
@@ -344,6 +358,8 @@ import {
   setMediaTypes,
   getDisableHeadsetMediaButton,
   setDisableHeadsetMediaButton,
+  getTimerExitAppOnAndroid,
+  setTimerExitAppOnAndroid,
 } from "@/utils/storage";
 import { useDeviceDiscovery } from "@/composables/useDeviceDiscovery";
 
@@ -403,6 +419,7 @@ const permissionStatus = ref<string>("");
 
 // Disable headset media button (Android only)
 const disableHeadsetMediaButton = ref<boolean>(false);
+const timerExitAppOnAndroid = ref<boolean>(false);
 
 // Check if running on Android
 const isAndroid = ref<boolean>(false);
@@ -468,6 +485,12 @@ const handleDisableHeadsetMediaButtonChange = async (e: Event) => {
       error,
     );
   }
+};
+
+const handleTimerExitAppOnAndroidChange = (e: Event) => {
+  const checked = (e.target as HTMLInputElement).checked;
+  timerExitAppOnAndroid.value = checked;
+  setTimerExitAppOnAndroid(checked);
 };
 
 const sortMediaTypes = (mediaTypes: string[]): string[] => {
@@ -625,6 +648,8 @@ onMounted(async () => {
 
   // Load local lyrics setting (Android only) - query actual permission state
   if (isAndroid.value) {
+    timerExitAppOnAndroid.value = getTimerExitAppOnAndroid();
+
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const granted = await invoke<boolean>(
@@ -1002,6 +1027,10 @@ const saveDeviceName = async () => {
 
 .timer-actions {
   margin-top: 15px;
+}
+
+.timer-option {
+  margin-top: 14px;
 }
 
 .start-timer-btn,
