@@ -620,6 +620,18 @@ const sortSourceGroups = (groups: LibrarySourceGroup[]): LibrarySourceGroup[] =>
   [...groups].sort((left, right) => {
     if (left.isLoading && !right.isLoading) return -1;
     if (!left.isLoading && right.isLoading) return 1;
+    if (
+      isLocalhostApiBase(left.apiBase) &&
+      !isLocalhostApiBase(right.apiBase)
+    ) {
+      return -1;
+    }
+    if (
+      isLocalhostApiBase(right.apiBase) &&
+      !isLocalhostApiBase(left.apiBase)
+    ) {
+      return 1;
+    }
     return left.name.localeCompare(right.name);
   });
 
