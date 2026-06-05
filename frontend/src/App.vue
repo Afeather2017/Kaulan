@@ -208,6 +208,7 @@
       @change-source-directory="changeSourceDirectory"
       @retry-source-connection="retrySourceConnection"
       @show-source-details="showSourceDetails"
+      @delete-source="deleteSource"
       @close-collection-menu="closeCollectionMenu"
       @rename-collection="renameCollection"
       @delete-collection="deleteCollectionFromMenu"
@@ -256,6 +257,7 @@ import {
   getShowLufs,
   getTimerExitAppOnAndroid,
   setLocalCollections,
+  setManualDevices,
   setShowLufs,
   type StoredLocalCollection,
 } from "@/utils/storage";
@@ -283,6 +285,7 @@ interface SourceCapabilities {
   canOnlineDownload: boolean;
   canRetryConnection: boolean;
   canShowSourceDetails: boolean;
+  canDeleteSource: boolean;
 }
 
 interface LibrarySourceGroup {
@@ -653,6 +656,7 @@ const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
     canOnlineDownload: false,
     canRetryConnection: false,
     canShowSourceDetails: true,
+    canDeleteSource: !isLocalhostApiBase(apiBase),
   },
 });
 
@@ -736,6 +740,7 @@ const fetchSourceGroup = async (
         canOnlineDownload: isLocalDownloadTarget && canUpload,
         canRetryConnection: false,
         canShowSourceDetails: true,
+        canDeleteSource: !isLocalhostApiBase(apiBase),
       },
     };
   } catch (error) {
@@ -754,6 +759,7 @@ const fetchSourceGroup = async (
         canOnlineDownload: false,
         canRetryConnection: true,
         canShowSourceDetails: true,
+        canDeleteSource: !isLocalhostApiBase(apiBase),
       },
     };
   }
@@ -1846,6 +1852,33 @@ const showSourceDetails = (group: LibrarySourceGroup) => {
   ];
   closeSourceMenu();
   alert(lines.join("\n"));
+};
+
+const deleteSource = (group: LibrarySourceGroup) => {
+  closeSourceMenu();
+
+  if (isLocalhostApiBase(group.apiBase)) {
+    alert("本机来源不能删除");
+    return;
+  }
+
+  const confirmed = window.confirm(`删除来源 “${group.name}” 吗？`);
+  if (!confirmed) {
+    return;
+  }
+
+  setManualDevices(
+    getManualDevices().filter((device) => device.api_url !== group.apiBase),
+  );
+
+  sourceGroups.value = sourceGroups.value.filter(
+    (item) => item.sourceKey !== group.sourceKey,
+  );
+  syncSelectedLibraryPlaylist();
+
+  if (selectedLibrarySourceKey.value === group.sourceKey) {
+    handleBackToPlaylists();
+  }
 };
 
 const handleCoverLoadError = (song: MusicInfo | null) => {
