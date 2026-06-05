@@ -13,42 +13,42 @@
         class="source-menu-action"
         @click="$emit('refreshSource', selectedSourceMenuGroup)"
       >
-        Refresh library
+        刷新曲库
       </button>
       <button
         v-if="selectedSourceMenuGroup.capabilities.canUpload"
         class="source-menu-action"
         @click="$emit('uploadToSource', selectedSourceMenuGroup)"
       >
-        Upload music
+        上传音乐
       </button>
       <button
         v-if="selectedSourceMenuGroup.capabilities.canOnlineDownload"
         class="source-menu-action"
         @click="$emit('openOnlineSearchForSource', selectedSourceMenuGroup)"
       >
-        Online search/download
+        在线搜索/下载
       </button>
       <button
         v-if="selectedSourceMenuGroup.capabilities.canChangeDirectory"
         class="source-menu-action"
         @click="$emit('changeSourceDirectory', selectedSourceMenuGroup)"
       >
-        Change directory
+        更改目录
       </button>
       <button
         v-if="selectedSourceMenuGroup.capabilities.canRetryConnection"
         class="source-menu-action"
         @click="$emit('retrySourceConnection', selectedSourceMenuGroup.apiBase)"
       >
-        Retry connection
+        重试连接
       </button>
       <button
         v-if="selectedSourceMenuGroup.capabilities.canShowSourceDetails"
         class="source-menu-action"
         @click="$emit('showSourceDetails', selectedSourceMenuGroup)"
       >
-        Source details
+        来源详情
       </button>
     </div>
   </div>

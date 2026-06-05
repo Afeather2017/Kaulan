@@ -1268,6 +1268,11 @@ const closeTopOverlay = () => {
     return true;
   }
 
+  if (showAddDeviceModal.value) {
+    showAddDeviceModal.value = false;
+    return true;
+  }
+
   if (showUploadModal.value) {
     showUploadModal.value = false;
     return true;
