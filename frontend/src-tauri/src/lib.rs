@@ -412,8 +412,8 @@ pub fn run() {
         .setup(move |app| {
             log::info!("======================= Start =======================");
             let app_handle = app.handle().clone();
+            let js_runner_app_handle = app_handle.clone();
             kaulan::set_youtube_js_runner_factory({
-                let app_handle = app_handle.clone();
                 move || {
                     #[cfg(target_os = "android")]
                     {
@@ -422,6 +422,7 @@ pub fn run() {
 
                     #[cfg(not(target_os = "android"))]
                     {
+                        let app_handle = js_runner_app_handle.clone();
                         Ok(Box::new(WebviewJsRunner {
                             app: app_handle.clone(),
                         }))
@@ -876,7 +877,7 @@ fn resolve_online_download_root(_app: &tauri::AppHandle) -> Result<PathBuf, Stri
 }
 
 fn resolve_preview_root(
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
     _download_root: &PathBuf,
 ) -> Result<PathBuf, String> {
     #[cfg(target_os = "android")]
@@ -888,7 +889,7 @@ fn resolve_preview_root(
 
     #[cfg(not(target_os = "android"))]
     {
-        let dir = app
+        let dir = _app
             .path()
             .app_data_dir()
             .map_err(|e| format!("Failed to resolve app data dir: {e}"))?
@@ -1323,7 +1324,7 @@ fn extract_bilibili_session(
     Err("SESSDATA cookie not found in login webview".to_string())
 }
 
-fn export_youtube_cookie_jar(app: &tauri::AppHandle, path: &PathBuf) -> Result<(), String> {
+fn export_youtube_cookie_jar(_app: &tauri::AppHandle, path: &PathBuf) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
         return export_android_youtube_cookie_jar(path);
@@ -1331,7 +1332,7 @@ fn export_youtube_cookie_jar(app: &tauri::AppHandle, path: &PathBuf) -> Result<(
 
     #[cfg(not(target_os = "android"))]
     {
-        let window = login_webview_window(app)?;
+        let window = login_webview_window(_app)?;
 
         let cookies = window
             .cookies()
@@ -1611,7 +1612,7 @@ fn android_external_files_dir() -> Result<PathBuf, String> {
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeInitAndroidContext(
-    mut env: jni::JNIEnv,
+    env: jni::JNIEnv,
     activity: JObject,
 ) {
     let vm = match env.get_java_vm() {
