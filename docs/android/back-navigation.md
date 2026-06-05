@@ -55,17 +55,23 @@ Each back event closes only one layer. The handler returns immediately after the
 
 Current priority in [`frontend/src/App.vue`](../../frontend/src/App.vue):
 
-1. Current playlist modal
-2. Upload modal
-3. Create collection modal
-4. Add-to-collection modal
-5. Settings modal
-6. Song selection mode
-7. Collection selection mode
-8. Mobile lyric panel
-9. Non-playlist view back to playlist view
-10. Browser history back
-11. Close Tauri window
+1. Filter sheet
+2. Source action sheet
+3. Collection action sheet
+4. Song action sheet
+5. Active queue modal
+6. Add device modal
+7. Upload modal
+8. Online search modal
+9. Create collection modal
+10. Add-to-collection modal
+11. Settings modal
+12. Song selection mode
+13. Collection selection mode
+14. Mobile player panel
+15. Non-playlist view back to playlist view
+16. Browser history back
+17. Close Tauri window
 
 This ordered check is what makes one back event affect only one visible page or panel.
 
@@ -75,13 +81,43 @@ Modal overlays are handled by a dedicated helper:
 
 ```ts
 const closeTopOverlay = () => {
+  if (showFilterSheet.value) {
+    showFilterSheet.value = false
+    return true
+  }
+
+  if (selectedSourceMenuGroup.value) {
+    closeSourceMenu()
+    return true
+  }
+
+  if (selectedCollectionMenuName.value) {
+    closeCollectionMenu()
+    return true
+  }
+
+  if (selectedSongMenuSong.value) {
+    closeSongMenu()
+    return true
+  }
+
   if (showActiveQueueModal.value) {
     showActiveQueueModal.value = false
     return true
   }
 
+  if (showAddDeviceModal.value) {
+    showAddDeviceModal.value = false
+    return true
+  }
+
   if (showUploadModal.value) {
     showUploadModal.value = false
+    return true
+  }
+
+  if (showOnlineSearchModal.value) {
+    showOnlineSearchModal.value = false
     return true
   }
 
