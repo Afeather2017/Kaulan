@@ -404,6 +404,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(MusicDirectory(Mutex::new(String::new())))
+        .manage(kaulan_server.clone())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_android_mediastore::init())
         .plugin(tauri_plugin_android_external_storage::init())
@@ -552,6 +553,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_platform,
+            exit_android_app,
             get_music_directory,
             set_music_directory,
             request_external_storage_permission,
@@ -581,6 +583,41 @@ fn get_platform() -> String {
         "linux".to_string()
     } else {
         "unknown".to_string()
+    }
+}
+
+/// Stop Android playback/backend state and exit the app process.
+#[tauri::command]
+fn exit_android_app(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<KaulanServer>>,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_music_notification_api::MusicNotificationExt;
+
+        log::info!("Android timer requested app exit");
+
+        if let Err(err) = app.music_notification().stop_service() {
+            log::warn!(
+                "Failed to stop Android playback service during exit: {}",
+                err
+            );
+        }
+
+        if let Err(err) = state.inner().clone().stop() {
+            log::warn!("Failed to stop Android backend state during exit: {}", err);
+        }
+
+        app.exit(0);
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        let _ = state;
+        Err("exit_android_app is only available on Android".to_string())
     }
 }
 

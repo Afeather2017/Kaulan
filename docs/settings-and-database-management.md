@@ -246,6 +246,21 @@ Behavior:
 - Android playback sends the normalization config to `MusicPlayerService`, which reapplies the current track volume immediately and reuses the same config for later track changes.
 - If the current song has no LUFS yet, `auto` and `fixed` temporarily fall back to the manual volume baseline until a real LUFS value is available.
 
+### Android Sleep Timer Exit
+
+Android settings include an extra checkbox named `定时关闭程序`.
+
+1. Open the settings modal on Android.
+2. Set the sleep timer duration.
+3. Enable `定时关闭程序` if timer completion should exit the app instead of only stopping playback.
+4. Start the timer.
+
+Behavior:
+
+- Disabled: the timer keeps the current behavior and only stops playback.
+- Enabled: the timer stops the Android playback service, releases backend playback state, and exits the Android app.
+- The setting is stored in frontend localStorage under `kaulan_timer_exit_app_on_android`.
+
 ### Viewing Current Music Directory
 
 1. Open the app

@@ -250,6 +250,7 @@ import {
   getLocalCollections,
   getManualDevices,
   getShowLufs,
+  getTimerExitAppOnAndroid,
   setLocalCollections,
   setShowLufs,
   type StoredLocalCollection,
@@ -455,7 +456,7 @@ const {
 } = useTimer(() => {
   // Timer complete callback
   if (isAndroidPlayer.value) {
-    void refreshAndroidSession();
+    void handleAndroidTimerComplete();
   } else if (isPlaying.value) {
     void pause();
   } else if (audioElement.value) {
@@ -1477,6 +1478,20 @@ const hideSettingsModal = () => {
 const handleShowLufsChange = (value: boolean) => {
   showLufs.value = value;
   setShowLufs(value);
+};
+
+const handleAndroidTimerComplete = async () => {
+  if (getTimerExitAppOnAndroid()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("exit_android_app");
+      return;
+    } catch (error) {
+      console.error("Failed to exit Android app from timer:", error);
+    }
+  }
+
+  await refreshAndroidSession();
 };
 
 const handleStartTimer = async () => {
