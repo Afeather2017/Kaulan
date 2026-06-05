@@ -74,6 +74,7 @@ If scan fails, frontend calls `POST /api/discovery/scan/finish` with `{ "success
 - Manual address input is required in the Add Device flow. Empty input is rejected instead of falling back to localhost.
 - Nearby-device entries are identity-based (`device_id`). If a known device gets a new IP address, discovery can update the saved manual source URL to the new `api_url`.
 - Manual address save stores the current `device_id` when the target server responds to `/discovery/self`.
+- Non-local manual sources can be removed from the source `⋮` menu. The localhost source is permanent and cannot be deleted.
 - In the device list, `last seen` and manual remove action are shown on the same row as the device name, while long API URLs wrap inside the card instead of overflowing.
 - The library source page resolves each configured server independently. `localhost` can appear immediately while slow or dead manual servers continue in parallel and fall back to `Offline` after a short request timeout.
 

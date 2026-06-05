@@ -50,6 +50,13 @@
       >
         来源详情
       </button>
+      <button
+        v-if="selectedSourceMenuGroup.capabilities.canDeleteSource"
+        class="source-menu-action danger-action"
+        @click="$emit('deleteSource', selectedSourceMenuGroup)"
+      >
+        删除来源
+      </button>
     </div>
   </div>
 
@@ -117,6 +124,7 @@ interface SourceCapabilities {
   canOnlineDownload: boolean;
   canRetryConnection: boolean;
   canShowSourceDetails: boolean;
+  canDeleteSource: boolean;
 }
 
 interface LibrarySourceGroup {
@@ -144,6 +152,7 @@ defineEmits<{
   (e: "changeSourceDirectory", group: LibrarySourceGroup): void;
   (e: "retrySourceConnection", apiBase: string): void;
   (e: "showSourceDetails", group: LibrarySourceGroup): void;
+  (e: "deleteSource", group: LibrarySourceGroup): void;
   (e: "closeCollectionMenu"): void;
   (e: "renameCollection"): void;
   (e: "deleteCollection"): void;
