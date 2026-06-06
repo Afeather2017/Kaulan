@@ -2,6 +2,7 @@ use std::env;
 
 // Import from the library (init_tracing is now in the library)
 use kaulan::{
+    cli::{apply_standalone_auth, parse_cli_options, CliOptions},
     establish_connection, init_tracing, start_log_server, start_server, update_database_with_roots,
 };
 
@@ -13,10 +14,7 @@ async fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <run|update> [music_path]", args[0]);
-        eprintln!("  run   - Start the web server");
-        eprintln!("  update - Scan for new music files and update database");
-        eprintln!();
+        eprintln!("{}", CliOptions::usage(&args[0]));
         eprintln!("Music Directory Priority:");
         eprintln!("  1. CLI argument [music_path] (if provided)");
         eprintln!("  2. Config file: ~/.config/kaulan/config.json");
@@ -27,10 +25,20 @@ async fn main() -> std::io::Result<()> {
     }
 
     let command = &args[1];
-    let cli_path = if args.len() > 2 {
-        Some(args[2].clone())
-    } else {
-        None
+    let cli_options = match parse_cli_options(&args[2..]) {
+        Ok(options) => options,
+        Err(err) => {
+            eprintln!("{err}");
+            eprintln!();
+            eprintln!("{}", CliOptions::usage(&args[0]));
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(err) = apply_standalone_auth(&cli_options) {
+        tracing::error!("Failed to apply standalone provider auth: {}", err);
+        eprintln!("Failed to apply standalone provider auth: {}", err);
+        std::process::exit(1);
     };
 
     match command.as_str() {
@@ -39,7 +47,7 @@ async fn main() -> std::io::Result<()> {
             tokio::spawn(start_log_server(broadcaster));
 
             // Start the server (spawns in background)
-            match start_server(cli_path).await {
+            match start_server(cli_options.music_path.clone()).await {
                 Ok(server_info) => {
                     tracing::info!("Server started successfully on: {}", server_info.url());
                     println!("Server started on: {}", server_info.url());
@@ -61,7 +69,7 @@ async fn main() -> std::io::Result<()> {
         }
         "update" => {
             // For update command, we need to get the music path first
-            let music_path = if let Some(path) = cli_path {
+            let music_path = if let Some(path) = cli_options.music_path.clone() {
                 path
             } else if let Some(path) = kaulan::load_config() {
                 path
@@ -105,7 +113,7 @@ async fn main() -> std::io::Result<()> {
         _ => {
             tracing::error!("Unknown command: {}", command);
             eprintln!("Unknown command: {}", command);
-            eprintln!("Usage: {} <run|update> [music_path]", args[0]);
+            eprintln!("{}", CliOptions::usage(&args[0]));
             std::process::exit(1);
         }
     }
