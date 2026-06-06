@@ -14,13 +14,7 @@
                   : 'offline',
             ]"
           >
-            {{
-              group.isLoading
-                ? "Loading"
-                : group.isOnline
-                  ? "Online"
-                  : "Offline"
-            }}
+            {{ group.isLoading ? "加载中" : group.isOnline ? "在线" : "离线" }}
           </div>
         </div>
         <button class="source-menu-btn" @click="$emit('openMenu', group)">
@@ -29,7 +23,7 @@
       </div>
 
       <div v-if="group.isLoading" class="loading-card">
-        <div>Checking this source...</div>
+        <div>正在检查此来源...</div>
       </div>
 
       <div v-else-if="group.isOnline" class="playlist-list">
@@ -42,11 +36,14 @@
           <span class="playlist-name">{{ playlist.name }}</span>
           <span class="playlist-count">{{ playlist.songCount }} 首</span>
         </button>
+        <div v-if="group.playlists.length === 0" class="empty-card">
+          <div>此来源中没有歌曲</div>
+        </div>
       </div>
 
       <div v-else class="offline-card">
-        <div>Cannot reach this source right now</div>
-        <button class="retry-btn" @click="$emit('retry', group)">Retry</button>
+        <div>当前无法连接到此来源</div>
+        <button class="retry-btn" @click="$emit('retry', group)">重试</button>
       </div>
     </div>
   </div>
@@ -108,8 +105,9 @@ defineEmits<{
 
 .source-title {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
   flex: 1;
@@ -120,6 +118,7 @@ defineEmits<{
   font-weight: 600;
   overflow-wrap: anywhere;
   line-height: 1.35;
+  min-width: 0;
 }
 
 .source-status {
@@ -164,6 +163,11 @@ defineEmits<{
 .loading-card {
   padding: 16px;
   color: #8a6a00;
+}
+
+.empty-card {
+  padding: 16px;
+  color: #666;
 }
 
 .playlist-row {
