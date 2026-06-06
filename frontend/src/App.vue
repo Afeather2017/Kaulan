@@ -359,7 +359,7 @@ const filteredSourceGroups = computed<LibrarySourceGroup[]>(() =>
         }))
         .filter((playlist) => playlist.songs.length > 0 || !group.isOnline),
     }))
-    .filter((group) => group.playlists.length > 0 || !group.isOnline),
+    .filter((group) => group.isOnline || group.playlists.length > 0),
 );
 
 const allLibrarySongs = computed<SongInfo[]>(() =>
