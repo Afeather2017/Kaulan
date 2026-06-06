@@ -38,6 +38,21 @@ Import behavior:
 - Bilibili copies the provided file into `$NCMDUMP_CONFIG_DIR/bilibili_session.json`
 - If `NCMDUMP_CONFIG_DIR` is not set, Kaulan uses `~/.config/ncmdump/`
 
+Optional Netease proxying:
+
+- `NETEASE_RELAY_URL=<proxy-url>` routes only Netease API and media requests through the configured proxy
+- Leave it unset to keep the current direct behavior
+- The value is passed to `reqwest::Proxy::all`, so this build accepts `http://`, `https://`, and `socks5://` proxy URLs
+
+Example:
+
+```bash
+cd backend
+NETEASE_RELAY_URL=http://your-cn-proxy:7890 \
+cargo run -- run /path/to/music \
+  --netease-session-file /path/to/netease-session.json
+```
+
 ## User-Facing Behavior
 
 ### Provider gating

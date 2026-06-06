@@ -87,6 +87,17 @@ cargo run -- run /path/to/music \
 
 This is intended for standalone server usage where you already have provider login data and want online search/download without relying on the Tauri login capture flow. See `docs/online-search-download.md` for provider file details.
 
+If Netease requests must exit through a China-based proxy, set `NETEASE_RELAY_URL` before starting the backend. This only affects the vendored `netease-api` client used for Netease search, lyric lookup, preview, and downloads.
+
+```bash
+cd backend
+NETEASE_RELAY_URL=http://your-cn-proxy:7890 \
+cargo run -- run /path/to/music \
+  --netease-session-file /path/to/netease-session.json
+```
+
+`reqwest` proxy URL schemes supported by this build include `http://`, `https://`, and `socks5://`.
+
 A log streaming server is also available on port 2081 for real-time log viewing:
 
 ```bash
