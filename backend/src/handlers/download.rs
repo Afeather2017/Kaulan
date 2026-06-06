@@ -20,8 +20,8 @@ use ytdl_audio::{DownloadOpts, StdFileWriter, YoutubeClient};
 use crate::services::scanner;
 use crate::types::{
     AppState, DirectoryNode, DownloadPreviewRequest, DownloadPreviewResponse, DownloadSource,
-    DownloadTrackRequest, DownloadTrackResponse, LyricCandidate, OnlineSearchRequest,
-    OnlineSearchResult, PreviewSong,
+    DownloadTrackRequest, DownloadTrackResponse, LyricCandidate, OnlineProviderStatus,
+    OnlineSearchRequest, OnlineSearchResult, PreviewSong,
 };
 
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
@@ -73,6 +73,11 @@ pub async fn search_online(body: web::Json<OnlineSearchRequest>) -> HttpResponse
     }
 
     HttpResponse::Ok().json(results)
+}
+
+#[get("/api/download/providers")]
+pub async fn get_online_provider_statuses() -> HttpResponse {
+    HttpResponse::Ok().json(build_online_provider_statuses())
 }
 
 #[post("/api/download/lyrics/search")]
@@ -946,6 +951,53 @@ fn is_source_enabled(source: DownloadSource) -> bool {
     }
 }
 
+fn build_online_provider_statuses() -> Vec<OnlineProviderStatus> {
+    [
+        DownloadSource::Youtube,
+        DownloadSource::Netease,
+        DownloadSource::Bilibili,
+    ]
+    .into_iter()
+    .map(|source| OnlineProviderStatus {
+        source,
+        enabled: is_source_enabled(source),
+        summary: source_status_summary(source),
+    })
+    .collect()
+}
+
+fn source_status_summary(source: DownloadSource) -> String {
+    match source {
+        DownloadSource::Youtube => {
+            if load_youtube_cookie_header().is_some() {
+                "YouTube cookies configured".to_string()
+            } else {
+                "YouTube cookies not configured".to_string()
+            }
+        }
+        DownloadSource::Netease => {
+            if NeteaseSession::load()
+                .map(|session| session.is_logged_in())
+                .unwrap_or(false)
+            {
+                "Netease session available".to_string()
+            } else {
+                "Netease login required".to_string()
+            }
+        }
+        DownloadSource::Bilibili => {
+            if BiliSession::load()
+                .map(|session| session.is_logged_in())
+                .unwrap_or(false)
+            {
+                "Bilibili session available".to_string()
+            } else {
+                "Bilibili login required".to_string()
+            }
+        }
+    }
+}
+
 fn youtube_client() -> Result<YoutubeClient, ytdl_audio::Error> {
     let mut client = YoutubeClient::new(None)?;
     match crate::create_youtube_js_runner() {
@@ -1072,9 +1124,9 @@ impl DownloadSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_download_staging_dir, finalize_youtube_audio, merge_lyric_content,
-        resolve_target_dir, sanitize_filename, should_skip_bilibili_ffmpeg,
-        BILIBILI_RAW_AUDIO_EXTENSION,
+        build_online_provider_statuses, create_download_staging_dir, finalize_youtube_audio,
+        merge_lyric_content, resolve_target_dir, sanitize_filename, should_skip_bilibili_ffmpeg,
+        BILIBILI_RAW_AUDIO_EXTENSION, YOUTUBE_COOKIE_HEADER_PATH_ENV,
     };
     use std::fs;
 
@@ -1140,5 +1192,19 @@ mod tests {
         };
 
         assert!(!extension.is_empty());
+    }
+
+    #[test]
+    fn provider_status_reports_youtube_disabled_without_cookie_file() {
+        std::env::remove_var(YOUTUBE_COOKIE_HEADER_PATH_ENV);
+
+        let statuses = build_online_provider_statuses();
+        let youtube = statuses
+            .into_iter()
+            .find(|status| status.source == crate::types::DownloadSource::Youtube)
+            .unwrap();
+
+        assert!(!youtube.enabled);
+        assert!(youtube.summary.contains("not configured"));
     }
 }

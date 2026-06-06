@@ -119,6 +119,13 @@ pub struct OnlineSearchResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineProviderStatus {
+    pub source: DownloadSource,
+    pub enabled: bool,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadPreviewRequest {
     pub source: DownloadSource,
     pub id: String,

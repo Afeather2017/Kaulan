@@ -2,6 +2,7 @@
   <div class="modal-overlay" @click="$emit('close')">
     <div class="modal-content" @click.stop>
       <h3>在线查找</h3>
+      <p class="source-caption">当前来源：{{ sourceNameLabel }}</p>
 
       <div class="search-section">
         <div class="search-input-row">
@@ -22,16 +23,16 @@
           </button>
         </div>
 
-        <div class="source-row">
+        <div v-if="hasEnabledProvider" class="source-row">
           <label
-            v-for="source in sourceOptions"
+            v-for="source in providerOptions"
             :key="source.value"
             class="source-checkbox"
           >
             <input
               type="checkbox"
               :checked="selectedSources.includes(source.value)"
-              :disabled="!isSourceAvailable(source.value)"
+              :disabled="!providerStatus[source.value].enabled"
               @change="toggleSource(source.value)"
             />
             <span>{{ source.label }}</span>
@@ -39,9 +40,25 @@
         </div>
       </div>
 
+      <div v-if="!hasEnabledProvider" class="provider-empty-state">
+        <div class="provider-empty-title">当前来源还不能用于在线搜索</div>
+        <div class="provider-empty-copy">
+          请先为这个来源配置至少一个可用的下载来源，然后再搜索在线内容。
+        </div>
+      </div>
+      <div
+        v-else-if="selectedSources.length === 0"
+        class="provider-empty-state"
+      >
+        <div class="provider-empty-title">请选择要搜索的来源</div>
+        <div class="provider-empty-copy">
+          只会显示当前服务器已可用的来源，未登录或不可用的来源无法勾选。
+        </div>
+      </div>
+
       <div class="provider-settings">
         <button class="provider-toggle" @click="toggleProviderSettings">
-          <span>来源设置</span>
+          <span>来源状态</span>
           <span>{{ showProviderSettings ? "▴" : "▾" }}</span>
         </button>
         <div v-if="showProviderSettings" class="provider-settings-panel">
@@ -57,6 +74,7 @@
               </div>
             </div>
             <button
+              v-if="supportsProviderAccountActions"
               class="secondary-btn provider-manage-btn"
               @click="toggleManagingProvider(provider.value)"
             >
@@ -76,7 +94,7 @@
                 同步登录
               </button>
               <button
-                v-if="providerStatus[provider.value].is_logged_in"
+                v-if="providerStatus[provider.value].enabled"
                 class="secondary-btn"
                 @click="logout(provider.value)"
               >
@@ -98,8 +116,7 @@
           </button>
         </div>
         <p class="permission-message">
-          下载内容始终保存到当前设备本地。Android
-          下载会保存到应用目录，试听文件会在下次启动时自动清理。
+          下载内容会先保存到当前在线来源的曲库。若当前来源不是本机，下载时会额外询问是否同时保存一份到本机。
         </p>
         <div v-if="showDownloadFolderPicker" class="download-folder-picker">
           <div v-if="isLoadingDownloadDirectories" class="directory-loading">
@@ -179,9 +196,17 @@
               <button
                 class="action-btn download-btn"
                 @click="handleDownload(result)"
-                :disabled="downloadingKey === resultKey(result)"
+                :disabled="
+                  downloadingKey === resultKey(result) || !result.can_download
+                "
               >
-                {{ downloadingKey === resultKey(result) ? "下载中" : "下载" }}
+                {{
+                  downloadingKey === resultKey(result)
+                    ? "下载中"
+                    : result.can_download
+                      ? "下载到曲库"
+                      : "不可下载"
+                }}
               </button>
             </div>
 
@@ -248,9 +273,8 @@ interface SearchResult {
 }
 
 interface ProviderStatus {
-  provider: string;
-  is_logged_in: boolean;
-  session_path: string;
+  provider: OnlineProvider;
+  enabled: boolean;
   summary: string;
 }
 
@@ -289,13 +313,8 @@ const emit = defineEmits<{
 const props = defineProps<{
   initialQuery?: string;
   apiBase?: string;
+  sourceName?: string;
 }>();
-
-const sourceOptions: Array<{ value: DownloadSource; label: string }> = [
-  { value: "youtube", label: "YouTube" },
-  { value: "netease", label: "网易云" },
-  { value: "bilibili", label: "Bilibili" },
-];
 
 const providerOptions: Array<{ value: OnlineProvider; label: string }> = [
   { value: "youtube", label: "YouTube" },
@@ -314,11 +333,7 @@ const showProviderSettings = ref(false);
 const managingProvider = ref<OnlineProvider | null>(null);
 const statusMessage = ref("");
 const statusType = ref<"info" | "success" | "error">("info");
-const selectedSources = ref<DownloadSource[]>([
-  "youtube",
-  "netease",
-  "bilibili",
-]);
+const selectedSources = ref<DownloadSource[]>([]);
 const downloadDirectoryTree = ref<DirectoryNode | null>(null);
 const isLoadingDownloadDirectories = ref(false);
 const downloadDirectoryError = ref("");
@@ -330,20 +345,17 @@ const supportsProviderAccountActions = ref(false);
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
     provider: "youtube",
-    is_logged_in: false,
-    session_path: "",
+    enabled: false,
     summary: "未读取登录状态",
   },
   netease: {
     provider: "netease",
-    is_logged_in: false,
-    session_path: "",
+    enabled: false,
     summary: "未读取登录状态",
   },
   bilibili: {
     provider: "bilibili",
-    is_logged_in: false,
-    session_path: "",
+    enabled: false,
     summary: "未读取登录状态",
   },
 });
@@ -354,6 +366,8 @@ const resolvedApiBase = (): string => {
   const candidate = props.apiBase?.trim();
   return candidate && candidate.length > 0 ? candidate : LOCALHOST_API_BASE;
 };
+
+const sourceNameLabel = computed(() => props.sourceName?.trim() || "本机来源");
 
 const collectDirectoryOptions = (
   node: DirectoryNode | null,
@@ -386,6 +400,14 @@ const selectedDownloadDirectoryLabel = computed(() => {
   return selected?.label || "下载根目录";
 });
 
+const enabledSources = computed<DownloadSource[]>(() =>
+  providerOptions
+    .map((provider) => provider.value)
+    .filter((source) => providerStatus[source].enabled),
+);
+
+const hasEnabledProvider = computed(() => enabledSources.value.length > 0);
+
 watch(
   () => props.initialQuery,
   (value) => {
@@ -397,33 +419,26 @@ watch(
 );
 
 onMounted(async () => {
-  await loadDownloadDirectoryTree();
-
   supportsProviderAccountActions.value =
+    resolvedApiBase() === LOCALHOST_API_BASE &&
     typeof window !== "undefined" &&
     typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
       .__TAURI_INTERNALS__ !== "undefined";
 
-  if (!supportsProviderAccountActions.value) {
-    for (const provider of providerOptions) {
-      providerStatus[provider.value] = {
-        provider: provider.value,
-        is_logged_in: true,
-        session_path: "",
-        summary: "浏览器调试模式下不显示登录状态",
-      };
-    }
-    syncSelectedSources();
-    return;
-  }
-
-  await Promise.all([
-    loadProviderStatus("youtube"),
-    loadProviderStatus("netease"),
-    loadProviderStatus("bilibili"),
-  ]);
-  syncSelectedSources();
+  await Promise.all([loadDownloadDirectoryTree(), loadProviderStatuses()]);
 });
+
+watch(
+  () => props.apiBase,
+  async () => {
+    supportsProviderAccountActions.value =
+      resolvedApiBase() === LOCALHOST_API_BASE &&
+      typeof window !== "undefined" &&
+      typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
+        .__TAURI_INTERNALS__ !== "undefined";
+    await Promise.all([loadDownloadDirectoryTree(), loadProviderStatuses()]);
+  },
+);
 
 const resultKey = (result: SearchResult): string =>
   `${result.source}:${result.id}`;
@@ -439,25 +454,24 @@ const sourceLabel = (source: DownloadSource): string => {
   }
 };
 
-const isSourceAvailable = (source: DownloadSource): boolean =>
-  providerStatus[source].is_logged_in;
-
 const syncSelectedSources = () => {
-  selectedSources.value = selectedSources.value.filter((source) =>
-    isSourceAvailable(source),
+  selectedSources.value = selectedSources.value.filter(
+    (source) => providerStatus[source].enabled,
   );
 };
 
 const toggleSource = (source: DownloadSource) => {
-  if (!isSourceAvailable(source)) {
+  if (!providerStatus[source].enabled) {
     return;
   }
+
   if (selectedSources.value.includes(source)) {
     selectedSources.value = selectedSources.value.filter(
       (item) => item !== source,
     );
     return;
   }
+
   selectedSources.value = [...selectedSources.value, source];
 };
 
@@ -488,21 +502,41 @@ const providerLabel = (provider: OnlineProvider): string => {
   }
 };
 
-const loadProviderStatus = async (provider: OnlineProvider) => {
-  if (!supportsProviderAccountActions.value) {
-    return;
-  }
-
+const loadProviderStatuses = async () => {
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const status = await invoke<ProviderStatus>("online_login_status", {
-      provider,
+    const response = await fetch(resolvedApiBase() + "/download/providers", {
+      cache: "no-store",
     });
-    providerStatus[provider] = status;
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || "读取在线来源状态失败");
+    }
+
+    const payload = (await response.json()) as Array<{
+      source: OnlineProvider;
+      enabled: boolean;
+      summary: string;
+    }>;
+
+    for (const provider of providerOptions) {
+      const status = payload.find((item) => item.source === provider.value);
+      providerStatus[provider.value] = {
+        provider: provider.value,
+        enabled: status?.enabled ?? false,
+        summary: status?.summary ?? "未提供状态信息",
+      };
+    }
     syncSelectedSources();
   } catch (error) {
-    providerStatus[provider].summary = "当前环境不支持读取登录状态";
-    console.warn("Failed to load provider status:", provider, error);
+    for (const provider of providerOptions) {
+      providerStatus[provider.value] = {
+        provider: provider.value,
+        enabled: false,
+        summary: "无法读取来源状态",
+      };
+    }
+    syncSelectedSources();
+    console.warn("Failed to load provider statuses:", error);
   }
 };
 
@@ -564,13 +598,8 @@ const captureLogin = async (provider: OnlineProvider) => {
 
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    const status = await invoke<ProviderStatus>("online_capture_login", {
-      provider,
-    });
-    providerStatus[provider] = status;
-    if (!selectedSources.value.includes(provider)) {
-      selectedSources.value = [...selectedSources.value, provider];
-    }
+    await invoke("online_capture_login", { provider });
+    await loadProviderStatuses();
     statusType.value = "success";
     statusMessage.value = `${providerLabel(provider)} 登录信息已保存`;
   } catch (error) {
@@ -588,9 +617,8 @@ const logout = async (provider: OnlineProvider) => {
 
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    const status = await invoke<ProviderStatus>("online_logout", { provider });
-    providerStatus[provider] = status;
-    syncSelectedSources();
+    await invoke("online_logout", { provider });
+    await loadProviderStatuses();
     statusType.value = "success";
     statusMessage.value = `${providerLabel(provider)} 已退出`;
   } catch (error) {
@@ -600,12 +628,9 @@ const logout = async (provider: OnlineProvider) => {
 };
 
 const handleSearch = async () => {
-  const enabledSources = selectedSources.value.filter((source) =>
-    isSourceAvailable(source),
-  );
-  if (!searchInput.value.trim() || enabledSources.length === 0) {
+  if (!searchInput.value.trim() || selectedSources.value.length === 0) {
     statusType.value = "error";
-    statusMessage.value = "请先登录至少一个可用来源";
+    statusMessage.value = "请先选择至少一个可用来源";
     return;
   }
 
@@ -618,7 +643,7 @@ const handleSearch = async () => {
       body: JSON.stringify({
         query: searchInput.value.trim(),
         max_results: 8,
-        sources: enabledSources,
+        sources: selectedSources.value,
       }),
     });
     if (!response.ok) {
@@ -626,7 +651,8 @@ const handleSearch = async () => {
       throw new Error(errorText || "搜索失败");
     }
 
-    searchResults.value = await response.json();
+    const payload = (await response.json()) as SearchResult[];
+    searchResults.value = payload.filter((item) => item.can_download);
   } catch (error) {
     statusType.value = "error";
     statusMessage.value = `搜索失败: ${error}`;
@@ -714,40 +740,75 @@ const selectLyric = (result: SearchResult, candidate: LyricCandidate) => {
   selectedLyrics[resultKey(result)] = candidate;
 };
 
+const downloadTrackToApiBase = async (
+  apiBase: string,
+  result: SearchResult,
+  lyricId: string | null,
+  targetSubdir: string | null,
+) => {
+  const response = await fetch(apiBase + "/download/track", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: result.source,
+      id: result.id,
+      title: result.title,
+      artist: result.artist,
+      target_subdir: targetSubdir,
+      lyric_selection: lyricId,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "下载失败");
+  }
+  return data as {
+    filename?: string | null;
+    warning?: string | null;
+  };
+};
+
 const handleDownload = async (result: SearchResult) => {
   downloadingKey.value = resultKey(result);
   statusType.value = "info";
   statusMessage.value = `正在下载: ${result.title}`;
   try {
     const selectedLyric = selectedLyrics[resultKey(result)];
-    const response = await fetch(resolvedApiBase() + "/download/track", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: result.source,
-        id: result.id,
-        title: result.title,
-        artist: result.artist,
-        target_subdir: selectedDownloadSubdir.value,
-        lyric_selection: selectedLyric?.id ?? null,
-      }),
-    });
-    const data = await response.json();
-    console.log("[online-search] download response:", {
-      status: response.status,
-      ok: response.ok,
-      source: result.source,
-      id: result.id,
-      target_subdir: selectedDownloadSubdir.value,
-      payload: data,
-    });
-    if (!response.ok || !data.success) {
-      throw new Error(data.message || "下载失败");
+    const shouldAlsoSaveLocal =
+      resolvedApiBase() !== LOCALHOST_API_BASE &&
+      window.confirm(
+        "是否同时保存一份到本机？\n\n选择“确定”会同时保存到当前来源曲库和本机。\n选择“取消”则只保存到当前来源曲库。",
+      );
+
+    const sharedResult = await downloadTrackToApiBase(
+      resolvedApiBase(),
+      result,
+      selectedLyric?.id ?? null,
+      selectedDownloadSubdir.value || null,
+    );
+
+    let warningMessage = sharedResult.warning || "";
+    if (shouldAlsoSaveLocal) {
+      try {
+        await downloadTrackToApiBase(
+          LOCALHOST_API_BASE,
+          result,
+          selectedLyric?.id ?? null,
+          null,
+        );
+      } catch (error) {
+        warningMessage = warningMessage
+          ? `${warningMessage}；本机副本失败: ${error}`
+          : `本机副本失败: ${error}`;
+      }
     }
-    statusType.value = data.warning ? "info" : "success";
-    statusMessage.value = data.warning
-      ? `下载完成: ${data.filename}，${data.warning}`
-      : `下载完成: ${data.filename}`;
+
+    statusType.value = warningMessage ? "info" : "success";
+    statusMessage.value = warningMessage
+      ? `下载完成: ${sharedResult.filename}，${warningMessage}`
+      : shouldAlsoSaveLocal
+        ? `下载完成: ${sharedResult.filename}，并已请求保存本机副本`
+        : `下载完成: ${sharedResult.filename}`;
     emit("downloadComplete");
   } catch (error) {
     statusType.value = "error";
@@ -786,6 +847,13 @@ const handleDownload = async (result: SearchResult) => {
   text-align: center;
 }
 
+.source-caption {
+  margin: -10px 0 16px;
+  text-align: center;
+  color: #687076;
+  font-size: 14px;
+}
+
 .search-section,
 .results-section {
   margin-bottom: 18px;
@@ -794,6 +862,23 @@ const handleDownload = async (result: SearchResult) => {
 .search-input-row {
   display: flex;
   gap: 10px;
+}
+
+.provider-empty-state {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #fff4e5;
+  color: #7a4b00;
+}
+
+.provider-empty-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.provider-empty-copy {
+  line-height: 1.5;
 }
 
 .search-input-row input {
@@ -932,6 +1017,7 @@ const handleDownload = async (result: SearchResult) => {
 
 .provider-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 12px;
   padding: 10px 0;
@@ -950,23 +1036,26 @@ const handleDownload = async (result: SearchResult) => {
 .provider-title {
   font-weight: 700;
   margin-bottom: 4px;
+  overflow-wrap: anywhere;
 }
 
 .provider-summary {
   font-size: 13px;
   color: #4a5565;
+  overflow-wrap: anywhere;
 }
 
 .provider-manage-btn {
-  flex-shrink: 0;
+  flex: none;
+  margin-left: auto;
 }
 
 .provider-manage-panel {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  flex-basis: 100%;
-  padding-left: 0;
+  width: 100%;
+  padding-top: 4px;
 }
 
 .setting-label {

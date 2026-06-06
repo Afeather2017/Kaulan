@@ -350,16 +350,17 @@ Online search should open the existing online-search panel, not replace it.
 
 That panel already handles:
 
-- provider selection
-- provider login status
-- save directory selection
+- server-scoped provider selection
+- provider readiness status
+- save directory selection for the selected search source
 - preview
 - lyrics selection
-- download
+- download to the selected source library
+- optional extra local copy when the selected source is not localhost
 
 ### Online Search Panel
 
-The online-search panel should keep the search flow visible and collapse provider-account management by default.
+The online-search panel should keep the search flow visible and collapse provider management by default.
 
 Recommended default layout:
 
@@ -370,8 +371,9 @@ Recommended default layout:
 | [ Search songs, videos, lyrics...            ]   |
 | [Search]                                         |
 |                                                  |
-| Sources: [YouTube] [网易云] [Bilibili]           |
-| [Provider Settings ▾]                            |
+| Current source: Living Room PC                   |
+| Sources: [ ] YouTube [x] 网易云 [ ] Bilibili     |
+| [Source Status ▾]                                |
 |                                                  |
 | Save to: [Selected Folder]                       |
 +--------------------------------------------------+
@@ -379,15 +381,23 @@ Recommended default layout:
 +--------------------------------------------------+
 ```
 
-Expanded provider settings:
+Rules:
+
+- provider checkboxes default to none selected
+- only providers already usable on the selected search source can be checked
+- unavailable providers stay visible but disabled
+- the search button stays disabled until at least one enabled provider is selected
+- the selected source still comes from the source-group `⋮` menu, not from this panel
+
+Expanded provider status:
 
 ```text
 +--------------------------------------------------+
-| Provider Settings ▴                              |
+| Source Status ▴                                  |
 +--------------------------------------------------+
-| YouTube    Logged in      [Manage]               |
-| 网易云      Not logged in  [Manage]               |
-| Bilibili   Logged in      [Manage]               |
+| YouTube    Cookies configured   [Manage]         |
+| 网易云      Session available    [Manage]         |
+| Bilibili   Login required       [Manage]         |
 +--------------------------------------------------+
 ```
 
@@ -406,10 +416,11 @@ Provider-specific management sheet:
 
 Default rules:
 
-- keep source selection visible in the main online-search panel
-- collapse login and account operations under `Provider Settings`
+- keep provider selection visible in the main online-search panel
+- collapse login and account operations under `Source Status`
 - do not show large provider cards before search results
 - keep directory selection visible because it affects download destination
+- when downloading from a non-localhost source, ask whether the user also wants a local copy
 
 ### Source Group Action Menu
 
@@ -426,10 +437,11 @@ Opening `⋮` shows actions for that source only:
 ```text
 Refresh library
 Upload music
-Online search/download
+Use for Online Search
 Change directory
 Retry connection
 Source details
+Delete source
 ```
 
 Visibility should depend on source capabilities, not the current client device type.
@@ -439,7 +451,8 @@ Examples:
 - show `Change directory` only if that source type supports directory switching
 - show `Upload music` only if that source supports uploads
 - show `Retry connection` only when the source is offline or reconnectable
-- show `Online search/download` only if that source supports download destination management
+- show `Use for Online Search` only if that source currently has at least one usable provider
+- show a disabled `Current Online Search Source` state when that source is already selected
 
 ### Mobile Library Detail
 
@@ -601,11 +614,20 @@ Suggested capability flags:
 - canRefresh
 - canUpload
 - canChangeDirectory
-- canOnlineDownload
+- canUseForOnlineSearch
+- isCurrentOnlineSearchSource
 - canRetryConnection
 - canShowSourceDetails
+- canDeleteSource
 
 The UI should render actions from these capabilities instead of assuming all servers behave the same.
+
+Implemented interaction rules:
+
+- `Use for Online Search` only appears when `canUseForOnlineSearch` is true
+- `Current Online Search Source` is shown as a disabled state, not a second action
+- when a newly added source supports online use, the app asks whether it should become the default online source
+- when the selected online source is removed, the default immediately falls back to `http://localhost:2080/api`
 
 ### Library Row Identity
 
