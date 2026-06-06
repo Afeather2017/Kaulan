@@ -98,7 +98,7 @@ defineEmits<{
 
 .source-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
@@ -108,15 +108,18 @@ defineEmits<{
 
 .source-title {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .source-name {
   font-size: 16px;
   font-weight: 600;
   overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .source-status {
@@ -144,6 +147,7 @@ defineEmits<{
 .source-menu-btn {
   width: 36px;
   height: 36px;
+  flex: none;
   border: none;
   background: #ededed;
   border-radius: 10px;

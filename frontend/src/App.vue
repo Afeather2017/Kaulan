@@ -136,7 +136,8 @@
     <AddDeviceModal
       v-if="showAddDeviceModal"
       @close="showAddDeviceModal = false"
-      @sources-updated="refreshSourceGroups"
+      @sources-updated="handleSourcesUpdated"
+      @device-connected="handleDeviceConnected"
     />
 
     <!-- Add to Collection Modal -->
@@ -182,6 +183,7 @@
       v-if="showOnlineSearchModal"
       :initial-query="searchQuery"
       :api-base="onlineSearchApiBase"
+      :source-name="onlineSearchSourceName"
       @close="showOnlineSearchModal = false"
       @download-complete="handleOnlineDownloadComplete"
       @preview-track="handlePreviewTrack"
@@ -204,7 +206,7 @@
       @close-source-menu="closeSourceMenu"
       @refresh-source="updateSourceDatabase"
       @upload-to-source="openUploadForSource"
-      @open-online-search-for-source="openOnlineSearchForSource"
+      @set-online-search-source="setOnlineSearchSourceFromMenu"
       @change-source-directory="changeSourceDirectory"
       @retry-source-connection="retrySourceConnection"
       @show-source-details="showSourceDetails"
@@ -252,10 +254,12 @@ import {
   refreshStoredManualDevices,
 } from "@/utils/discovery";
 import {
+  getDefaultOnlineSearchApiBase,
   getLocalCollections,
   getManualDevices,
   getShowLufs,
   getTimerExitAppOnAndroid,
+  setDefaultOnlineSearchApiBase,
   setLocalCollections,
   setManualDevices,
   setShowLufs,
@@ -282,10 +286,17 @@ interface SourceCapabilities {
   canRefresh: boolean;
   canUpload: boolean;
   canChangeDirectory: boolean;
-  canOnlineDownload: boolean;
+  canUseForOnlineSearch: boolean;
+  isCurrentOnlineSearchSource: boolean;
   canRetryConnection: boolean;
   canShowSourceDetails: boolean;
   canDeleteSource: boolean;
+}
+
+interface OnlineProviderStatus {
+  source: "youtube" | "netease" | "bilibili";
+  enabled: boolean;
+  summary: string;
 }
 
 interface LibrarySourceGroup {
@@ -295,6 +306,7 @@ interface LibrarySourceGroup {
   isLoading: boolean;
   isOnline: boolean;
   playlists: LibraryPlaylistGroup[];
+  onlineProviderStatuses: OnlineProviderStatus[];
   capabilities: SourceCapabilities;
 }
 
@@ -503,7 +515,7 @@ const isAndroidRuntime = ref(false);
 let androidBackListener: { unregister(): Promise<void> } | null = null;
 
 const SOURCE_REQUEST_TIMEOUT_MS = 3000;
-const onlineSearchApiBase = ref<string>(LOCALHOST_API_BASE);
+const onlineSearchApiBase = ref<string>(getDefaultOnlineSearchApiBase());
 let sourceRefreshToken = 0;
 
 const buildSongApiUrl = (apiBase: string, suffix: string): string => {
@@ -578,6 +590,13 @@ const buildSourceLabel = (apiBase: string): string => {
   }
 };
 
+const onlineSearchSourceName = computed(() => {
+  const current = sourceGroups.value.find(
+    (group) => group.apiBase === onlineSearchApiBase.value,
+  );
+  return current?.name || buildSourceLabel(onlineSearchApiBase.value);
+});
+
 const normalizeSourceSong = (
   apiBase: string,
   sourceLabel: string,
@@ -642,6 +661,24 @@ const sortSourceGroups = (groups: LibrarySourceGroup[]): LibrarySourceGroup[] =>
     return left.name.localeCompare(right.name);
   });
 
+const buildSourceCapabilities = (options: {
+  apiBase: string;
+  isOnline: boolean;
+  canUpload: boolean;
+  canChangeDirectory: boolean;
+  canUseForOnlineSearch: boolean;
+  canRetryConnection: boolean;
+}): SourceCapabilities => ({
+  canRefresh: options.isOnline,
+  canUpload: options.canUpload,
+  canChangeDirectory: options.canChangeDirectory,
+  canUseForOnlineSearch: options.canUseForOnlineSearch,
+  isCurrentOnlineSearchSource: onlineSearchApiBase.value === options.apiBase,
+  canRetryConnection: options.canRetryConnection,
+  canShowSourceDetails: true,
+  canDeleteSource: !isLocalhostApiBase(options.apiBase),
+});
+
 const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
   sourceKey: apiBase,
   apiBase,
@@ -649,15 +686,15 @@ const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
   isLoading: true,
   isOnline: false,
   playlists: [],
-  capabilities: {
-    canRefresh: false,
+  onlineProviderStatuses: [],
+  capabilities: buildSourceCapabilities({
+    apiBase,
+    isOnline: false,
     canUpload: false,
     canChangeDirectory: false,
-    canOnlineDownload: false,
+    canUseForOnlineSearch: false,
     canRetryConnection: false,
-    canShowSourceDetails: true,
-    canDeleteSource: !isLocalhostApiBase(apiBase),
-  },
+  }),
 });
 
 const fetchWithTimeout = async (
@@ -690,6 +727,7 @@ const fetchSourceGroup = async (
       playlistsResponse,
       directoryTreeResponse,
       musicDirectoryResponse,
+      onlineProvidersResponse,
     ] = await Promise.all([
       fetchWithTimeout(buildSongApiUrl(apiBase, "/discovery/self"), {
         cache: "no-store",
@@ -701,6 +739,9 @@ const fetchSourceGroup = async (
         cache: "no-store",
       }).catch(() => null),
       fetchWithTimeout(buildSongApiUrl(apiBase, "/settings/music-directory"), {
+        cache: "no-store",
+      }).catch(() => null),
+      fetchWithTimeout(buildSongApiUrl(apiBase, "/download/providers"), {
         cache: "no-store",
       }).catch(() => null),
     ]);
@@ -717,7 +758,12 @@ const fetchSourceGroup = async (
     const sourceLabel = selfData.device_name || fallbackName;
     const canUpload = !!directoryTreeResponse?.ok;
     const canChangeDirectory = !!musicDirectoryResponse?.ok;
-    const isLocalDownloadTarget = apiBase === LOCALHOST_API_BASE;
+    const onlineProviderStatuses = onlineProvidersResponse?.ok
+      ? ((await onlineProvidersResponse.json()) as OnlineProviderStatus[])
+      : [];
+    const canUseForOnlineSearch = onlineProviderStatuses.some(
+      (provider) => provider.enabled,
+    );
 
     const playlists = Object.entries(playlistMap).map(([name, songs]) => ({
       name,
@@ -733,15 +779,15 @@ const fetchSourceGroup = async (
       isLoading: false,
       isOnline: true,
       playlists,
-      capabilities: {
-        canRefresh: true,
+      onlineProviderStatuses,
+      capabilities: buildSourceCapabilities({
+        apiBase,
+        isOnline: true,
         canUpload,
         canChangeDirectory,
-        canOnlineDownload: isLocalDownloadTarget && canUpload,
+        canUseForOnlineSearch,
         canRetryConnection: false,
-        canShowSourceDetails: true,
-        canDeleteSource: !isLocalhostApiBase(apiBase),
-      },
+      }),
     };
   } catch (error) {
     console.warn("Failed to load source group:", apiBase, error);
@@ -752,17 +798,55 @@ const fetchSourceGroup = async (
       isLoading: false,
       isOnline: false,
       playlists: [],
-      capabilities: {
-        canRefresh: false,
+      onlineProviderStatuses: [],
+      capabilities: buildSourceCapabilities({
+        apiBase,
+        isOnline: false,
         canUpload: false,
         canChangeDirectory: false,
-        canOnlineDownload: false,
+        canUseForOnlineSearch: false,
         canRetryConnection: true,
-        canShowSourceDetails: true,
-        canDeleteSource: !isLocalhostApiBase(apiBase),
-      },
+      }),
     };
   }
+};
+
+const syncSourceGroupCapabilities = () => {
+  sourceGroups.value = sourceGroups.value.map((group) => ({
+    ...group,
+    capabilities: buildSourceCapabilities({
+      apiBase: group.apiBase,
+      isOnline: group.isOnline,
+      canUpload: group.capabilities.canUpload,
+      canChangeDirectory: group.capabilities.canChangeDirectory,
+      canUseForOnlineSearch: group.capabilities.canUseForOnlineSearch,
+      canRetryConnection: group.capabilities.canRetryConnection,
+    }),
+  }));
+};
+
+const setOnlineSearchSource = (apiBase: string) => {
+  onlineSearchApiBase.value = apiBase;
+  setDefaultOnlineSearchApiBase(apiBase);
+  syncSourceGroupCapabilities();
+};
+
+const resetOnlineSearchSourceToLocalhost = () => {
+  setOnlineSearchSource(LOCALHOST_API_BASE);
+};
+
+const ensureOnlineSearchSourceExists = () => {
+  const knownApiBases = new Set([
+    ...getSourceApiBases(),
+    ...sourceGroups.value.map((group) => group.apiBase),
+  ]);
+
+  if (!knownApiBases.has(onlineSearchApiBase.value)) {
+    resetOnlineSearchSourceToLocalhost();
+    return;
+  }
+
+  syncSourceGroupCapabilities();
 };
 
 const syncSelectedLibraryPlaylist = () => {
@@ -804,6 +888,7 @@ const refreshSourceGroups = async () => {
     isActive: () => sourceRefreshToken === refreshToken,
     onUpdate: (groups) => {
       sourceGroups.value = groups;
+      ensureOnlineSearchSourceExists();
       syncSelectedLibraryPlaylist();
     },
   });
@@ -875,6 +960,10 @@ const refreshDiscoveryState = async () => {
 
       if (selectedLibrarySourceKey.value === previousApiBase) {
         selectedLibrarySourceKey.value = device.api_url;
+      }
+
+      if (onlineSearchApiBase.value === previousApiBase) {
+        setOnlineSearchSource(device.api_url);
       }
 
       await refreshSingleSource(device.api_url);
@@ -1234,7 +1323,7 @@ const openOnlineSearchFromQuery = () => {
   if (!trimmedSearchQuery.value) {
     return;
   }
-  onlineSearchApiBase.value = LOCALHOST_API_BASE;
+  ensureOnlineSearchSourceExists();
   showOnlineSearchModal.value = true;
 };
 
@@ -1606,6 +1695,30 @@ const handleUploadComplete = async () => {
   await refreshSourceGroups();
 };
 
+const handleSourcesUpdated = async () => {
+  await refreshSourceGroups();
+  ensureOnlineSearchSourceExists();
+};
+
+const handleDeviceConnected = async (apiBase: string) => {
+  await refreshSingleSource(apiBase);
+  ensureOnlineSearchSourceExists();
+
+  const connectedSource = sourceGroups.value.find(
+    (group) => group.apiBase === apiBase,
+  );
+  if (!connectedSource?.capabilities.canUseForOnlineSearch) {
+    return;
+  }
+
+  const shouldUseForOnlineSearch = window.confirm(
+    `设备 “${connectedSource.name}” 已连接。是否将它设为默认在线搜索来源？`,
+  );
+  if (shouldUseForOnlineSearch) {
+    setOnlineSearchSource(apiBase);
+  }
+};
+
 const handleOnlineDownloadComplete = async () => {
   await refreshSourceGroups();
   await refreshAndroidSession();
@@ -1869,6 +1982,7 @@ const refreshSingleSource = async (apiBase: string) => {
     (group) => group.sourceKey,
     sortSourceGroups,
   );
+  ensureOnlineSearchSourceExists();
   syncSelectedLibraryPlaylist();
 };
 
@@ -1882,9 +1996,21 @@ const showSourceDetails = (group: LibrarySourceGroup) => {
     `API: ${group.apiBase}`,
     `Status: ${group.isOnline ? "Online" : "Offline"}`,
     `Playlists: ${group.playlists.length}`,
+    `Online search: ${group.capabilities.canUseForOnlineSearch ? "Ready" : "Unavailable"}`,
   ];
   closeSourceMenu();
   alert(lines.join("\n"));
+};
+
+const setOnlineSearchSourceFromMenu = (group: LibrarySourceGroup) => {
+  closeSourceMenu();
+
+  if (!group.capabilities.canUseForOnlineSearch) {
+    alert(`来源 “${group.name}” 当前无法用于在线搜索`);
+    return;
+  }
+
+  setOnlineSearchSource(group.apiBase);
 };
 
 const deleteSource = (group: LibrarySourceGroup) => {
@@ -1895,7 +2021,13 @@ const deleteSource = (group: LibrarySourceGroup) => {
     return;
   }
 
-  const confirmed = window.confirm(`删除来源 “${group.name}” 吗？`);
+  const isCurrentOnlineSearchSource =
+    onlineSearchApiBase.value === group.apiBase;
+  const confirmed = window.confirm(
+    isCurrentOnlineSearchSource
+      ? `删除来源 “${group.name}” 吗？\n\n它当前用于在线搜索。删除后会自动切换回本机来源。`
+      : `删除来源 “${group.name}” 吗？`,
+  );
   if (!confirmed) {
     return;
   }
@@ -1911,6 +2043,12 @@ const deleteSource = (group: LibrarySourceGroup) => {
 
   if (selectedLibrarySourceKey.value === group.sourceKey) {
     handleBackToPlaylists();
+  }
+
+  if (isCurrentOnlineSearchSource) {
+    resetOnlineSearchSourceToLocalhost();
+  } else {
+    ensureOnlineSearchSourceExists();
   }
 };
 
@@ -1947,12 +2085,6 @@ const openUploadForSource = (group: LibrarySourceGroup) => {
   uploadTargetApiBase.value = group.apiBase;
   showUploadModal.value = true;
   closeSourceMenu();
-};
-
-const openOnlineSearchForSource = (group: LibrarySourceGroup) => {
-  onlineSearchApiBase.value = group.apiBase;
-  closeSourceMenu();
-  showOnlineSearchModal.value = true;
 };
 
 const changeSourceDirectory = async (group: LibrarySourceGroup) => {

@@ -16,6 +16,7 @@ export const STORAGE_KEYS = {
   TIMER_EXIT_APP_ON_ANDROID: "kaulan_timer_exit_app_on_android",
   MANUAL_DEVICES: "kaulan_manual_devices",
   LOCAL_COLLECTIONS: "kaulan_local_collections",
+  DEFAULT_ONLINE_SEARCH_API_BASE: "kaulan_default_online_search_api_base",
 } as const;
 
 export interface ManualDevice {
@@ -221,6 +222,23 @@ export function getManualDevices(): ManualDevice[] {
 
 export function setManualDevices(devices: ManualDevice[]): void {
   setStorageValue(STORAGE_KEYS.MANUAL_DEVICES, JSON.stringify(devices));
+}
+
+export function getDefaultOnlineSearchApiBase(): string {
+  const stored = getStorageValue(STORAGE_KEYS.DEFAULT_ONLINE_SEARCH_API_BASE);
+  return stored || "http://localhost:2080/api";
+}
+
+export function setDefaultOnlineSearchApiBase(apiBase: string): void {
+  const trimmed = apiBase.trim();
+  setStorageValue(
+    STORAGE_KEYS.DEFAULT_ONLINE_SEARCH_API_BASE,
+    trimmed || "http://localhost:2080/api",
+  );
+}
+
+export function removeDefaultOnlineSearchApiBase(): void {
+  removeStorageValue(STORAGE_KEYS.DEFAULT_ONLINE_SEARCH_API_BASE);
 }
 
 function isStoredCollectionSong(value: unknown): value is StoredCollectionSong {

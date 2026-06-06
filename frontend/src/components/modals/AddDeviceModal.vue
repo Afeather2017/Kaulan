@@ -128,6 +128,7 @@ import { useDeviceDiscovery } from "@/composables/useDeviceDiscovery";
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "sourcesUpdated"): void;
+  (e: "deviceConnected", apiBase: string): void;
 }>();
 
 const {
@@ -242,6 +243,7 @@ const connectToDevice = (device: DiscoveredDevice) => {
   }
 
   emit("sourcesUpdated");
+  emit("deviceConnected", device.api_url);
   emit("close");
 };
 
@@ -284,6 +286,7 @@ const connectManualDevice = async () => {
 
     saveManualDevices();
     emit("sourcesUpdated");
+    emit("deviceConnected", normalizedUrl);
     emit("close");
   } catch (error) {
     console.error("Failed to connect manual device:", error);

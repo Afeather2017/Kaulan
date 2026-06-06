@@ -23,11 +23,18 @@
         上传音乐
       </button>
       <button
-        v-if="selectedSourceMenuGroup.capabilities.canOnlineDownload"
-        class="source-menu-action"
-        @click="$emit('openOnlineSearchForSource', selectedSourceMenuGroup)"
+        v-if="selectedSourceMenuGroup.capabilities.isCurrentOnlineSearchSource"
+        class="source-menu-action current-action"
+        disabled
       >
-        在线搜索/下载
+        当前用于在线搜索
+      </button>
+      <button
+        v-else-if="selectedSourceMenuGroup.capabilities.canUseForOnlineSearch"
+        class="source-menu-action"
+        @click="$emit('setOnlineSearchSource', selectedSourceMenuGroup)"
+      >
+        用于在线搜索
       </button>
       <button
         v-if="selectedSourceMenuGroup.capabilities.canChangeDirectory"
@@ -121,7 +128,8 @@ interface SourceCapabilities {
   canRefresh: boolean;
   canUpload: boolean;
   canChangeDirectory: boolean;
-  canOnlineDownload: boolean;
+  canUseForOnlineSearch: boolean;
+  isCurrentOnlineSearchSource: boolean;
   canRetryConnection: boolean;
   canShowSourceDetails: boolean;
   canDeleteSource: boolean;
@@ -134,6 +142,11 @@ interface LibrarySourceGroup {
   isLoading: boolean;
   isOnline: boolean;
   playlists: Array<{ name: string; songs: MusicInfo[] }>;
+  onlineProviderStatuses: Array<{
+    source: "youtube" | "netease" | "bilibili";
+    enabled: boolean;
+    summary: string;
+  }>;
   capabilities: SourceCapabilities;
 }
 
@@ -148,7 +161,7 @@ defineEmits<{
   (e: "closeSourceMenu"): void;
   (e: "refreshSource", group: LibrarySourceGroup): void;
   (e: "uploadToSource", group: LibrarySourceGroup): void;
-  (e: "openOnlineSearchForSource", group: LibrarySourceGroup): void;
+  (e: "setOnlineSearchSource", group: LibrarySourceGroup): void;
   (e: "changeSourceDirectory", group: LibrarySourceGroup): void;
   (e: "retrySourceConnection", apiBase: string): void;
   (e: "showSourceDetails", group: LibrarySourceGroup): void;
@@ -212,5 +225,9 @@ defineEmits<{
 
 .source-menu-action.danger-action {
   color: #b42318;
+}
+
+.source-menu-action.current-action {
+  color: #687076;
 }
 </style>
