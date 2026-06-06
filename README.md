@@ -46,7 +46,7 @@ cargo build
 ### Running the Application
 
 The music directory can be provided via:
-1. **CLI argument** (highest priority) - `cargo run /path/to/music`
+1. **CLI argument** (highest priority) - `cargo run -- run /path/to/music`
 2. **Config file** - `~/.config/kaulan/config.json`
 3. **Environment variable** - `KAULAN_MUSIC_DIR`
 
@@ -56,16 +56,36 @@ If none of the above are configured, the application will abort with an error me
 cd backend
 
 # Option 1: Provide music directory via CLI argument
-cargo run /path/to/music
+cargo run -- run /path/to/music
 
 # Option 2: Use config file (see Configuration section below)
 # The application will read from ~/.config/kaulan/config.json
 
 # Option 3: Use environment variable
-KAULAN_MUSIC_DIR=/path/to/music cargo run
+KAULAN_MUSIC_DIR=/path/to/music cargo run -- run
 ```
 
 The backend API will start on `http://localhost:2080`
+
+### Standalone Online Search Auth
+
+Standalone backend mode can import one auth file per online source at startup:
+
+- `--youtube-cookie-file <path>` for a YouTube Netscape cookie jar
+- `--netease-session-file <path>` for a Netease `session.json`
+- `--bilibili-session-file <path>` for a Bilibili `bilibili_session.json`
+
+Example:
+
+```bash
+cd backend
+cargo run -- run /path/to/music \
+  --youtube-cookie-file /path/to/youtube-cookies.txt \
+  --netease-session-file /path/to/netease-session.json \
+  --bilibili-session-file /path/to/bilibili-session.json
+```
+
+This is intended for standalone server usage where you already have provider login data and want online search/download without relying on the Tauri login capture flow. See `docs/online-search-download.md` for provider file details.
 
 A log streaming server is also available on port 2081 for real-time log viewing:
 
@@ -114,7 +134,7 @@ echo '{"music_directory": "/path/to/music"}' > ~/.config/kaulan/config.json
 
 # Start the server (will read from config file)
 cd backend
-cargo run
+cargo run -- run
 ```
 
 On the first run, the backend performs a one-time automatic scan and stores a flag in the database.
@@ -125,7 +145,7 @@ After that, startup scans are skipped. To rescan later, use the Update Database 
 
 ```bash
 cd backend
-cargo run /path/to/music
+cargo run -- run /path/to/music
 ```
 
 On first run, the server will:
