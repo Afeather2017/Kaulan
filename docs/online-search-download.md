@@ -12,6 +12,32 @@ The feature is exposed through the `在线查找` modal in the frontend. Provide
 
 This document describes the current behavior, request flow, and provider-specific rules.
 
+## Standalone Server Auth Import
+
+Standalone backend mode can import provider auth from one file per source at process startup.
+
+CLI flags:
+
+- `--youtube-cookie-file <path>` points to a Netscape cookie jar file for YouTube
+- `--netease-session-file <path>` points to a JSON file that matches `session.json`
+- `--bilibili-session-file <path>` points to a JSON file that matches `bilibili_session.json`
+
+Example:
+
+```bash
+cargo run -- run /path/to/music \
+  --youtube-cookie-file /path/to/youtube-cookies.txt \
+  --netease-session-file /path/to/netease-session.json \
+  --bilibili-session-file /path/to/bilibili-session.json
+```
+
+Import behavior:
+
+- YouTube keeps using the file directly through `KAULAN_YOUTUBE_COOKIE_HEADER_PATH`
+- Netease copies the provided file into `$NCMDUMP_CONFIG_DIR/session.json`
+- Bilibili copies the provided file into `$NCMDUMP_CONFIG_DIR/bilibili_session.json`
+- If `NCMDUMP_CONFIG_DIR` is not set, Kaulan uses `~/.config/ncmdump/`
+
 ## User-Facing Behavior
 
 ### Provider gating

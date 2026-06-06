@@ -119,6 +119,7 @@ pub fn create_youtube_js_runner() -> Result<Option<Box<dyn JsRunner>>, String> {
 }
 
 // Declare modules
+pub mod cli;
 pub mod config;
 pub mod handlers;
 pub mod middleware;
