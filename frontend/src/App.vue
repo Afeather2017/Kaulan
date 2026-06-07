@@ -56,7 +56,7 @@
             @select-collection="handleSelectCollection"
             @show-create-modal="handleShowCreateModal"
             @delete-selected-collections="handleDeleteSelectedCollections"
-            @open-collection-menu="openCollectionMenu"
+            @open-collection-menu="handleOpenCollectionMenu"
             @back-to-playlists="handleBackToPlaylists"
             @toggle-select-mode="toggleSelectMode"
             @toggle-song-selection="toggleSongSelection"
@@ -248,14 +248,13 @@ import { useSelection } from "@/composables/useSelection";
 import { useTimer } from "@/composables/useTimer";
 import { useVolume } from "@/composables/useVolume";
 import { useLyrics } from "@/composables/useLyrics";
+import { useCollections } from "@/composables/useCollections";
+import { useLufs } from "@/composables/useLufs";
 import { LOCALHOST_API_BASE, resolveSourceApiBase } from "@/utils/api";
 import {
-  getLocalCollections,
   getShowLufs,
   getTimerExitAppOnAndroid,
-  setLocalCollections,
   setShowLufs,
-  type StoredLocalCollection,
 } from "@/utils/storage";
 import { checkIsAndroid } from "@/utils/platform";
 import type {
@@ -275,7 +274,6 @@ interface PlaylistSelection {
 const currentView = ref<MainView>("playlists");
 const activeTab = ref<MainTab>("library");
 const selectedPlaylist = ref<PlaylistSelection | null>(null);
-const localCollections = ref<StoredLocalCollection[]>([]);
 const isAndroidRuntime = ref(false);
 
 const {
@@ -318,17 +316,6 @@ const playbackSource = ref<"playlist" | "search">("playlist");
 const searchPlaybackSongs = ref<SongInfo[]>([]);
 const currentSongs = computed<MusicInfo[]>(
   () => selectedPlaylist.value?.songs || [],
-);
-const collectionNames = computed(() =>
-  localCollections.value.map((collection) => collection.name),
-);
-const collectionPlaylists = computed<Record<string, SongInfo[]>>(() =>
-  Object.fromEntries(
-    localCollections.value.map((collection) => [
-      collection.name,
-      collection.songs,
-    ]),
-  ),
 );
 
 // Handler for song start event - trigger LUFS pre-caching for next song
@@ -426,11 +413,6 @@ const { lyrics, currentLyricIndex, hasLyrics } = useLyrics(
 const showSettings = ref(false);
 const showAddDeviceModal = ref(false);
 const showLufs = ref(getShowLufs());
-const showAddToCollection = ref(false);
-const selectedCollections = ref<number[]>([]);
-const pendingSongsForCollection = ref<MusicInfo[]>([]);
-const newCollectionName = ref("");
-const showCreateCollection = ref(false);
 const showUploadModal = ref(false);
 const showOnlineSearchModal = ref(false);
 const showActiveQueueModal = ref(false);
@@ -440,7 +422,6 @@ const hasUserToggledLyric = ref(false);
 const isScanning = ref(false);
 const failedCoverUrls = ref<Set<string>>(new Set());
 const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
-const selectedCollectionMenuName = ref<string | null>(null);
 const selectedSongMenuSong = ref<MusicInfo | null>(null);
 const uploadTargetApiBase = ref<string>(LOCALHOST_API_BASE);
 let androidBackListener: { unregister(): Promise<void> } | null = null;
@@ -463,21 +444,6 @@ const getSongMenuIdentity = (song: {
   source_key?: string | null;
 }): string => {
   return song.stream_url || buildSongRowKey(song);
-};
-
-const syncLocalCollections = () => {
-  setLocalCollections(localCollections.value);
-};
-
-const loadLocalCollections = () => {
-  localCollections.value = getLocalCollections().map((collection) => ({
-    ...collection,
-    songs: collection.songs.map((song) => ({
-      ...song,
-      rowKey: buildSongRowKey(song),
-      mediaType: song.mediaType || inferMediaType(song),
-    })),
-  }));
 };
 
 // Computed helper for audio player
@@ -520,228 +486,81 @@ const updateLayoutMode = () => {
   }
 };
 
-const patchSongLufsInList = (
-  songs: SongInfo[],
-  songId: number,
-  lufs: number,
-): SongInfo[] => {
-  let changed = false;
-  const updatedSongs = songs.map((song) => {
-    if (song.id !== songId || song.lufs === lufs) {
-      return song;
-    }
-    changed = true;
-    return {
-      ...song,
-      lufs,
-    };
-  });
-
-  return changed ? updatedSongs : songs;
+const clearSongSelection = () => {
+  selectMode.value = false;
+  selectedSongs.value.clear();
 };
 
-const patchSongLufs = (songId: number, lufs: number) => {
-  if (currentSong.value?.id === songId && currentSong.value.lufs !== lufs) {
-    currentSong.value = {
-      ...currentSong.value,
-      lufs,
-    };
-  }
-
-  activeQueue.value = patchSongLufsInList(activeQueue.value, songId, lufs);
-  searchPlaybackSongs.value = patchSongLufsInList(
-    searchPlaybackSongs.value,
-    songId,
-    lufs,
-  );
-
-  if (selectedPlaylist.value) {
+const {
+  localCollections,
+  collectionNames,
+  collectionPlaylists,
+  showAddToCollection,
+  selectedCollections,
+  newCollectionName,
+  showCreateCollection,
+  selectedCollectionMenuName,
+  loadLocalCollections,
+  handleShowAddToCollectionModal,
+  hideAddToCollectionModal,
+  handleToggleCollectionSelection,
+  addSongToCollectionFromMenu: queueSongToCollectionFromMenu,
+  addToCollection,
+  handleRemoveFromCollection,
+  removeSingleSongFromCollection,
+  handleShowCreateModal,
+  handleCreateCollectionFromAddModal,
+  hideCreateCollectionModal,
+  handleCreateCollection,
+  openCollectionMenu,
+  closeCollectionMenu,
+  renameCollection,
+  deleteCollectionByName,
+  deleteCollectionFromMenu,
+} = useCollections({
+  currentSongs,
+  selectedSongs,
+  selectedPlaylist,
+  buildSongRowKey,
+  inferMediaType,
+  onSelectCollection: (name) => {
+    const songs = collectionPlaylists.value[name] || [];
     selectedPlaylist.value = {
-      ...selectedPlaylist.value,
-      songs: patchSongLufsInList(selectedPlaylist.value.songs, songId, lufs),
+      name,
+      songs,
     };
-  }
+    selectedLibrarySourceKey.value = null;
+    selectedLibraryPlaylistName.value = null;
+    currentView.value = "songs";
+    playbackSource.value = "playlist";
+    searchPlaybackSongs.value = [];
+    resetPlaylist();
+  },
+  onBackToPlaylists: () => {
+    currentView.value = "playlists";
+    selectedPlaylist.value = null;
+    selectedLibrarySourceKey.value = null;
+    selectedLibraryPlaylistName.value = null;
+    searchQuery.value = "";
+  },
+  clearSongSelection,
+});
 
-  let groupsChanged = false;
-  const nextGroups = sourceGroups.value.map((group) => {
-    let groupChanged = false;
-    const playlists = group.playlists.map((playlist) => {
-      const updatedSongs = patchSongLufsInList(playlist.songs, songId, lufs);
-      if (updatedSongs !== playlist.songs) {
-        groupChanged = true;
-      }
-      return groupChanged
-        ? {
-            ...playlist,
-            songs: updatedSongs,
-          }
-        : playlist;
-    });
-
-    if (!groupChanged) {
-      return group;
-    }
-
-    groupsChanged = true;
-    return {
-      ...group,
-      playlists,
-    };
-  });
-  if (groupsChanged) {
-    sourceGroups.value = nextGroups;
-    syncSelectedLibraryPlaylist(currentView.value, selectedPlaylist);
-  }
-};
-
-interface PrecacheLufsResult {
-  success: boolean;
-  lufs: number | null;
-  cached?: boolean;
-  error?: string;
-}
-
-const LUFS_POLL_DELAY_MS = 1000;
-const LUFS_POLL_MAX_ATTEMPTS = 8;
-const pendingLufsPolls = new Set<number>();
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const pollSongLufs = async (
-  songId: number,
-  sourceKey: string | null | undefined,
-  context: "current" | "next",
-) => {
-  if (pendingLufsPolls.has(songId)) {
-    console.log(
-      `[app] LUFS ${context} poll already in flight for song ID:`,
-      songId,
-    );
-    return;
-  }
-
-  pendingLufsPolls.add(songId);
-
-  try {
-    for (let attempt = 1; attempt <= LUFS_POLL_MAX_ATTEMPTS; attempt++) {
-      await wait(LUFS_POLL_DELAY_MS);
-
-      try {
-        console.log(
-          `[app] LUFS ${context} poll request attempt ${attempt} for song ID:`,
-          songId,
-        );
-        const response = await fetch(
-          `${resolveSourceApiBase(sourceKey)}/music/${songId}/precache-lufs`,
-          {
-            method: "POST",
-          },
-        );
-
-        if (!response.ok) {
-          console.warn(`[app] LUFS ${context} poll failed:`, response.status);
-          return;
-        }
-
-        const result: PrecacheLufsResult = await response.json();
-        if (result.success && result.lufs !== null) {
-          console.log(
-            `[app] LUFS ${context} resolved from poll attempt ${attempt}:`,
-            result.lufs,
-          );
-          patchSongLufs(songId, result.lufs);
-          if (isAndroidPlayer.value) {
-            await syncAndroidQueueState();
-          }
-          return;
-        }
-
-        if (result.cached !== false) {
-          return;
-        }
-      } catch (error) {
-        console.error(
-          `[app] LUFS ${context} poll error on attempt ${attempt}:`,
-          error,
-        );
-        return;
-      }
-    }
-  } finally {
-    pendingLufsPolls.delete(songId);
-  }
-};
-
-const requestSongLufs = async (
-  song: MusicInfo,
-  context: "current" | "next",
-): Promise<MusicInfo> => {
-  if (song.lufs !== null) {
-    console.log(
-      `[app] LUFS ${context} already cached for song ID:`,
-      song.id,
-      "value:",
-      song.lufs,
-    );
-    return song;
-  }
-
-  try {
-    console.log(`[app] LUFS ${context} request for song ID:`, song.id);
-    const response = await fetch(
-      `${resolveSourceApiBase(song.source_key)}/music/${song.id}/precache-lufs`,
-      {
-        method: "POST",
-      },
-    );
-
-    if (!response.ok) {
-      console.warn(`[app] LUFS ${context} pre-cache failed:`, response.status);
-      return song;
-    }
-
-    const result: PrecacheLufsResult = await response.json();
-    if (result.success && result.lufs !== null) {
-      console.log(`[app] LUFS ${context} resolved immediately:`, result.lufs);
-      patchSongLufs(song.id, result.lufs);
-      if (context === "next" && isAndroidPlayer.value) {
-        await syncAndroidQueueState();
-      }
-      return {
-        ...song,
-        lufs: result.lufs,
-      };
-    }
-
-    if (result.success && result.cached === false) {
-      console.log(`[app] LUFS ${context} started in background (non-blocking)`);
-      void pollSongLufs(song.id, song.source_key, context);
-    }
-  } catch (error) {
-    console.error(`[app] LUFS ${context} pre-cache error:`, error);
-  }
-
-  return song;
-};
-
-const resolveSongForPlayback = async (song: SongInfo): Promise<SongInfo> => {
-  if (isAndroidPlayer.value) {
-    return song;
-  }
-  return await requestSongLufs(song, "current");
-};
-
-const syncPlaybackMetadataFromBackend = () => {
-  if (!isAndroidPlayer.value || activeQueue.value.length === 0) {
-    return;
-  }
-
-  for (const song of activeQueue.value) {
-    if (song.lufs !== null) {
-      patchSongLufs(song.id, song.lufs);
-    }
-  }
-};
+const {
+  requestSongLufs,
+  resolveSongForPlayback,
+  syncPlaybackMetadataFromBackend,
+} = useLufs({
+  currentSong,
+  activeQueue,
+  searchPlaybackSongs,
+  selectedPlaylist,
+  sourceGroups,
+  isAndroidPlayer,
+  syncAndroidQueueState,
+  syncSelectedLibraryPlaylist,
+  currentView,
+});
 
 watch(
   [
@@ -1290,90 +1109,9 @@ const handleDeleteSource = (group: LibrarySourceGroup) => {
   }
 };
 
-const openCollectionMenu = (collectionName: string) => {
-  if (!collectionName) {
-    return;
-  }
+const handleOpenCollectionMenu = (collectionName: string) => {
   selectedSongMenuSong.value = null;
-  selectedCollectionMenuName.value = collectionName;
-};
-
-const closeCollectionMenu = () => {
-  selectedCollectionMenuName.value = null;
-};
-
-const renameCollection = () => {
-  const currentName = selectedCollectionMenuName.value;
-  if (!currentName) {
-    return;
-  }
-
-  const nextName = prompt("请输入新的收藏夹名称:", currentName);
-  if (nextName === null) {
-    return;
-  }
-
-  const trimmedName = nextName.trim();
-  if (!trimmedName) {
-    alert("请输入收藏夹名称");
-    return;
-  }
-
-  if (
-    trimmedName !== currentName &&
-    localCollections.value.some((collection) => collection.name === trimmedName)
-  ) {
-    alert("已存在同名收藏夹");
-    return;
-  }
-
-  localCollections.value = localCollections.value.map((collection) =>
-    collection.name === currentName
-      ? {
-          ...collection,
-          name: trimmedName,
-        }
-      : collection,
-  );
-  syncLocalCollections();
-  if (selectedPlaylist.value?.name === currentName) {
-    selectedPlaylist.value = {
-      ...selectedPlaylist.value,
-      name: trimmedName,
-    };
-  }
-  selectedCollectionMenuName.value = trimmedName;
-};
-
-const deleteCollectionByName = (collectionName: string) => {
-  const before = localCollections.value.length;
-  localCollections.value = localCollections.value.filter(
-    (collection) => collection.name !== collectionName,
-  );
-  if (localCollections.value.length === before) {
-    return false;
-  }
-
-  syncLocalCollections();
-  if (selectedPlaylist.value?.name === collectionName) {
-    handleBackToPlaylists();
-  }
-  return true;
-};
-
-const deleteCollectionFromMenu = () => {
-  const collectionName = selectedCollectionMenuName.value;
-  if (!collectionName) {
-    return;
-  }
-
-  if (!confirm(`确定要删除收藏夹 “${collectionName}” 吗？`)) {
-    return;
-  }
-
-  if (deleteCollectionByName(collectionName)) {
-    closeCollectionMenu();
-  }
+  openCollectionMenu(collectionName);
 };
 
 const openSongMenu = (song: SongInfo) => {
@@ -1458,9 +1196,7 @@ const addSongToCollectionFromMenu = () => {
     return;
   }
 
-  selectedCollections.value = [];
-  pendingSongsForCollection.value = [song];
-  showAddToCollection.value = true;
+  queueSongToCollectionFromMenu(song);
   closeSongMenu();
 };
 
@@ -1512,174 +1248,8 @@ const handleChangeSourceDirectory = async (group: LibrarySourceGroup) => {
   }
 };
 
-// Collection management handlers
-const handleShowAddToCollectionModal = () => {
-  selectedCollections.value = [];
-  pendingSongsForCollection.value = [];
-  showAddToCollection.value = true;
-};
-
-const hideAddToCollectionModal = () => {
-  showAddToCollection.value = false;
-  selectedCollections.value = [];
-  pendingSongsForCollection.value = [];
-};
-
-const handleToggleCollectionSelection = (id: number) => {
-  const index = selectedCollections.value.indexOf(id);
-  if (index > -1) {
-    selectedCollections.value.splice(index, 1);
-  } else {
-    selectedCollections.value.push(id);
-  }
-};
-
-const addToCollection = async () => {
-  if (selectedCollections.value.length === 0) {
-    alert("请选择至少一个收藏夹");
-    return;
-  }
-
-  const selectedVisibleSongs =
-    pendingSongsForCollection.value.length > 0
-      ? pendingSongsForCollection.value
-      : currentSongs.value.filter((song) =>
-          selectedSongs.value.has(song.rowKey || buildSongRowKey(song)),
-        );
-
-  if (selectedVisibleSongs.length === 0) {
-    alert("没有选中的歌曲");
-    return;
-  }
-
-  localCollections.value = localCollections.value.map((collection) => {
-    if (!selectedCollections.value.includes(collection.id)) {
-      return collection;
-    }
-
-    const existingKeys = new Set(
-      collection.songs.map(
-        (song) => `${song.source_key || "local"}:${song.id}:${song.name}`,
-      ),
-    );
-    const nextSongs = collection.songs.slice();
-
-    for (const song of selectedVisibleSongs) {
-      const songKey = `${(song as MusicInfo).source_key || "local"}:${song.id}:${song.name}`;
-      const normalizedSong = {
-        ...(song as MusicInfo),
-        rowKey: song.rowKey || songKey,
-      };
-      if (existingKeys.has(songKey)) {
-        continue;
-      }
-      existingKeys.add(songKey);
-      nextSongs.push(normalizedSong);
-    }
-
-    return {
-      ...collection,
-      songs: nextSongs,
-    };
-  });
-  syncLocalCollections();
-
-  alert("添加成功");
-  hideAddToCollectionModal();
-  selectMode.value = false;
-  selectedSongs.value.clear();
-};
-
-const handleRemoveFromCollection = async () => {
-  if (!selectedPlaylist.value) return;
-
-  const selectedNames = new Set(selectedSongs.value);
-  if (selectedNames.size === 0) {
-    alert("没有选中的歌曲");
-    return;
-  }
-
-  localCollections.value = localCollections.value.map((collection) => {
-    if (collection.name !== selectedPlaylist.value?.name) {
-      return collection;
-    }
-
-    return {
-      ...collection,
-      songs: collection.songs.filter(
-        (song) => !selectedNames.has(song.rowKey || buildSongRowKey(song)),
-      ),
-    };
-  });
-  syncLocalCollections();
-  handleSelectCollection(selectedPlaylist.value.name);
-  alert("移除成功");
-  selectMode.value = false;
-  selectedSongs.value.clear();
-};
-
-const removeSingleSongFromCollection = (song: MusicInfo) => {
-  if (!selectedPlaylist.value) {
-    return;
-  }
-
-  const songKey = song.rowKey || buildSongRowKey(song);
-  localCollections.value = localCollections.value.map((collection) => {
-    if (collection.name !== selectedPlaylist.value?.name) {
-      return collection;
-    }
-
-    return {
-      ...collection,
-      songs: collection.songs.filter(
-        (item) => (item.rowKey || buildSongRowKey(item)) !== songKey,
-      ),
-    };
-  });
-  syncLocalCollections();
-  handleSelectCollection(selectedPlaylist.value.name);
-};
-
 const handleSongCollectionAction = (song: SongInfo) => {
   openSongMenu(song);
-};
-
-const handleShowCreateModal = () => {
-  newCollectionName.value = "";
-  showCreateCollection.value = true;
-};
-
-const handleCreateCollectionFromAddModal = () => {
-  showAddToCollection.value = false;
-  handleShowCreateModal();
-};
-
-const hideCreateCollectionModal = () => {
-  showCreateCollection.value = false;
-  newCollectionName.value = "";
-};
-
-const handleCreateCollection = async () => {
-  if (!newCollectionName.value.trim()) {
-    alert("请输入收藏夹名称");
-    return;
-  }
-
-  const shouldReturnToAddModal = pendingSongsForCollection.value.length > 0;
-  localCollections.value = [
-    ...localCollections.value,
-    {
-      id: Date.now(),
-      name: newCollectionName.value.trim(),
-      created_at: new Date().toISOString(),
-      songs: [],
-    },
-  ];
-  syncLocalCollections();
-  hideCreateCollectionModal();
-  if (shouldReturnToAddModal) {
-    showAddToCollection.value = true;
-  }
 };
 
 const handleDeleteSelectedCollections = async () => {
