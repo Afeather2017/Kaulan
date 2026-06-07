@@ -276,10 +276,6 @@ frontend/src-tauri/src/
   - Connect with: `nc localhost 2081`
   - See [`docs/log-streaming.md`](docs/log-streaming.md) for details
 
-## Known Issues / Work in Progress
-
-- Frontend `App.vue` uses `/api/music/{filename}` for streaming. The music lookup is filename-based which works but is inconsistent with the DB's ID-based primary keys.
-
 ## Dependencies
 
 **Backend:**
