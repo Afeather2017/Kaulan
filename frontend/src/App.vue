@@ -73,6 +73,7 @@
           :is-wide-layout="isWideLayout"
           :is-lyric-panel-visible="isLyricPanelVisible"
           :select-mode="selectMode"
+          :is-lyrics-loading="isLyricsLoading"
           :has-lyrics="hasLyrics"
           :lyrics="lyrics"
           :current-lyric-index="currentLyricIndex"
@@ -84,6 +85,7 @@
           :is-playing="isPlaying"
           :play-mode="playMode"
           @lyric-line-click="handleLyricLineClick"
+          @open-online-lyric-search="openOnlineLyricSearch"
           @show-cover-panel="showCoverPanel"
           @show-lyrics-panel="showLyricsPanel"
           @cover-load-error="handleCoverLoadError(currentSong)"
@@ -181,12 +183,22 @@
 
     <OnlineSearchModal
       v-if="showOnlineSearchModal"
-      :initial-query="searchQuery"
+      :initial-query="onlineSearchInitialQuery"
       :api-base="onlineSearchApiBase"
       :source-name="onlineSearchSourceName"
       @close="showOnlineSearchModal = false"
       @download-complete="handleOnlineDownloadComplete"
       @preview-track="handlePreviewTrack"
+    />
+
+    <LyricSearchModal
+      v-if="showLyricSearchModal && currentSong"
+      :api-base="currentSongLyricApiBase"
+      :initial-query="currentSong.name"
+      mode="apply"
+      :song-id="currentSong.id"
+      @close="showLyricSearchModal = false"
+      @applied="handleLyricApplied"
     />
 
     <!-- Active Queue Modal -->
@@ -234,6 +246,7 @@ import SettingsModal from "@/components/modals/SettingsModal.vue";
 import ActiveQueueModal from "@/components/modals/ActiveQueueModal.vue";
 import AddToCollectionModal from "@/components/modals/AddToCollectionModal.vue";
 import CreateCollectionModal from "@/components/modals/CreateCollectionModal.vue";
+import LyricSearchModal from "@/components/modals/LyricSearchModal.vue";
 import OnlineSearchModal from "@/components/modals/OnlineSearchModal.vue";
 import UploadModal from "@/components/modals/UploadModal.vue";
 import { useAppShell } from "@/composables/useAppShell";
@@ -244,6 +257,7 @@ const {
   draftSourceFilterKey,
   draftMediaTypes,
   onlineSearchApiBase,
+  onlineSearchInitialQuery,
   libraryGroupSummaries,
   searchResults,
   filterSources,
@@ -256,12 +270,14 @@ const {
   showAddDeviceModal,
   showUploadModal,
   showOnlineSearchModal,
+  showLyricSearchModal,
   showActiveQueueModal,
   isScanning,
   uploadTargetApiBase,
   currentSongs,
   activeQueue,
   currentSong,
+  currentSongLyricApiBase,
   isPlaying,
   currentTime,
   duration,
@@ -292,6 +308,7 @@ const {
   hasSelectedNonAllMusicCollection,
   lyrics,
   currentLyricIndex,
+  isLyricsLoading,
   hasLyrics,
   selectedSourceMenuGroup,
   selectedSongMenuSong,
@@ -323,6 +340,7 @@ const {
   hideCreateCollectionModal,
   handleUploadComplete,
   handleOnlineDownloadComplete,
+  handleLyricApplied,
   handlePreviewTrack,
   handlePlayQueueSong,
   handleUpdateSourceDatabase,
@@ -341,6 +359,7 @@ const {
   addSongToCollectionFromMenu,
   removeSongFromCollectionFromMenu,
   openOnlineSearchFromQuery,
+  openOnlineLyricSearch,
   handleSelectCollection,
   handleSelectLibraryPlaylist,
   handleBackToPlaylists,

@@ -451,6 +451,7 @@ export function useLyrics(
     currentLyricIndex,
     hasLyrics,
     isLoading,
+    reloadLyrics: fetchLyrics,
     updateCurrentLyric,
     clearLyricTimer,
     scheduleFromTime,

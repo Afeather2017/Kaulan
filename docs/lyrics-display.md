@@ -107,6 +107,14 @@ Response:
 [00:02.52]Second line
 ```
 
+### POST /api/download/lyrics/search
+
+Search online lyric candidates by free-text query.
+
+### POST /api/download/lyrics/apply
+
+Save the selected online lyric as a sidecar `.lrc` file for an existing local song.
+
 ## User Instructions
 
 ### Viewing Lyrics
@@ -124,7 +132,7 @@ Response:
 - **Auto-scroll:** The current lyric line is automatically centered as the song plays
 - **Highlighting:** The active lyric line is highlighted in green with larger text
 - **Bilingual display:** Original language is shown larger, translation is shown smaller below, and both lines are highlighted together when their timestamp is active
-- **Missing lyrics:** "暂无歌词" (No lyrics available) is displayed if no supported lyric file exists
+- **Missing lyrics:** if no supported lyric file exists, the Lyric tab shows "暂无歌词" together with a `search online` action that opens a lyric-only online search dialog prefilled with the current song name
 
 ### Adding Lyrics
 

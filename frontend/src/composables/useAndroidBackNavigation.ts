@@ -11,6 +11,7 @@ interface UseAndroidBackNavigationOptions {
   showAddDeviceModal: Ref<boolean>;
   showUploadModal: Ref<boolean>;
   showOnlineSearchModal: Ref<boolean>;
+  showLyricSearchModal: Ref<boolean>;
   showCreateCollection: Ref<boolean>;
   showAddToCollection: Ref<boolean>;
   showSettings: Ref<boolean>;
@@ -42,6 +43,7 @@ export function useAndroidBackNavigation(
     showAddDeviceModal,
     showUploadModal,
     showOnlineSearchModal,
+    showLyricSearchModal,
     showCreateCollection,
     showAddToCollection,
     showSettings,
@@ -101,6 +103,11 @@ export function useAndroidBackNavigation(
 
     if (showOnlineSearchModal.value) {
       showOnlineSearchModal.value = false;
+      return true;
+    }
+
+    if (showLyricSearchModal.value) {
+      showLyricSearchModal.value = false;
       return true;
     }
 
