@@ -1,6 +1,5 @@
 import { createApp } from "vue";
 import App from "./App.vue";
-import router from "./router";
 import { checkIsAndroid } from "./utils/platform";
 import "@fortawesome/fontawesome-free/css/all.css";
 
@@ -51,7 +50,7 @@ const startApp = async () => {
     document.body.style.padding = "0";
   }
 
-  createApp(App).use(router).mount("#app");
+  createApp(App).mount("#app");
 };
 
 startApp();
