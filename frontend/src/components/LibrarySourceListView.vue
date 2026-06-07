@@ -42,7 +42,7 @@
       </div>
 
       <div v-else class="offline-card">
-        <div>当前无法连接到此来源</div>
+        <div>{{ group.errorMessage || "当前无法连接到此来源" }}</div>
         <button class="retry-btn" @click="$emit('retry', group)">重试</button>
       </div>
     </div>

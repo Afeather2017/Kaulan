@@ -30,8 +30,7 @@ function filterVisibleGroups(
           ),
         }))
         .filter((playlist) => playlist.songs.length > 0 || !group.isOnline),
-    }))
-    .filter((group) => group.isOnline || group.playlists.length > 0);
+    }));
 }
 
 import { describe, expect, it } from "vitest";
@@ -99,6 +98,12 @@ describe("library source visibility", () => {
       ["audio", "video"],
     );
 
-    expect(result).toEqual([]);
+    expect(result).toEqual([
+      {
+        sourceKey: "http://192.168.1.20:2080/api",
+        isOnline: false,
+        playlists: [],
+      },
+    ]);
   });
 });

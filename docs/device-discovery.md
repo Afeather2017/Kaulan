@@ -77,6 +77,7 @@ If scan fails, frontend calls `POST /api/discovery/scan/finish` with `{ "success
 - Non-local manual sources can be removed from the source `⋮` menu. The localhost source is permanent and cannot be deleted.
 - In the device list, `last seen` and manual remove action are shown on the same row as the device name, while long API URLs wrap inside the card instead of overflowing.
 - The library source page resolves each configured server independently. `localhost` can appear immediately while slow or dead manual servers continue in parallel and fall back to `Offline` after a short request timeout.
+- Offline sources stay visible in the library source card list, so users can see the saved server and tap `重试` directly on that card after the source times out or becomes unreachable.
 
 ## API Endpoints
 

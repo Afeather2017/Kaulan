@@ -10,6 +10,7 @@ export interface LibrarySourceGroupSummary {
   name: string;
   isLoading: boolean;
   isOnline: boolean;
+  errorMessage?: string;
   playlists: LibrarySourcePlaylistSummary[];
 }
 
@@ -41,6 +42,7 @@ export interface LibrarySourceGroup {
   name: string;
   isLoading: boolean;
   isOnline: boolean;
+  errorMessage?: string;
   playlists: LibraryPlaylistGroup[];
   onlineProviderStatuses: OnlineProviderStatus[];
   capabilities: SourceCapabilities;
