@@ -161,10 +161,9 @@
 
 <script setup lang="ts">
 import PlaylistListView from "@/components/PlaylistListView.vue";
-import LibrarySourceListView, {
-  type LibrarySourceGroupSummary,
-} from "@/components/LibrarySourceListView.vue";
+import LibrarySourceListView from "@/components/LibrarySourceListView.vue";
 import SongListView, { type SongInfo } from "@/components/SongListView.vue";
+import type { LibrarySourceGroupSummary } from "@/types/library";
 
 defineProps<{
   currentView: "playlists" | "songs" | "search";

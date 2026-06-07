@@ -50,7 +50,7 @@
             @add-device="handleAddDevice"
             @select-library-playlist="handleSelectLibraryPlaylist"
             @open-source-menu="handleOpenSourceMenu"
-            @retry-source-connection="retrySourceConnection"
+            @retry-source-connection="handleRetrySourceConnection"
             @toggle-collection-select-mode="toggleCollectionSelectMode"
             @toggle-collection-selection="toggleCollectionSelection"
             @select-collection="handleSelectCollection"
@@ -204,13 +204,13 @@
       :selected-collection-menu-name="selectedCollectionMenuName"
       :selected-song-menu-song="selectedSongMenuSong"
       @close-source-menu="closeSourceMenu"
-      @refresh-source="updateSourceDatabase"
+      @refresh-source="handleUpdateSourceDatabase"
       @upload-to-source="openUploadForSource"
-      @set-online-search-source="setOnlineSearchSourceFromMenu"
-      @change-source-directory="changeSourceDirectory"
-      @retry-source-connection="retrySourceConnection"
-      @show-source-details="showSourceDetails"
-      @delete-source="deleteSource"
+      @set-online-search-source="handleSetOnlineSearchSourceFromMenu"
+      @change-source-directory="handleChangeSourceDirectory"
+      @retry-source-connection="handleRetrySourceConnection"
+      @show-source-details="handleShowSourceDetails"
+      @delete-source="handleDeleteSource"
       @close-collection-menu="closeCollectionMenu"
       @rename-collection="renameCollection"
       @delete-collection="deleteCollectionFromMenu"
@@ -229,7 +229,6 @@ import SearchBar from "@/components/SearchBar.vue";
 import AppActionSheets from "@/components/AppActionSheets.vue";
 import AppContentView from "@/components/AppContentView.vue";
 import AppPlayerView from "@/components/AppPlayerView.vue";
-import { type LibrarySourceGroupSummary } from "@/components/LibrarySourceListView.vue";
 import LibraryFilterSheet from "@/components/LibraryFilterSheet.vue";
 import { type SongInfo } from "@/components/SongListView.vue";
 import AddDeviceModal from "@/components/modals/AddDeviceModal.vue";
@@ -240,33 +239,29 @@ import CreateCollectionModal from "@/components/modals/CreateCollectionModal.vue
 import OnlineSearchModal from "@/components/modals/OnlineSearchModal.vue";
 import UploadModal from "@/components/modals/UploadModal.vue";
 import { useAudioPlayer, type MusicInfo } from "@/composables/useAudioPlayer";
+import {
+  buildSongRowKey,
+  inferMediaType,
+  useLibrarySources,
+} from "@/composables/useLibrarySources";
 import { useSelection } from "@/composables/useSelection";
 import { useTimer } from "@/composables/useTimer";
 import { useVolume } from "@/composables/useVolume";
 import { useLyrics } from "@/composables/useLyrics";
+import { LOCALHOST_API_BASE, resolveSourceApiBase } from "@/utils/api";
 import {
-  LOCALHOST_API_BASE,
-  getLocalApiBase,
-  resolveSourceApiBase,
-} from "@/utils/api";
-import {
-  refreshDiscoveredDevices,
-  refreshStoredManualDevices,
-} from "@/utils/discovery";
-import {
-  getDefaultOnlineSearchApiBase,
   getLocalCollections,
-  getManualDevices,
   getShowLufs,
   getTimerExitAppOnAndroid,
-  setDefaultOnlineSearchApiBase,
   setLocalCollections,
-  setManualDevices,
   setShowLufs,
   type StoredLocalCollection,
 } from "@/utils/storage";
-import { checkIsAndroid, isLocalhostApiBase } from "@/utils/platform";
-import { loadItemsIncrementally, upsertSortedItem } from "@/utils/sourceGroups";
+import { checkIsAndroid } from "@/utils/platform";
+import type {
+  LibrarySourceGroup,
+  LibrarySourceGroupSummary,
+} from "@/types/library";
 
 type MainView = "playlists" | "songs" | "search";
 type MainTab = "library" | "collections";
@@ -277,52 +272,47 @@ interface PlaylistSelection {
   songs: MusicInfo[];
 }
 
-interface LibraryPlaylistGroup {
-  name: string;
-  songs: MusicInfo[];
-}
-
-interface SourceCapabilities {
-  canRefresh: boolean;
-  canUpload: boolean;
-  canChangeDirectory: boolean;
-  canUseForOnlineSearch: boolean;
-  isCurrentOnlineSearchSource: boolean;
-  canRetryConnection: boolean;
-  canShowSourceDetails: boolean;
-  canDeleteSource: boolean;
-}
-
-interface OnlineProviderStatus {
-  source: "youtube" | "netease" | "bilibili";
-  enabled: boolean;
-  summary: string;
-}
-
-interface LibrarySourceGroup {
-  apiBase: string;
-  sourceKey: string;
-  name: string;
-  isLoading: boolean;
-  isOnline: boolean;
-  playlists: LibraryPlaylistGroup[];
-  onlineProviderStatuses: OnlineProviderStatus[];
-  capabilities: SourceCapabilities;
-}
-
-const searchQuery = ref("");
 const currentView = ref<MainView>("playlists");
 const activeTab = ref<MainTab>("library");
 const selectedPlaylist = ref<PlaylistSelection | null>(null);
-const selectedLibrarySourceKey = ref<string | null>(null);
-const selectedLibraryPlaylistName = ref<string | null>(null);
 const localCollections = ref<StoredLocalCollection[]>([]);
-const sourceGroups = ref<LibrarySourceGroup[]>([]);
-const showFilterSheet = ref(false);
-const appliedSourceFilterKey = ref("all");
-const draftSourceFilterKey = ref("all");
-const appliedMediaTypes = ref<Array<"audio" | "video">>(["audio", "video"]);
-const draftMediaTypes = ref<Array<"audio" | "video">>(["audio", "video"]);
+const isAndroidRuntime = ref(false);
+
+const {
+  searchQuery,
+  sourceGroups,
+  showFilterSheet,
+  draftSourceFilterKey,
+  draftMediaTypes,
+  selectedLibrarySourceKey,
+  selectedLibraryPlaylistName,
+  onlineSearchApiBase,
+  libraryGroupSummaries,
+  searchResults,
+  filterSources,
+  trimmedSearchQuery,
+  onlineSearchSourceName,
+  ensureOnlineSearchSourceExists,
+  setOnlineSearchSource,
+  refreshSourceGroups,
+  refreshSingleSource,
+  refreshDiscoveryState,
+  openFilterSheet,
+  toggleDraftMediaType,
+  applyLibraryFilter,
+  resetLibraryFilter,
+  getLibraryPlaylist,
+  syncSelectedLibraryPlaylist,
+  retrySourceConnection,
+  showSourceDetails,
+  setOnlineSearchSourceFromMenu,
+  deleteSource,
+  updateSourceDatabase,
+  changeSourceDirectory,
+  triggerDatabaseUpdate,
+} = useLibrarySources({
+  isAndroidRuntime,
+});
 
 const playbackSource = ref<"playlist" | "search">("playlist");
 const searchPlaybackSongs = ref<SongInfo[]>([]);
@@ -339,64 +329,6 @@ const collectionPlaylists = computed<Record<string, SongInfo[]>>(() =>
       collection.songs,
     ]),
   ),
-);
-
-const filteredSourceGroups = computed<LibrarySourceGroup[]>(() =>
-  sourceGroups.value
-    .filter(
-      (group) =>
-        appliedSourceFilterKey.value === "all" ||
-        group.sourceKey === appliedSourceFilterKey.value,
-    )
-    .map((group) => ({
-      ...group,
-      playlists: group.playlists
-        .map((playlist) => ({
-          ...playlist,
-          songs: playlist.songs.filter((song) =>
-            appliedMediaTypes.value.includes(song.mediaType || "audio"),
-          ),
-        }))
-        .filter((playlist) => playlist.songs.length > 0 || !group.isOnline),
-    }))
-    .filter((group) => group.isOnline || group.playlists.length > 0),
-);
-
-const allLibrarySongs = computed<SongInfo[]>(() =>
-  filteredSourceGroups.value.flatMap((group) =>
-    group.playlists.flatMap((playlist) => playlist.songs),
-  ),
-);
-
-const libraryGroupSummaries = computed<LibrarySourceGroupSummary[]>(() =>
-  filteredSourceGroups.value.map((group) => ({
-    sourceKey: group.sourceKey,
-    name: group.name,
-    isLoading: group.isLoading,
-    isOnline: group.isOnline,
-    playlists: group.playlists.map((playlist) => ({
-      name: playlist.name,
-      songCount: playlist.songs.length,
-    })),
-  })),
-);
-
-const searchResults = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase();
-  if (!query) {
-    return [];
-  }
-
-  return allLibrarySongs.value.filter((song) =>
-    song.name.toLowerCase().includes(query),
-  );
-});
-
-const filterSources = computed(() =>
-  sourceGroups.value.map((group) => ({
-    sourceKey: group.sourceKey,
-    name: group.name,
-  })),
 );
 
 // Handler for song start event - trigger LUFS pre-caching for next song
@@ -511,24 +443,7 @@ const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
 const selectedCollectionMenuName = ref<string | null>(null);
 const selectedSongMenuSong = ref<MusicInfo | null>(null);
 const uploadTargetApiBase = ref<string>(LOCALHOST_API_BASE);
-const isAndroidRuntime = ref(false);
 let androidBackListener: { unregister(): Promise<void> } | null = null;
-
-const SOURCE_REQUEST_TIMEOUT_MS = 3000;
-const onlineSearchApiBase = ref<string>(getDefaultOnlineSearchApiBase());
-let sourceRefreshToken = 0;
-
-const buildSongApiUrl = (apiBase: string, suffix: string): string => {
-  return `${apiBase}${suffix}`;
-};
-
-const buildSongRowKey = (song: {
-  id: number;
-  name: string;
-  source_key?: string | null;
-}): string => {
-  return `${song.source_key || "local"}:${song.id}:${song.name}`;
-};
 
 const resolveSongCoverUrl = (song: MusicInfo | null): string | null => {
   if (!song) {
@@ -537,10 +452,7 @@ const resolveSongCoverUrl = (song: MusicInfo | null): string | null => {
 
   const coverUrl =
     song.cover_url ||
-    buildSongApiUrl(
-      resolveSourceApiBase(song.source_key),
-      `/music/id/${song.id}/cover`,
-    );
+    `${resolveSourceApiBase(song.source_key)}/music/id/${song.id}/cover`;
   return failedCoverUrls.value.has(coverUrl) ? null : coverUrl;
 };
 
@@ -551,75 +463,6 @@ const getSongMenuIdentity = (song: {
   source_key?: string | null;
 }): string => {
   return song.stream_url || buildSongRowKey(song);
-};
-
-const inferMediaType = (song: {
-  name: string;
-  path: string;
-}): "audio" | "video" => {
-  const candidate = `${song.name} ${song.path}`.toLowerCase();
-  const audioExtensions = [
-    ".mp3",
-    ".flac",
-    ".wav",
-    ".ogg",
-    ".m4a",
-    ".aac",
-    ".opus",
-  ];
-  return audioExtensions.some((extension) => candidate.includes(extension))
-    ? "audio"
-    : "video";
-};
-
-const buildSourceLabel = (apiBase: string): string => {
-  const manualMatch = getManualDevices().find(
-    (device) => device.api_url === apiBase,
-  );
-  if (manualMatch?.device_name?.trim()) {
-    return manualMatch.device_name.trim();
-  }
-
-  try {
-    const parsed = new URL(apiBase);
-    return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
-      ? "This Device"
-      : parsed.hostname;
-  } catch {
-    return apiBase;
-  }
-};
-
-const onlineSearchSourceName = computed(() => {
-  const current = sourceGroups.value.find(
-    (group) => group.apiBase === onlineSearchApiBase.value,
-  );
-  return current?.name || buildSourceLabel(onlineSearchApiBase.value);
-});
-
-const normalizeSourceSong = (
-  apiBase: string,
-  sourceLabel: string,
-  song: MusicInfo,
-): MusicInfo => ({
-  ...song,
-  stream_url:
-    song.stream_url || buildSongApiUrl(apiBase, `/music/id/${song.id}`),
-  cover_url:
-    (song as MusicInfo).cover_url ||
-    buildSongApiUrl(apiBase, `/music/id/${song.id}/cover`),
-  source_key: apiBase,
-  sourceLabel,
-  rowKey: `${apiBase}:${song.id}:${song.name}`,
-  mediaType: song.mediaType || inferMediaType(song),
-});
-
-const buildPlaylistRequestUrl = (apiBase: string): string => {
-  const shouldRequestRawPlaybackPath =
-    isAndroidRuntime.value && isLocalhostApiBase(apiBase);
-  return shouldRequestRawPlaybackPath
-    ? buildSongApiUrl(apiBase, "/playlists?stream=content")
-    : buildSongApiUrl(apiBase, "/playlists");
 };
 
 const syncLocalCollections = () => {
@@ -635,342 +478,6 @@ const loadLocalCollections = () => {
       mediaType: song.mediaType || inferMediaType(song),
     })),
   }));
-};
-
-const getSourceApiBases = (): string[] => {
-  const manual = getManualDevices().map((device) => device.api_url);
-  return Array.from(new Set([LOCALHOST_API_BASE, ...manual]));
-};
-
-const sortSourceGroups = (groups: LibrarySourceGroup[]): LibrarySourceGroup[] =>
-  [...groups].sort((left, right) => {
-    if (left.isLoading && !right.isLoading) return -1;
-    if (!left.isLoading && right.isLoading) return 1;
-    if (
-      isLocalhostApiBase(left.apiBase) &&
-      !isLocalhostApiBase(right.apiBase)
-    ) {
-      return -1;
-    }
-    if (
-      isLocalhostApiBase(right.apiBase) &&
-      !isLocalhostApiBase(left.apiBase)
-    ) {
-      return 1;
-    }
-    return left.name.localeCompare(right.name);
-  });
-
-const buildSourceCapabilities = (options: {
-  apiBase: string;
-  isOnline: boolean;
-  canUpload: boolean;
-  canChangeDirectory: boolean;
-  canUseForOnlineSearch: boolean;
-  canRetryConnection: boolean;
-}): SourceCapabilities => ({
-  canRefresh: options.isOnline,
-  canUpload: options.canUpload,
-  canChangeDirectory: options.canChangeDirectory,
-  canUseForOnlineSearch: options.canUseForOnlineSearch,
-  isCurrentOnlineSearchSource: onlineSearchApiBase.value === options.apiBase,
-  canRetryConnection: options.canRetryConnection,
-  canShowSourceDetails: true,
-  canDeleteSource: !isLocalhostApiBase(options.apiBase),
-});
-
-const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
-  sourceKey: apiBase,
-  apiBase,
-  name: buildSourceLabel(apiBase),
-  isLoading: true,
-  isOnline: false,
-  playlists: [],
-  onlineProviderStatuses: [],
-  capabilities: buildSourceCapabilities({
-    apiBase,
-    isOnline: false,
-    canUpload: false,
-    canChangeDirectory: false,
-    canUseForOnlineSearch: false,
-    canRetryConnection: false,
-  }),
-});
-
-const fetchWithTimeout = async (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> => {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => {
-    controller.abort();
-  }, SOURCE_REQUEST_TIMEOUT_MS);
-
-  try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-};
-
-const fetchSourceGroup = async (
-  apiBase: string,
-): Promise<LibrarySourceGroup> => {
-  const fallbackName = buildSourceLabel(apiBase);
-
-  try {
-    const [
-      selfResponse,
-      playlistsResponse,
-      directoryTreeResponse,
-      musicDirectoryResponse,
-      onlineProvidersResponse,
-    ] = await Promise.all([
-      fetchWithTimeout(buildSongApiUrl(apiBase, "/discovery/self"), {
-        cache: "no-store",
-      }),
-      fetchWithTimeout(buildPlaylistRequestUrl(apiBase), {
-        cache: "no-store",
-      }),
-      fetchWithTimeout(buildSongApiUrl(apiBase, "/files/directory-tree"), {
-        cache: "no-store",
-      }).catch(() => null),
-      fetchWithTimeout(buildSongApiUrl(apiBase, "/settings/music-directory"), {
-        cache: "no-store",
-      }).catch(() => null),
-      fetchWithTimeout(buildSongApiUrl(apiBase, "/download/providers"), {
-        cache: "no-store",
-      }).catch(() => null),
-    ]);
-
-    if (!selfResponse.ok || !playlistsResponse.ok) {
-      throw new Error("source unavailable");
-    }
-
-    const selfData = await selfResponse.json();
-    const playlistMap = (await playlistsResponse.json()) as Record<
-      string,
-      SongInfo[]
-    >;
-    const sourceLabel = selfData.device_name || fallbackName;
-    const canUpload = !!directoryTreeResponse?.ok;
-    const canChangeDirectory = !!musicDirectoryResponse?.ok;
-    const onlineProviderStatuses = onlineProvidersResponse?.ok
-      ? ((await onlineProvidersResponse.json()) as OnlineProviderStatus[])
-      : [];
-    const canUseForOnlineSearch = onlineProviderStatuses.some(
-      (provider) => provider.enabled,
-    );
-
-    const playlists = Object.entries(playlistMap).map(([name, songs]) => ({
-      name,
-      songs: songs.map((song) =>
-        normalizeSourceSong(apiBase, sourceLabel, song),
-      ),
-    }));
-
-    return {
-      sourceKey: apiBase,
-      apiBase,
-      name: sourceLabel,
-      isLoading: false,
-      isOnline: true,
-      playlists,
-      onlineProviderStatuses,
-      capabilities: buildSourceCapabilities({
-        apiBase,
-        isOnline: true,
-        canUpload,
-        canChangeDirectory,
-        canUseForOnlineSearch,
-        canRetryConnection: false,
-      }),
-    };
-  } catch (error) {
-    console.warn("Failed to load source group:", apiBase, error);
-    return {
-      sourceKey: apiBase,
-      apiBase,
-      name: fallbackName,
-      isLoading: false,
-      isOnline: false,
-      playlists: [],
-      onlineProviderStatuses: [],
-      capabilities: buildSourceCapabilities({
-        apiBase,
-        isOnline: false,
-        canUpload: false,
-        canChangeDirectory: false,
-        canUseForOnlineSearch: false,
-        canRetryConnection: true,
-      }),
-    };
-  }
-};
-
-const syncSourceGroupCapabilities = () => {
-  sourceGroups.value = sourceGroups.value.map((group) => ({
-    ...group,
-    capabilities: buildSourceCapabilities({
-      apiBase: group.apiBase,
-      isOnline: group.isOnline,
-      canUpload: group.capabilities.canUpload,
-      canChangeDirectory: group.capabilities.canChangeDirectory,
-      canUseForOnlineSearch: group.capabilities.canUseForOnlineSearch,
-      canRetryConnection: group.capabilities.canRetryConnection,
-    }),
-  }));
-};
-
-const setOnlineSearchSource = (apiBase: string) => {
-  onlineSearchApiBase.value = apiBase;
-  setDefaultOnlineSearchApiBase(apiBase);
-  syncSourceGroupCapabilities();
-};
-
-const resetOnlineSearchSourceToLocalhost = () => {
-  setOnlineSearchSource(LOCALHOST_API_BASE);
-};
-
-const ensureOnlineSearchSourceExists = () => {
-  const knownApiBases = new Set([
-    ...getSourceApiBases(),
-    ...sourceGroups.value.map((group) => group.apiBase),
-  ]);
-
-  if (!knownApiBases.has(onlineSearchApiBase.value)) {
-    resetOnlineSearchSourceToLocalhost();
-    return;
-  }
-
-  syncSourceGroupCapabilities();
-};
-
-const syncSelectedLibraryPlaylist = () => {
-  if (
-    currentView.value !== "songs" ||
-    !selectedLibrarySourceKey.value ||
-    !selectedLibraryPlaylistName.value
-  ) {
-    return;
-  }
-
-  const source = sourceGroups.value.find(
-    (group) => group.sourceKey === selectedLibrarySourceKey.value,
-  );
-  const playlist = source?.playlists.find(
-    (item) => item.name === selectedLibraryPlaylistName.value,
-  );
-  if (!source || !playlist) {
-    return;
-  }
-
-  selectedPlaylist.value = {
-    name: `曲库 / ${playlist.name} [${source.name}]`,
-    songs: playlist.songs,
-  };
-};
-
-const refreshSourceGroups = async () => {
-  const apiBases = getSourceApiBases();
-  const refreshToken = sourceRefreshToken + 1;
-  sourceRefreshToken = refreshToken;
-
-  await loadItemsIncrementally({
-    keys: apiBases,
-    buildLoadingItem: buildLoadingSourceGroup,
-    fetchItem: fetchSourceGroup,
-    getItemKey: (group) => group.sourceKey,
-    sortItems: sortSourceGroups,
-    isActive: () => sourceRefreshToken === refreshToken,
-    onUpdate: (groups) => {
-      sourceGroups.value = groups;
-      ensureOnlineSearchSourceExists();
-      syncSelectedLibraryPlaylist();
-    },
-  });
-};
-
-const triggerDatabaseUpdate = async () => {
-  try {
-    isScanning.value = true;
-    console.log("[app] onMounted: triggering startup database scan");
-    const response = await fetch(
-      `${getLocalApiBase()}/database/update?startup=true`,
-      { method: "POST" },
-    );
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.warn(
-        "[app] onMounted: database update failed:",
-        response.status,
-        errorText,
-      );
-      return;
-    }
-    const result = await response.json();
-    if (!result.success) {
-      console.warn(
-        "[app] onMounted: database update returned failure:",
-        result.message,
-      );
-    } else {
-      console.log("[app] onMounted: database update completed");
-    }
-  } catch (error) {
-    console.error("[app] onMounted: database update error:", error);
-  } finally {
-    isScanning.value = false;
-  }
-};
-
-const refreshDiscoveryState = async () => {
-  const previousManualDevices = getManualDevices();
-
-  try {
-    const discoveredDevices = await refreshDiscoveredDevices();
-    const updatedManualDevices =
-      await refreshStoredManualDevices(discoveredDevices);
-
-    const previousByDeviceId = new Map(
-      previousManualDevices
-        .filter((device) => device.device_id)
-        .map((device) => [device.device_id!, device.api_url]),
-    );
-
-    const previousByApiUrl = new Map(
-      previousManualDevices.map((device) => [device.api_url, device.api_url]),
-    );
-
-    for (const device of updatedManualDevices) {
-      const previousApiBase = device.device_id
-        ? previousByDeviceId.get(device.device_id)
-        : previousByApiUrl.get(device.api_url);
-
-      if (!previousApiBase || previousApiBase === device.api_url) {
-        continue;
-      }
-
-      sourceGroups.value = sourceGroups.value.filter(
-        (group) => group.sourceKey !== previousApiBase,
-      );
-
-      if (selectedLibrarySourceKey.value === previousApiBase) {
-        selectedLibrarySourceKey.value = device.api_url;
-      }
-
-      if (onlineSearchApiBase.value === previousApiBase) {
-        setOnlineSearchSource(device.api_url);
-      }
-
-      await refreshSingleSource(device.api_url);
-    }
-  } catch (error) {
-    console.warn("[app] startup discovery refresh failed:", error);
-  }
 };
 
 // Computed helper for audio player
@@ -1083,7 +590,7 @@ const patchSongLufs = (songId: number, lufs: number) => {
   });
   if (groupsChanged) {
     sourceGroups.value = nextGroups;
-    syncSelectedLibraryPlaylist();
+    syncSelectedLibraryPlaylist(currentView.value, selectedPlaylist);
   }
 };
 
@@ -1271,6 +778,14 @@ watch(
   },
 );
 
+watch(
+  sourceGroups,
+  () => {
+    syncSelectedLibraryPlaylist(currentView.value, selectedPlaylist);
+  },
+  { deep: true },
+);
+
 watch(activeTab, () => {
   if (currentView.value !== "playlists") {
     backToPlaylists();
@@ -1317,8 +832,6 @@ const handleSearch = () => {
   showSearchResults();
 };
 
-const trimmedSearchQuery = computed(() => searchQuery.value.trim());
-
 const openOnlineSearchFromQuery = () => {
   if (!trimmedSearchQuery.value) {
     return;
@@ -1345,19 +858,16 @@ const handleSelectLibraryPlaylist = (
   group: LibrarySourceGroupSummary,
   playlistName: string,
 ) => {
-  const source = sourceGroups.value.find(
-    (item) => item.sourceKey === group.sourceKey,
-  );
-  const playlist = source?.playlists.find((item) => item.name === playlistName);
-  if (!source || !playlist) {
+  const resolved = getLibraryPlaylist(group.sourceKey, playlistName);
+  if (!resolved) {
     return;
   }
 
   selectedPlaylist.value = {
-    name: `曲库 / ${playlistName} [${source.name}]`,
-    songs: playlist.songs,
+    name: `曲库 / ${playlistName} [${resolved.source.name}]`,
+    songs: resolved.playlist.songs,
   };
-  selectedLibrarySourceKey.value = source.sourceKey;
+  selectedLibrarySourceKey.value = resolved.source.sourceKey;
   selectedLibraryPlaylistName.value = playlistName;
   currentView.value = "songs";
   playbackSource.value = "playlist";
@@ -1736,40 +1246,6 @@ const handlePreviewTrack = async (song: MusicInfo) => {
   await playSongAtIndex(song, 0, [song]);
 };
 
-const openFilterSheet = () => {
-  draftSourceFilterKey.value = appliedSourceFilterKey.value;
-  draftMediaTypes.value = [...appliedMediaTypes.value];
-  showFilterSheet.value = true;
-};
-
-const toggleDraftMediaType = (
-  mediaType: "audio" | "video",
-  enabled: boolean,
-) => {
-  const next = new Set(draftMediaTypes.value);
-  if (enabled) {
-    next.add(mediaType);
-  } else if (next.size > 1) {
-    next.delete(mediaType);
-  }
-  draftMediaTypes.value = Array.from(next) as Array<"audio" | "video">;
-};
-
-const applyLibraryFilter = () => {
-  appliedSourceFilterKey.value = draftSourceFilterKey.value;
-  appliedMediaTypes.value =
-    draftMediaTypes.value.length > 0 ? [...draftMediaTypes.value] : ["audio"];
-  showFilterSheet.value = false;
-};
-
-const resetLibraryFilter = () => {
-  draftSourceFilterKey.value = "all";
-  draftMediaTypes.value = ["audio", "video"];
-  appliedSourceFilterKey.value = "all";
-  appliedMediaTypes.value = ["audio", "video"];
-  showFilterSheet.value = false;
-};
-
 const handleAddDevice = () => {
   closeSourceMenu();
   closeCollectionMenu();
@@ -1786,6 +1262,32 @@ const handleOpenSourceMenu = (group: LibrarySourceGroupSummary) => {
 
 const closeSourceMenu = () => {
   selectedSourceMenuGroup.value = null;
+};
+
+const handleRetrySourceConnection = async (apiBase: string) => {
+  await retrySourceConnection(apiBase);
+};
+
+const handleShowSourceDetails = (group: LibrarySourceGroup) => {
+  closeSourceMenu();
+  showSourceDetails(group);
+};
+
+const handleSetOnlineSearchSourceFromMenu = (group: LibrarySourceGroup) => {
+  closeSourceMenu();
+  setOnlineSearchSourceFromMenu(group);
+};
+
+const handleDeleteSource = (group: LibrarySourceGroup) => {
+  closeSourceMenu();
+  const deleted = deleteSource(group);
+  if (!deleted) {
+    return;
+  }
+
+  if (selectedLibrarySourceKey.value === group.sourceKey) {
+    handleBackToPlaylists();
+  }
 };
 
 const openCollectionMenu = (collectionName: string) => {
@@ -1972,92 +1474,6 @@ const removeSongFromCollectionFromMenu = () => {
   closeSongMenu();
 };
 
-const refreshSingleSource = async (apiBase: string) => {
-  sourceGroups.value = upsertSortedItem(
-    sourceGroups.value,
-    buildLoadingSourceGroup(apiBase),
-    (group) => group.sourceKey,
-    sortSourceGroups,
-  );
-  syncSelectedLibraryPlaylist();
-
-  const updated = await fetchSourceGroup(apiBase);
-  sourceGroups.value = upsertSortedItem(
-    sourceGroups.value,
-    updated,
-    (group) => group.sourceKey,
-    sortSourceGroups,
-  );
-  ensureOnlineSearchSourceExists();
-  syncSelectedLibraryPlaylist();
-};
-
-const retrySourceConnection = async (apiBase: string) => {
-  await refreshSingleSource(apiBase);
-};
-
-const showSourceDetails = (group: LibrarySourceGroup) => {
-  const lines = [
-    `Name: ${group.name}`,
-    `API: ${group.apiBase}`,
-    `Status: ${group.isOnline ? "Online" : "Offline"}`,
-    `Playlists: ${group.playlists.length}`,
-    `Online search: ${group.capabilities.canUseForOnlineSearch ? "Ready" : "Unavailable"}`,
-  ];
-  closeSourceMenu();
-  alert(lines.join("\n"));
-};
-
-const setOnlineSearchSourceFromMenu = (group: LibrarySourceGroup) => {
-  closeSourceMenu();
-
-  if (!group.capabilities.canUseForOnlineSearch) {
-    alert(`来源 “${group.name}” 当前无法用于在线搜索`);
-    return;
-  }
-
-  setOnlineSearchSource(group.apiBase);
-};
-
-const deleteSource = (group: LibrarySourceGroup) => {
-  closeSourceMenu();
-
-  if (isLocalhostApiBase(group.apiBase)) {
-    alert("本机来源不能删除");
-    return;
-  }
-
-  const isCurrentOnlineSearchSource =
-    onlineSearchApiBase.value === group.apiBase;
-  const confirmed = window.confirm(
-    isCurrentOnlineSearchSource
-      ? `删除来源 “${group.name}” 吗？\n\n它当前用于在线搜索。删除后会自动切换回本机来源。`
-      : `删除来源 “${group.name}” 吗？`,
-  );
-  if (!confirmed) {
-    return;
-  }
-
-  setManualDevices(
-    getManualDevices().filter((device) => device.api_url !== group.apiBase),
-  );
-
-  sourceGroups.value = sourceGroups.value.filter(
-    (item) => item.sourceKey !== group.sourceKey,
-  );
-  syncSelectedLibraryPlaylist();
-
-  if (selectedLibrarySourceKey.value === group.sourceKey) {
-    handleBackToPlaylists();
-  }
-
-  if (isCurrentOnlineSearchSource) {
-    resetOnlineSearchSourceToLocalhost();
-  } else {
-    ensureOnlineSearchSourceExists();
-  }
-};
-
 const handleCoverLoadError = (song: MusicInfo | null) => {
   const coverUrl = resolveSongCoverUrl(song);
   if (!coverUrl) {
@@ -2067,18 +1483,17 @@ const handleCoverLoadError = (song: MusicInfo | null) => {
   failedCoverUrls.value = new Set(failedCoverUrls.value).add(coverUrl);
 };
 
-const updateSourceDatabase = async (group: LibrarySourceGroup) => {
+const openUploadForSource = (group: LibrarySourceGroup) => {
+  uploadTargetApiBase.value = group.apiBase;
+  showUploadModal.value = true;
+  closeSourceMenu();
+};
+
+const handleUpdateSourceDatabase = async (group: LibrarySourceGroup) => {
   closeSourceMenu();
   isScanning.value = true;
   try {
-    const response = await fetch(`${group.apiBase}/database/update`, {
-      method: "POST",
-    });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      throw new Error(result.message || "更新失败");
-    }
-    await refreshSingleSource(group.apiBase);
+    await updateSourceDatabase(group);
   } catch (error) {
     console.error("Failed to update source database:", error);
     alert(`更新失败: ${error}`);
@@ -2087,32 +1502,10 @@ const updateSourceDatabase = async (group: LibrarySourceGroup) => {
   }
 };
 
-const openUploadForSource = (group: LibrarySourceGroup) => {
-  uploadTargetApiBase.value = group.apiBase;
-  showUploadModal.value = true;
+const handleChangeSourceDirectory = async (group: LibrarySourceGroup) => {
   closeSourceMenu();
-};
-
-const changeSourceDirectory = async (group: LibrarySourceGroup) => {
-  closeSourceMenu();
-  const newPath = prompt("请输入新的音乐目录路径:");
-  if (!newPath || !newPath.trim()) {
-    return;
-  }
-
   try {
-    const response = await fetch(`${group.apiBase}/settings/music-directory`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ path: newPath.trim() }),
-    });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      throw new Error(result.message || "更改目录失败");
-    }
-    await refreshSingleSource(group.apiBase);
+    await changeSourceDirectory(group);
   } catch (error) {
     console.error("Failed to change source directory:", error);
     alert(`更改目录失败: ${error}`);
@@ -2318,7 +1711,7 @@ const handleDeleteSelectedCollections = async () => {
 // Initialize
 onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
-  await triggerDatabaseUpdate();
+  await triggerDatabaseUpdate(isScanning);
 
   isAndroidRuntime.value = await checkIsAndroid();
   loadLocalCollections();

@@ -50,18 +50,7 @@
 </template>
 
 <script setup lang="ts">
-export interface LibrarySourcePlaylistSummary {
-  name: string;
-  songCount: number;
-}
-
-export interface LibrarySourceGroupSummary {
-  sourceKey: string;
-  name: string;
-  isLoading: boolean;
-  isOnline: boolean;
-  playlists: LibrarySourcePlaylistSummary[];
-}
+import type { LibrarySourceGroupSummary } from "@/types/library";
 
 defineProps<{
   groups: LibrarySourceGroupSummary[];
