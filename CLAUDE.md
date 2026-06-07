@@ -169,7 +169,9 @@ frontend/src/
 │       └── UploadModal.vue          # File upload modal
 ├── composables/
 │   ├── useAudioPlayer.ts      # Playback state, queue persistence, Android player integration
+│   ├── useCollections.ts      # Local collection persistence, CRUD, and collection modal state
 │   ├── useLibrarySources.ts   # Multi-source library loading, filtering, and search
+│   ├── useLufs.ts             # LUFS pre-cache requests, polling, and metadata patching
 │   ├── useLyrics.ts           # LRC loading and lyric sync state
 │   ├── useSelection.ts        # Shared multi-select behavior
 │   ├── useTimer.ts            # Sleep timer behavior
