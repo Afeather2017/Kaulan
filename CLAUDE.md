@@ -148,32 +148,48 @@ backend/src/
 ### Frontend Structure
 ```
 frontend/src/
-├── main.ts          # App entry point
-├── App.vue          # Main music player component (contains most UI)
-├── router/
-│   └── index.ts     # Vue Router configuration
-├── views/
-│   ├── Home.vue     # Dashboard with stats
-│   ├── Library.vue  # Music library view
-│   └── Playlists.vue # Playlist view
+├── main.ts                 # App entry point
+├── App.vue                 # Root container that coordinates player, library, collections, search, and modals
 ├── components/
+│   ├── AppContentView.vue     # Library / collection / search content area
+│   ├── AppPlayerView.vue      # Cover, lyrics, and desktop player panel
+│   ├── AppActionSheets.vue    # Source, collection, and song action sheets
+│   ├── LibrarySourceListView.vue # Source-aware playlist list
+│   ├── PlaylistListView.vue   # Collection playlist list
+│   ├── PlayerControls.vue     # Shared playback controls
+│   ├── SearchBar.vue          # Top search input
+│   ├── SongListView.vue       # Shared song list renderer
 │   └── modals/
-│       ├── SettingsModal.vue  # Settings panel with server URL config
-│       └── UploadModal.vue    # File upload modal
+│       ├── ActiveQueueModal.vue     # Current playback queue
+│       ├── AddDeviceModal.vue       # Manual device/source management
+│       ├── AddToCollectionModal.vue # Add songs to local collections
+│       ├── CreateCollectionModal.vue # Create collection dialog
+│       ├── OnlineSearchModal.vue    # Remote provider search and download
+│       ├── SettingsModal.vue        # Settings panel and database actions
+│       └── UploadModal.vue          # File upload modal
 ├── composables/
-│   ├── useAudioPlayer.ts  # Audio playback logic
-│   └── usePlaylist.ts     # Playlist/collection management
+│   ├── useAudioPlayer.ts      # Playback state, queue persistence, Android player integration
+│   ├── useLibrarySources.ts   # Multi-source library loading, filtering, and search
+│   ├── useLyrics.ts           # LRC loading and lyric sync state
+│   ├── useSelection.ts        # Shared multi-select behavior
+│   ├── useTimer.ts            # Sleep timer behavior
+│   └── useVolume.ts           # Volume and normalization settings
+├── types/
+│   └── library.ts             # Source-group and capability models for the UI
 └── utils/
-    ├── api.ts        # Dynamic API base configuration
-    ├── cookies.ts    # Cookie operations for server URL
-    └── validation.ts # URL validation utilities
+    ├── api.ts                 # API base resolution for local and remote sources
+    ├── discovery.ts           # Manual/discovered device source helpers
+    ├── platform.ts            # Android/runtime feature checks
+    ├── sourceGroups.ts        # Incremental source-group loading helpers
+    ├── storage.ts             # localStorage persistence for settings and collections
+    └── validation.ts          # URL validation utilities
 
 frontend/src-tauri/src/
 ├── lib.rs              # Tauri app setup, MediaStore adapter initialization
 └── mediastore_adapter.rs # MediaStore implementations for Android (FileReader, MusicFileLister)
 ```
 
-**Note:** `App.vue` contains the actual player implementation including collections feature. `Library.vue` and `Playlists.vue` are older stub files.
+**Note:** The active frontend is mounted directly from `App.vue`. Navigation is implemented as internal view state and source-aware lists, not Vue Router pages.
 
 ### Data Flow
 
@@ -261,7 +277,6 @@ frontend/src-tauri/src/
 ## Known Issues / Work in Progress
 
 - Frontend `App.vue` uses `/api/music/{filename}` for streaming. The music lookup is filename-based which works but is inconsistent with the DB's ID-based primary keys.
-- `Library.vue` and `Playlists.vue` views reference non-existent endpoints and are outdated stubs. The actual implementation is in `App.vue`.
 
 ## Dependencies
 
@@ -276,8 +291,7 @@ frontend/src-tauri/src/
 - Vue 3 with Composition API
 - TypeScript
 - Vite
-- Vue Router
-- vue-cookies (for server URL persistence)
+- localStorage-backed frontend persistence for settings, collections, and device sources
 
 **Android (Tauri):**
 - tauri-plugin-android-mediastore - MediaStore API integration for Android music scanning

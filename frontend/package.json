@@ -14,8 +14,7 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "music-notification-api": "file:../vendor/tauri-plugin-music-notification",
-    "vue": "^3.3.0",
-    "vue-router": "^4.2.0"
+    "vue": "^3.3.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
