@@ -1,5 +1,5 @@
 <template>
-  <div class="song-list">
+  <div ref="songListRef" class="song-list">
     <div v-if="showHeader" class="list-header">
       <button v-if="showBackButton" class="back-button" @click="$emit('back')">
         ← 返回
@@ -76,6 +76,8 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
+
 export interface SongInfo {
   id: number;
   name: string;
@@ -125,6 +127,17 @@ defineEmits<{
   (e: "songAction", song: SongInfo): void;
   (e: "headerAction"): void;
 }>();
+
+const songListRef = ref<HTMLDivElement | null>(null);
+
+defineExpose({
+  getScrollTop: () => songListRef.value?.scrollTop ?? 0,
+  setScrollTop: (scrollTop: number) => {
+    if (songListRef.value) {
+      songListRef.value.scrollTop = scrollTop;
+    }
+  },
+});
 </script>
 
 <style scoped>

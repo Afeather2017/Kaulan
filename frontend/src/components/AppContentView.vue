@@ -1,5 +1,5 @@
 <template>
-  <div class="content-area">
+  <div ref="contentAreaRef" class="content-area">
     <div v-if="currentView === 'playlists'" class="content-tabs">
       <button
         :class="['content-tab', { active: activeTab === 'library' }]"
@@ -100,6 +100,7 @@
 
     <SongListView
       v-if="currentView === 'songs'"
+      ref="songsViewRef"
       :title="selectedPlaylistTitle"
       :songs="currentSongs"
       :select-mode="selectMode"
@@ -135,6 +136,7 @@
       </div>
       <SongListView
         v-if="searchResults.length > 0"
+        ref="searchViewRef"
         title="库内结果"
         :songs="searchResults"
         :select-mode="false"
@@ -160,12 +162,13 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, ref, watch } from "vue";
 import PlaylistListView from "@/components/PlaylistListView.vue";
 import LibrarySourceListView from "@/components/LibrarySourceListView.vue";
 import SongListView, { type SongInfo } from "@/components/SongListView.vue";
 import type { LibrarySourceGroupSummary } from "@/types/library";
 
-defineProps<{
+const props = defineProps<{
   currentView: "playlists" | "songs" | "search";
   activeTab: "library" | "collections";
   libraryGroupSummaries: LibrarySourceGroupSummary[];
@@ -211,6 +214,83 @@ defineEmits<{
   (e: "openOnlineSearchFromQuery"): void;
   (e: "resetLibraryFilter"): void;
 }>();
+
+type ScrollableSongList = {
+  getScrollTop: () => number;
+  setScrollTop: (scrollTop: number) => void;
+};
+
+const contentAreaRef = ref<HTMLDivElement | null>(null);
+const songsViewRef = ref<ScrollableSongList | null>(null);
+const searchViewRef = ref<ScrollableSongList | null>(null);
+const playlistScrollPositions = {
+  library: 0,
+  collections: 0,
+};
+const detailScrollPositions = new Map<string, number>();
+
+const getPlaylistScrollKey = (playlistTitle: string) =>
+  `playlist:${playlistTitle}`;
+
+const saveScrollPosition = (
+  currentView: "playlists" | "songs" | "search",
+  activeTab: "library" | "collections",
+  selectedPlaylistTitle: string,
+) => {
+  if (currentView === "playlists") {
+    playlistScrollPositions[activeTab] = contentAreaRef.value?.scrollTop ?? 0;
+    return;
+  }
+
+  if (currentView === "search") {
+    detailScrollPositions.set(
+      "search",
+      searchViewRef.value?.getScrollTop() ?? 0,
+    );
+    return;
+  }
+
+  detailScrollPositions.set(
+    getPlaylistScrollKey(selectedPlaylistTitle),
+    songsViewRef.value?.getScrollTop() ?? 0,
+  );
+};
+
+const restoreScrollPosition = async (
+  currentView: "playlists" | "songs" | "search",
+  activeTab: "library" | "collections",
+  selectedPlaylistTitle: string,
+) => {
+  await nextTick();
+
+  if (currentView === "playlists") {
+    if (contentAreaRef.value) {
+      contentAreaRef.value.scrollTop = playlistScrollPositions[activeTab];
+    }
+    return;
+  }
+
+  if (currentView === "search") {
+    searchViewRef.value?.setScrollTop(detailScrollPositions.get("search") ?? 0);
+    return;
+  }
+
+  songsViewRef.value?.setScrollTop(
+    detailScrollPositions.get(getPlaylistScrollKey(selectedPlaylistTitle)) ?? 0,
+  );
+};
+
+watch(
+  () =>
+    [props.currentView, props.activeTab, props.selectedPlaylistTitle] as const,
+  ([currentView, activeTab, selectedPlaylistTitle], previousState) => {
+    if (previousState) {
+      saveScrollPosition(...previousState);
+    }
+    void restoreScrollPosition(currentView, activeTab, selectedPlaylistTitle);
+  },
+  { flush: "pre", immediate: true },
+);
 </script>
 
 <style scoped>
