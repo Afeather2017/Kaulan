@@ -123,32 +123,7 @@
 
 <script setup lang="ts">
 import type { MusicInfo } from "@/composables/useAudioPlayer";
-
-interface SourceCapabilities {
-  canRefresh: boolean;
-  canUpload: boolean;
-  canChangeDirectory: boolean;
-  canUseForOnlineSearch: boolean;
-  isCurrentOnlineSearchSource: boolean;
-  canRetryConnection: boolean;
-  canShowSourceDetails: boolean;
-  canDeleteSource: boolean;
-}
-
-interface LibrarySourceGroup {
-  apiBase: string;
-  sourceKey: string;
-  name: string;
-  isLoading: boolean;
-  isOnline: boolean;
-  playlists: Array<{ name: string; songs: MusicInfo[] }>;
-  onlineProviderStatuses: Array<{
-    source: "youtube" | "netease" | "bilibili";
-    enabled: boolean;
-    summary: string;
-  }>;
-  capabilities: SourceCapabilities;
-}
+import type { LibrarySourceGroup } from "@/types/library";
 
 defineProps<{
   activeTab: "library" | "collections";
