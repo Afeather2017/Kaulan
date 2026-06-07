@@ -214,6 +214,29 @@
               v-if="expandedLyricsKey === resultKey(result)"
               class="lyrics-candidates"
             >
+              <div class="lyric-search-row">
+                <input
+                  :value="lyricSearchQueries[resultKey(result)] ?? ''"
+                  type="text"
+                  placeholder="输入歌词搜索关键字..."
+                  @input="updateLyricSearchQuery(result, $event)"
+                  @keyup.enter="refreshLyrics(result)"
+                />
+                <button
+                  class="secondary-btn"
+                  @click="refreshLyrics(result)"
+                  :disabled="
+                    loadingLyricsKey === resultKey(result) ||
+                    !getLyricSearchQuery(result)
+                  "
+                >
+                  {{
+                    loadingLyricsKey === resultKey(result)
+                      ? "搜索中"
+                      : "搜索歌词"
+                  }}
+                </button>
+              </div>
               <div class="lyric-tip">
                 选择歌词后，点击这一行的“下载”会同时保存歌曲和歌词。
               </div>
@@ -341,6 +364,7 @@ const showDownloadFolderPicker = ref(false);
 const selectedDownloadSubdir = ref("");
 const lyricCandidates = reactive<Record<string, LyricCandidate[]>>({});
 const selectedLyrics = reactive<Record<string, LyricCandidate | null>>({});
+const lyricSearchQueries = reactive<Record<string, string>>({});
 const supportsProviderAccountActions = ref(false);
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
@@ -442,6 +466,34 @@ watch(
 
 const resultKey = (result: SearchResult): string =>
   `${result.source}:${result.id}`;
+
+const buildDefaultLyricSearchQuery = (result: SearchResult): string => {
+  const manualQuery = searchInput.value.trim();
+  if (manualQuery.length > 0) {
+    return manualQuery;
+  }
+  return `${result.title} ${result.artist}`.trim();
+};
+
+const ensureLyricSearchQuery = (result: SearchResult): string => {
+  const key = resultKey(result);
+  const currentValue = lyricSearchQueries[key]?.trim();
+  if (currentValue) {
+    return currentValue;
+  }
+
+  const fallback = buildDefaultLyricSearchQuery(result);
+  lyricSearchQueries[key] = fallback;
+  return fallback;
+};
+
+const getLyricSearchQuery = (result: SearchResult): string =>
+  (lyricSearchQueries[resultKey(result)] ?? "").trim();
+
+const updateLyricSearchQuery = (result: SearchResult, event: Event) => {
+  const target = event.target as HTMLInputElement | null;
+  lyricSearchQueries[resultKey(result)] = target?.value ?? "";
+};
 
 const sourceLabel = (source: DownloadSource): string => {
   switch (source) {
@@ -636,6 +688,8 @@ const handleSearch = async () => {
 
   isSearching.value = true;
   statusMessage.value = "";
+  searchResults.value = [];
+  expandedLyricsKey.value = null;
   try {
     const response = await fetch(resolvedApiBase() + "/download/search", {
       method: "POST",
@@ -699,13 +753,14 @@ const handlePreview = async (result: SearchResult) => {
 const fetchLyrics = async (result: SearchResult) => {
   loadingLyricsKey.value = resultKey(result);
   try {
+    const query = ensureLyricSearchQuery(result);
     const response = await fetch(
       resolvedApiBase() + "/download/lyrics/search",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query: `${result.title} ${result.artist}`.trim(),
+          query,
         }),
       },
     );
@@ -719,6 +774,22 @@ const fetchLyrics = async (result: SearchResult) => {
   }
 };
 
+const refreshLyrics = async (result: SearchResult) => {
+  const query = getLyricSearchQuery(result);
+  if (!query) {
+    statusType.value = "error";
+    statusMessage.value = "请输入歌词搜索关键字";
+    return;
+  }
+
+  try {
+    await fetchLyrics(result);
+  } catch (error) {
+    statusType.value = "error";
+    statusMessage.value = `歌词搜索失败: ${error}`;
+  }
+};
+
 const toggleLyrics = async (result: SearchResult) => {
   const key = resultKey(result);
   if (expandedLyricsKey.value === key) {
@@ -726,13 +797,9 @@ const toggleLyrics = async (result: SearchResult) => {
     return;
   }
   expandedLyricsKey.value = key;
+  ensureLyricSearchQuery(result);
   if (lyricCandidates[key] === undefined) {
-    try {
-      await fetchLyrics(result);
-    } catch (error) {
-      statusType.value = "error";
-      statusMessage.value = `歌词搜索失败: ${error}`;
-    }
+    await refreshLyrics(result);
   }
 };
 
@@ -1153,6 +1220,19 @@ const handleDownload = async (result: SearchResult) => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.lyric-search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.lyric-search-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
 }
 
 .lyric-tip {
