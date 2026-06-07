@@ -1,12 +1,7 @@
 import { ref, watch, type Ref } from "vue";
+import type { MusicInfo } from "@/types/music";
 
 export type VolumeMode = "auto" | "manual" | "fixed";
-
-export interface MusicInfo {
-  name: string;
-  lufs: number | null;
-  path: string;
-}
 
 const volumeModeLabels: Record<VolumeMode, string> = {
   auto: "自动音量平衡",

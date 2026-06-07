@@ -77,20 +77,12 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-
-export interface SongInfo {
-  id: number;
-  name: string;
-  lufs: number | null;
-  path: string;
-  sourceLabel?: string;
-  rowKey?: string;
-}
+import type { MusicInfo } from "@/types/music";
 
 withDefaults(
   defineProps<{
     title: string;
-    songs: SongInfo[];
+    songs: MusicInfo[];
     selectMode: boolean;
     selectedSongs: Set<string>;
     currentSongName?: string;
@@ -121,10 +113,10 @@ defineEmits<{
   (e: "back"): void;
   (e: "toggleSelectMode"): void;
   (e: "toggleSelection", name: string): void;
-  (e: "play", song: SongInfo, index: number): void;
+  (e: "play", song: MusicInfo, index: number): void;
   (e: "remove"): void;
   (e: "showAddModal"): void;
-  (e: "songAction", song: SongInfo): void;
+  (e: "songAction", song: MusicInfo): void;
   (e: "headerAction"): void;
 }>();
 

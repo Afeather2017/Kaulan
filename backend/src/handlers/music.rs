@@ -21,12 +21,12 @@
 
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity, Model as MusicModel};
 use crate::file_ops::get_file_reader;
-use crate::types::AppState;
+use crate::types::{AppState, MusicResponse};
 use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
 // lofty imports are used locally in cover art extraction functions below
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::{debug, error, info, warn};
 
 /// Query parameters for position-based seeking
@@ -575,14 +575,4 @@ fn extract_cover_from_tagged_file(
         }
         None => Ok(None),
     }
-}
-
-/// Music response with database metadata
-#[derive(Serialize)]
-pub struct MusicResponse {
-    pub id: i32,
-    pub filename: String,
-    pub file_path: String,
-    pub lufs: Option<f64>,
-    pub created_at: String,
 }

@@ -165,7 +165,8 @@
 import { nextTick, ref, watch } from "vue";
 import PlaylistListView from "@/components/PlaylistListView.vue";
 import LibrarySourceListView from "@/components/LibrarySourceListView.vue";
-import SongListView, { type SongInfo } from "@/components/SongListView.vue";
+import SongListView from "@/components/SongListView.vue";
+import type { MusicInfo } from "@/types/music";
 import type { LibrarySourceGroupSummary } from "@/types/library";
 
 const props = defineProps<{
@@ -173,18 +174,18 @@ const props = defineProps<{
   activeTab: "library" | "collections";
   libraryGroupSummaries: LibrarySourceGroupSummary[];
   collectionNames: string[];
-  collectionPlaylists: Record<string, SongInfo[]>;
+  collectionPlaylists: Record<string, MusicInfo[]>;
   collectionSelectMode: boolean;
   selectedCollectionsList: Set<string>;
   hasSelectedNonAllMusic: boolean;
   selectedPlaylistTitle: string;
-  currentSongs: SongInfo[];
+  currentSongs: MusicInfo[];
   selectMode: boolean;
   selectedSongs: Set<string>;
   currentSongName?: string;
   showLufs: boolean;
   trimmedSearchQuery: string;
-  searchResults: SongInfo[];
+  searchResults: MusicInfo[];
 }>();
 
 defineEmits<{
@@ -207,10 +208,10 @@ defineEmits<{
   (e: "backToPlaylists"): void;
   (e: "toggleSelectMode"): void;
   (e: "toggleSongSelection", key: string): void;
-  (e: "playSong", song: SongInfo, index: number): void;
+  (e: "playSong", song: MusicInfo, index: number): void;
   (e: "removeFromCollection"): void;
   (e: "showAddToCollectionModal"): void;
-  (e: "songAction", song: SongInfo): void;
+  (e: "songAction", song: MusicInfo): void;
   (e: "openOnlineSearchFromQuery"): void;
   (e: "resetLibraryFilter"): void;
 }>();

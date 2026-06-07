@@ -1,6 +1,5 @@
 import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { SongInfo } from "@/components/SongListView.vue";
 import { useAndroidBackNavigation } from "@/composables/useAndroidBackNavigation";
 import { useAppShellLayout } from "@/composables/useAppShellLayout";
 import { useCollectionsStore } from "@/stores/collections";
@@ -203,7 +202,7 @@ export function useAppShell() {
     }
   };
 
-  const handlePlaySong = async (song: SongInfo, index?: number) => {
+  const handlePlaySong = async (song: MusicInfo, index?: number) => {
     if (ui.currentView.value === "search") {
       await playerStore.playSongFromSearch(
         song,
@@ -385,9 +384,9 @@ export function useAppShell() {
     collectionsStore.openCollectionMenu(collectionName);
   };
 
-  const openSongMenu = (song: SongInfo) => {
+  const openSongMenu = (song: MusicInfo) => {
     collections.selectedCollectionMenuName.value = null;
-    selectedSongMenuSong.value = song as MusicInfo;
+    selectedSongMenuSong.value = song;
   };
 
   const closeSongMenu = () => {
@@ -457,7 +456,7 @@ export function useAppShell() {
     }
   };
 
-  const handleSongCollectionAction = (song: SongInfo) => {
+  const handleSongCollectionAction = (song: MusicInfo) => {
     openSongMenu(song);
   };
 

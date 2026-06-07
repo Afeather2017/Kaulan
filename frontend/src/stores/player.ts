@@ -1,6 +1,5 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { SongInfo } from "@/components/SongListView.vue";
 import { useAudioPlayer, type MusicInfo } from "@/composables/useAudioPlayer";
 import { useTimer } from "@/composables/useTimer";
 import { useVolume } from "@/composables/useVolume";
@@ -18,7 +17,7 @@ type SongStartHandler =
 export const usePlayerStore = defineStore("player", () => {
   const playbackSource = ref<"playlist" | "search">("playlist");
   const playlistSongs = ref<MusicInfo[]>([]);
-  const searchPlaybackSongs = ref<SongInfo[]>([]);
+  const searchPlaybackSongs = ref<MusicInfo[]>([]);
   const prepareSongHandler = ref<PrepareSongHandler>(async (song) => song);
   const songStartHandler = ref<SongStartHandler>(null);
   const showLufs = ref(getShowLufs());
@@ -117,7 +116,7 @@ export const usePlayerStore = defineStore("player", () => {
     playlistSongs.value = songs.slice();
   };
 
-  const setSearchPlaybackQueue = (songs: SongInfo[]) => {
+  const setSearchPlaybackQueue = (songs: MusicInfo[]) => {
     searchPlaybackSongs.value = songs.slice();
   };
 
@@ -132,8 +131,8 @@ export const usePlayerStore = defineStore("player", () => {
   };
 
   const playVisibleSong = async (
-    song: SongInfo,
-    visibleQueue: SongInfo[],
+    song: MusicInfo,
+    visibleQueue: MusicInfo[],
     index?: number,
   ) => {
     if (index !== undefined) {
@@ -145,8 +144,8 @@ export const usePlayerStore = defineStore("player", () => {
   };
 
   const playSongFromPlaylist = async (
-    song: SongInfo,
-    visibleQueue: SongInfo[],
+    song: MusicInfo,
+    visibleQueue: MusicInfo[],
     index?: number,
   ) => {
     playbackSource.value = "playlist";
@@ -155,8 +154,8 @@ export const usePlayerStore = defineStore("player", () => {
   };
 
   const playSongFromSearch = async (
-    song: SongInfo,
-    visibleQueue: SongInfo[],
+    song: MusicInfo,
+    visibleQueue: MusicInfo[],
     index?: number,
   ) => {
     playbackSource.value = "search";
