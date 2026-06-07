@@ -1514,10 +1514,16 @@ const handlePlaySong = async (song: SongInfo, index?: number) => {
     playbackSource.value = "playlist";
     searchPlaybackSongs.value = [];
   }
+
+  const visibleQueue =
+    currentView.value === "search"
+      ? searchResults.value.slice()
+      : currentSongs.value.slice();
+
   if (index !== undefined) {
-    await playSongAtIndex(song, index);
+    await playSongAtIndex(song, index, visibleQueue);
   } else {
-    await playSong(song);
+    await playSong(song, undefined, visibleQueue);
   }
 };
 
