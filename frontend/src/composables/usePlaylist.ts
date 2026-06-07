@@ -1,6 +1,6 @@
 import { ref, computed } from "vue";
 import { getLocalApiBase } from "@/utils/api";
-import { checkIsAndroid, isLocalhostApiBase } from "@/utils/platform";
+import { shouldUseRawContentPlayback } from "@/utils/platform";
 
 export interface MusicInfo {
   id: number;
@@ -17,12 +17,10 @@ export interface Playlist {
 
 /** Query string to request content:// stream URLs from backend */
 async function streamParam(): Promise<string> {
-  if (!(await checkIsAndroid())) {
-    return "";
-  }
-
   try {
-    return isLocalhostApiBase(getLocalApiBase()) ? "?stream=content" : "";
+    return (await shouldUseRawContentPlayback(getLocalApiBase()))
+      ? "?stream=content"
+      : "";
   } catch {
     return "";
   }

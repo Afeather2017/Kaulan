@@ -22,7 +22,7 @@ Without custom handling, Android back exits the Tauri webview directly. That ski
 
 ## Frontend Flow
 
-On mount, the app checks whether it is running on Android with `checkIsAndroid()`. Only then does it load Tauri's Android back listener and register `onBackButtonPress`.
+On mount, the app reads runtime capabilities from `frontend/src/utils/platform.ts`. Only when `supportsAndroidBackHandler` is true does it load Tauri's Android back listener and register `onBackButtonPress`.
 
 ```mermaid
 sequenceDiagram
@@ -157,7 +157,7 @@ This is a good fit for mobile UIs with stacked panels inside one Vue page.
 
 ## Android-Only Safety
 
-The Android back listener is registered only when `checkIsAndroid()` returns `true`.
+The Android back listener is registered only when the runtime capability `supportsAndroidBackHandler` is `true`.
 
 This avoids:
 

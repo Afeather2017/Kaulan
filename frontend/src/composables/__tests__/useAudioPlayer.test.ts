@@ -16,7 +16,16 @@ import {
 } from "@/utils/storage";
 
 vi.mock("@/utils/platform", () => ({
-  checkIsAndroid: () => Promise.resolve(false),
+  getRuntimeCapabilities: () =>
+    Promise.resolve({
+      usesAndroidPlaybackBackend: false,
+      supportsAndroidBackHandler: false,
+      supportsForegroundMusicService: false,
+      supportsExitAppOnTimer: false,
+      supportsLocalLyricsPermission: false,
+      supportsHeadsetMediaButtonControl: false,
+      supportsRawContentPlayback: false,
+    }),
   isLocalhostApiBase: (apiBase: string) => {
     try {
       const hostname = new URL(apiBase).hostname;

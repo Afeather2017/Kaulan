@@ -256,7 +256,7 @@ import {
   getTimerExitAppOnAndroid,
   setShowLufs,
 } from "@/utils/storage";
-import { checkIsAndroid } from "@/utils/platform";
+import { getRuntimeCapabilities } from "@/utils/platform";
 import type {
   LibrarySourceGroup,
   LibrarySourceGroupSummary,
@@ -274,7 +274,7 @@ interface PlaylistSelection {
 const currentView = ref<MainView>("playlists");
 const activeTab = ref<MainTab>("library");
 const selectedPlaylist = ref<PlaylistSelection | null>(null);
-const isAndroidRuntime = ref(false);
+const supportsRawContentPlayback = ref(false);
 
 const {
   searchQuery,
@@ -309,7 +309,7 @@ const {
   changeSourceDirectory,
   triggerDatabaseUpdate,
 } = useLibrarySources({
-  isAndroidRuntime,
+  supportsRawContentPlayback,
 });
 
 const playbackSource = ref<"playlist" | "search">("playlist");
@@ -803,8 +803,8 @@ const handleAndroidBackPress = () => {
 };
 
 const registerAndroidBackHandler = async () => {
-  const isAndroid = await checkIsAndroid();
-  if (!isAndroid) {
+  const runtimeCapabilities = await getRuntimeCapabilities();
+  if (!runtimeCapabilities.supportsAndroidBackHandler) {
     return;
   }
 
@@ -1283,7 +1283,9 @@ onMounted(async () => {
   // Startup scan flow: docs/startup-scan.md
   await triggerDatabaseUpdate(isScanning);
 
-  isAndroidRuntime.value = await checkIsAndroid();
+  const runtimeCapabilities = await getRuntimeCapabilities();
+  supportsRawContentPlayback.value =
+    runtimeCapabilities.supportsRawContentPlayback;
   loadLocalCollections();
   void refreshDiscoveryState();
   await refreshSourceGroups();
