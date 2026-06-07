@@ -37,6 +37,16 @@ const YOUTUBE_LOGIN_URL: &str = "https://www.youtube.com/";
 const NCMDUMP_CONFIG_DIR_ENV: &str = "NCMDUMP_CONFIG_DIR";
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
 #[cfg(not(target_os = "android"))]
+const MERIYAH_UMD_JS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/generated/ytdl/meriyah.umd.min.js"
+));
+#[cfg(not(target_os = "android"))]
+const ASTRING_UMD_JS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/generated/ytdl/astring.min.js"
+));
+#[cfg(not(target_os = "android"))]
 const SOLVER_WINDOW_LABEL: &str = "youtube-solver";
 #[cfg(not(target_os = "android"))]
 const SOLVER_TITLE_PREFIX: &str = "kaulan-solver-result:";
@@ -124,8 +134,10 @@ impl WebviewJsRunner {
         document.head.appendChild(script);
       }});
       Promise.resolve()
-        .then(() => loadScript('https://cdn.jsdelivr.net/npm/meriyah@6.1.4/dist/meriyah.umd.min.js'))
-        .then(() => loadScript('https://cdn.jsdelivr.net/npm/astring@1.9.0/dist/astring.min.js'))
+        .then(() => {{
+          window.eval({meriyah_code:?});
+          window.eval({astring_code:?});
+        }})
         .then(() => {{
           globalThis.meriyah = globalThis.meriyah || window.meriyah;
           globalThis.astring = globalThis.astring || window.astring;
@@ -148,7 +160,9 @@ impl WebviewJsRunner {
             core_code = include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../vendor/ytdl-audio/js/yt.solver.core.js"
-            ))
+            )),
+            meriyah_code = MERIYAH_UMD_JS,
+            astring_code = ASTRING_UMD_JS
         );
         window
             .eval(init_script)
@@ -412,7 +426,8 @@ pub fn run() {
         .setup(move |app| {
             log::info!("======================= Start =======================");
             let app_handle = app.handle().clone();
-            let js_runner_app_handle = app_handle.clone();
+            #[cfg(not(target_os = "android"))]
+            let desktop_js_runner_app_handle = app_handle.clone();
             kaulan::set_youtube_js_runner_factory({
                 move || {
                     #[cfg(target_os = "android")]
@@ -422,7 +437,7 @@ pub fn run() {
 
                     #[cfg(not(target_os = "android"))]
                     {
-                        let app_handle = js_runner_app_handle.clone();
+                        let app_handle = desktop_js_runner_app_handle.clone();
                         Ok(Box::new(WebviewJsRunner {
                             app: app_handle.clone(),
                         }))

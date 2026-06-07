@@ -38,7 +38,7 @@ cd kaulan
 cd frontend
 npm install
 
-# Build backend (will download dependencies on first run)
+# Build backend
 cd ../backend
 cargo build
 ```
@@ -86,6 +86,8 @@ cargo run -- run /path/to/music \
 ```
 
 This is intended for standalone server usage where you already have provider login data and want online search/download without relying on the Tauri login capture flow. See `docs/online-search-download.md` for provider file details.
+
+Standalone backend mode still relies on the vendored `ytdl-audio` Node.js solver for YouTube cipher resolution. Tauri desktop and Android builds use the embedded webview solver path instead.
 
 If Netease requests must exit through a China-based proxy, set `NETEASE_RELAY_URL` before starting the backend. This only affects the vendored `netease-api` client used for Netease search, lyric lookup, preview, and downloads.
 
@@ -644,6 +646,16 @@ See [`docs/android/playback-session.md`](docs/android/playback-session.md) for A
 The desktop Tauri build can export the live webview cookie jar for YouTube/Google into a Netscape cookie file. This is useful for browser-login flows that need `HttpOnly` cookies.
 
 The export command is implemented in the Rust backend and writes a temporary jar file under the system temp directory.
+
+### Embedded YouTube Solver Assets
+
+Tauri desktop and Android builds embed the browser-side YouTube solver assets during the Tauri build step.
+
+- `frontend/src-tauri/build.rs` downloads fixed versions of `meriyah` and `astring`
+- the generated files are bundled into the desktop Tauri build and Android `android_asset` tree
+- the runtime hidden webview uses those local files instead of loading a CDN or running `npm install`
+
+Standalone backend mode is unchanged here: it still uses the vendored `ytdl-audio/js/solver.mjs` Node.js helper when no Tauri `JsRunner` is registered.
 
 ### Android Permissions
 

@@ -2,4 +2,5 @@
 //!
 //! This module contains services that handle business logic separate from HTTP handlers.
 
+pub mod download;
 pub mod scanner;

@@ -12,6 +12,19 @@ The feature is exposed through the `在线查找` modal in the frontend. Provide
 
 This document describes the current behavior, request flow, and provider-specific rules.
 
+## YouTube Solver Runtime Split
+
+Kaulan now uses two different YouTube solver paths depending on how the backend is launched:
+
+- Tauri desktop and Android:
+  - the hidden webview solver loads local bundled copies of `meriyah` and `astring`
+  - those files are prepared during the Tauri build step by `frontend/src-tauri/build.rs`
+  - runtime no longer depends on `npm install` or CDN script loading
+- Standalone backend mode:
+  - no hidden webview exists
+  - the vendored `ytdl-audio` crate falls back to its Node.js solver helper in `vendor/ytdl-audio/js/solver.mjs`
+  - standalone deployments still need Node.js plus the vendored solver dependencies available on disk
+
 ## Standalone Server Auth Import
 
 Standalone backend mode can import provider auth from one file per source at process startup.
@@ -70,6 +83,8 @@ Current provider availability checks:
 - `netease`: saved `MUSIC_U` session exists
 - `bilibili`: saved session cookies exist
 
+For YouTube, "saved cookies exist" is only a coarse gate. A provider can still fail later if the saved cookies are stale or no longer satisfy YouTube bot checks.
+
 ### Search behavior
 
 - Search is merged across the selected enabled providers.
@@ -91,18 +106,36 @@ Current provider availability checks:
 - The frontend replaces the current playback queue with a single temporary track.
 - Temporary preview tracks are not inserted into the main library database.
 - On Android, preview files are stored in the app download root under `.preview-cache`.
-- On Android, Bilibili preview downloads keep the provider's raw DASH audio container instead of running FFmpeg conversion. Related source: `backend/src/handlers/download.rs`.
+- On Android, Bilibili preview downloads keep the provider's raw DASH audio container instead of running FFmpeg conversion. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`.
 
 ### Download behavior
 
 - Full downloads are saved under the configured online download root.
 - On Android, Kaulan uses the app external files music directory:
   - `/sdcard/Android/data/afeather.kaulan/files/Music`
-- On Android, Bilibili full downloads are saved as raw DASH audio files with the `.m4s` extension because FFmpeg is not integrated in the Android path yet. Related source: `backend/src/handlers/download.rs`.
+- On Android, Bilibili full downloads are saved as raw DASH audio files with the `.m4s` extension because FFmpeg is not integrated in the Android path yet. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`.
 - If the user selected a lyric candidate, Kaulan tries to save a matching `.lrc` file beside the audio file.
 - After a successful full download, Kaulan refreshes the music database across both library roots:
   - the configured music directory
   - the configured online download root
+
+### Android YouTube cookie refresh note
+
+If Android YouTube downloads suddenly fail with a provider error like:
+
+- `Sign in to confirm you're not a bot`
+- `playability=LOGIN_REQUIRED`
+- no returned `formats` or `adaptive_formats`
+
+the usual fix is to export YouTube cookies again from the Android login webview.
+
+This failure pattern normally means:
+
+- the request reached YouTube successfully
+- fallback clients (`tv_downgraded`, `WEB`, `web_safari`) were attempted
+- but the saved cookies were stale or incomplete for the fallback auth path
+
+It does **not** usually indicate that the embedded solver JavaScript failed to load.
 
 ## API
 
@@ -382,8 +415,14 @@ The current backend behavior intentionally ignores logged-out providers instead 
 - `frontend/src/components/modals/OnlineSearchModal.vue`
 - `frontend/src/App.vue`
 - `frontend/src/composables/useAudioPlayer.ts`
+- `frontend/src-tauri/build.rs`
 - `frontend/src-tauri/src/lib.rs`
+- `frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt`
 - `backend/src/handlers/download.rs`
+- `backend/src/services/download.rs`
+- `backend/src/services/download/youtube.rs`
+- `backend/src/services/download/netease.rs`
+- `backend/src/services/download/bilibili.rs`
 - `backend/src/handlers/lufs.rs`
 - `backend/src/server/mod.rs`
 - `backend/src/types/mod.rs`
