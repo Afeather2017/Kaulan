@@ -24,8 +24,8 @@ class MainActivity : TauriActivity() {
       <html lang="en">
       <head>
         <meta charset="utf-8" />
-        <script src="https://cdn.jsdelivr.net/npm/meriyah@6.1.4/dist/meriyah.umd.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/astring@1.9.0/dist/astring.min.js"></script>
+        <script src="ytdl/meriyah.umd.min.js"></script>
+        <script src="ytdl/astring.min.js"></script>
       </head>
       <body></body>
       </html>
@@ -154,7 +154,7 @@ class MainActivity : TauriActivity() {
       hiddenSolverLoading = true
     }
     solverWebView.loadDataWithBaseURL(
-      "https://www.youtube.com",
+      "file:///android_asset/",
       HIDDEN_SOLVER_HTML,
       "text/html",
       "utf-8",
@@ -169,7 +169,7 @@ class MainActivity : TauriActivity() {
     settings.databaseEnabled = false
     settings.cacheMode = WebSettings.LOAD_DEFAULT
     settings.userAgentString = HIDDEN_SOLVER_USER_AGENT
-    settings.blockNetworkLoads = false
+    settings.blockNetworkLoads = true
     webView.setWillNotDraw(true)
     webView.webViewClient = object : WebViewClient() {
       override fun onPageFinished(view: WebView, url: String) {

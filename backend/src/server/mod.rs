@@ -22,6 +22,7 @@ use crate::handlers::music;
 use crate::handlers::playlists;
 use crate::handlers::settings;
 use crate::handlers::upload;
+use crate::services::download as download_service;
 use crate::types::AppState;
 
 // Re-export handler modules for convenience and for integration tests
@@ -79,6 +80,13 @@ impl ServerInfo {
 pub async fn start_server(
     cli_path: Option<String>,
 ) -> Result<ServerInfo, Box<dyn std::error::Error>> {
+    download_service::initialize_runtime().map_err(|err| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("download runtime initialization failed: {err}"),
+        )
+    })?;
+
     // Priority: CLI arg > Config file > Environment variable > Platform default
     let music_path = if let Some(path) = cli_path {
         // CLI argument provided - use it (highest priority)
