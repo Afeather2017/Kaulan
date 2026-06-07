@@ -181,7 +181,7 @@ frontend/src/
 └── utils/
     ├── api.ts                 # API base resolution for local and remote sources
     ├── discovery.ts           # Manual/discovered device source helpers
-    ├── platform.ts            # Android/runtime feature checks
+    ├── platform.ts            # Runtime profile and capability checks for web and Android
     ├── sourceGroups.ts        # Incremental source-group loading helpers
     ├── storage.ts             # localStorage persistence for settings and collections
     └── validation.ts          # URL validation utilities

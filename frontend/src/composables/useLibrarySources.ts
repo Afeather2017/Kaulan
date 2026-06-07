@@ -70,11 +70,11 @@ const normalizeSourceSong = (
 });
 
 interface UseLibrarySourcesOptions {
-  isAndroidRuntime: Ref<boolean>;
+  supportsRawContentPlayback: Ref<boolean>;
 }
 
 export function useLibrarySources(options: UseLibrarySourcesOptions) {
-  const { isAndroidRuntime } = options;
+  const { supportsRawContentPlayback } = options;
 
   const searchQuery = ref("");
   const sourceGroups = ref<LibrarySourceGroup[]>([]);
@@ -176,7 +176,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
 
   const buildPlaylistRequestUrl = (apiBase: string): string => {
     const shouldRequestRawPlaybackPath =
-      isAndroidRuntime.value && isLocalhostApiBase(apiBase);
+      supportsRawContentPlayback.value && isLocalhostApiBase(apiBase);
     return shouldRequestRawPlaybackPath
       ? buildSongApiUrl(apiBase, "/playlists?stream=content")
       : buildSongApiUrl(apiBase, "/playlists");

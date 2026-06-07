@@ -1,6 +1,6 @@
 import { ref, watch, getCurrentScope, onScopeDispose } from "vue";
 import { resolveSourceApiBase } from "@/utils/api";
-import { checkIsAndroid, isLocalhostApiBase } from "@/utils/platform";
+import { getRuntimeCapabilities, isLocalhostApiBase } from "@/utils/platform";
 import {
   getStoredPlaybackSession,
   removeStoredPlaybackSession,
@@ -1285,7 +1285,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   };
 
   const initAudio = async () => {
-    isAndroidPlayer.value = await checkIsAndroid();
+    const runtimeCapabilities = await getRuntimeCapabilities();
+    isAndroidPlayer.value = runtimeCapabilities.usesAndroidPlaybackBackend;
     if (isAndroidPlayer.value) {
       startAndroidPolling();
       await refreshAndroidSession("initAudio");

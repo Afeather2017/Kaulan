@@ -1,6 +1,6 @@
 import { createApp } from "vue";
 import App from "./App.vue";
-import { checkIsAndroid } from "./utils/platform";
+import { getRuntimeProfile } from "./utils/platform";
 import "@fortawesome/fontawesome-free/css/all.css";
 
 /**
@@ -8,9 +8,8 @@ import "@fortawesome/fontawesome-free/css/all.css";
  * This starts the foreground service which keeps the backend alive
  */
 async function initMusicService() {
-  const isAndroid = await checkIsAndroid();
-
-  if (!isAndroid) {
+  const runtime = await getRuntimeProfile();
+  if (!runtime.capabilities.supportsForegroundMusicService) {
     return;
   }
 
@@ -33,11 +32,11 @@ async function initMusicService() {
 }
 
 const startApp = async () => {
+  const runtime = await getRuntimeProfile();
   await initMusicService();
 
   // Apply Android-specific touch styles to prevent zooming and unwanted scrolling
-  const isAndroid = await checkIsAndroid();
-  if (isAndroid) {
+  if (runtime.capabilities.usesAndroidPlaybackBackend) {
     // Set root element touch behavior to prevent zooming
     document.documentElement.style.touchAction = "pan-x pan-y";
     document.documentElement.style.height = "100%";

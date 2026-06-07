@@ -57,7 +57,10 @@
               开始定时
             </button>
           </div>
-          <div v-if="isAndroid" class="timer-option">
+          <div
+            v-if="runtimeCapabilities.supportsExitAppOnTimer"
+            class="timer-option"
+          >
             <label class="checkbox-label">
               <input
                 type="checkbox"
@@ -74,7 +77,10 @@
         </div>
 
         <hr class="settings-divider" />
-        <div v-if="isAndroid" class="setting-item">
+        <div
+          v-if="runtimeCapabilities.supportsLocalLyricsPermission"
+          class="setting-item"
+        >
           <label class="checkbox-label">
             <input
               type="checkbox"
@@ -94,7 +100,10 @@
           </p>
         </div>
 
-        <div v-if="isAndroid" class="setting-item">
+        <div
+          v-if="runtimeCapabilities.supportsHeadsetMediaButtonControl"
+          class="setting-item"
+        >
           <label class="checkbox-label">
             <input
               type="checkbox"
@@ -354,6 +363,11 @@
 import { ref, onMounted, computed } from "vue";
 import { getLocalApiBase } from "@/utils/api";
 import {
+  buildRuntimeCapabilities,
+  getRuntimeCapabilities,
+  type RuntimeCapabilities,
+} from "@/utils/platform";
+import {
   getMediaTypes,
   setMediaTypes,
   getDisableHeadsetMediaButton,
@@ -421,8 +435,9 @@ const permissionStatus = ref<string>("");
 const disableHeadsetMediaButton = ref<boolean>(false);
 const timerExitAppOnAndroid = ref<boolean>(false);
 
-// Check if running on Android
-const isAndroid = ref<boolean>(false);
+const runtimeCapabilities = ref<RuntimeCapabilities>(
+  buildRuntimeCapabilities("web"),
+);
 const showAdvancedSettings = ref<boolean>(false);
 const volumeModeOptions: Array<{ value: VolumeMode; label: string }> = [
   { value: "auto", label: "自动" },
@@ -637,17 +652,10 @@ onMounted(async () => {
 
   await loadMediaTypes();
 
-  // Check if running on Android
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const platform = await invoke<string>("get_platform");
-    isAndroid.value = platform === "android";
-  } catch {
-    isAndroid.value = false;
-  }
+  runtimeCapabilities.value = await getRuntimeCapabilities();
 
   // Load local lyrics setting (Android only) - query actual permission state
-  if (isAndroid.value) {
+  if (runtimeCapabilities.value.supportsLocalLyricsPermission) {
     timerExitAppOnAndroid.value = getTimerExitAppOnAndroid();
 
     try {

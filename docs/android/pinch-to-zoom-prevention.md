@@ -31,7 +31,7 @@ This tells the browser to:
 
 ### CSS touch-action
 
-When the app detects it's running on Android, it applies additional styles that:
+When the app runtime profile reports Android playback capabilities, it applies additional styles that:
 
 1. Disable pinch-to-zoom gestures
 2. Allow only pan-x and pan-y (horizontal/vertical scrolling)
@@ -52,37 +52,28 @@ When the app detects it's running on Android, it applies additional styles that:
 **`frontend/src/main.ts`** - Entry point where Android-specific styles are applied
 
 ```typescript
-import { isAndroid } from './utils/platform'
+const runtime = await getRuntimeProfile()
 
-// Apply Android-specific touch styles to prevent zooming and unwanted scrolling
-if (isAndroid()) {
-  // Set root element touch behavior to prevent zooming
-  document.documentElement.style.touchAction = 'pan-x pan-y'
-  document.documentElement.style.height = '100%'
-
-  // Set body styles to prevent scrolling
-  document.body.style.touchAction = 'pan-x pan-y'
-  document.body.style.overflow = 'hidden'
-  document.body.style.height = '100%'
-  document.body.style.margin = '0'
-  document.body.style.padding = '0'
+if (runtime.capabilities.usesAndroidPlaybackBackend) {
+  document.documentElement.style.touchAction = "pan-x pan-y"
+  document.documentElement.style.height = "100%"
+  document.body.style.touchAction = "pan-x pan-y"
+  document.body.style.overflow = "hidden"
+  document.body.style.height = "100%"
+  document.body.style.margin = "0"
+  document.body.style.padding = "0"
 }
 ```
 
-### Platform Detection
+### Runtime Detection
 
 **`frontend/src/utils/platform.ts`** - Platform detection utility
 
-The `isAndroid()` function uses cached user agent detection to identify the Android platform:
+The frontend resolves a cached runtime profile and exposes named capabilities:
 
 ```typescript
-export function isAndroid(): boolean {
-  if (cachedIsAndroid !== null) {
-    return cachedIsAndroid
-  }
-  cachedIsAndroid = /android/i.test(navigator.userAgent)
-  return cachedIsAndroid
-}
+const runtime = await getRuntimeProfile()
+runtime.capabilities.usesAndroidPlaybackBackend
 ```
 
 ## How It Works
@@ -120,7 +111,7 @@ The styles are applied in `main.ts` before mounting the Vue app, ensuring they t
 
 - **`frontend/index.html`** - Viewport meta tag configuration
 - **`frontend/src/main.ts`** - Entry point, applies Android touch styles
-- **`frontend/src/utils/platform.ts`** - Platform detection (`isAndroid()` function)
+- **`frontend/src/utils/platform.ts`** - Runtime profile and capability detection
 
 ## Troubleshooting
 
@@ -128,9 +119,10 @@ The styles are applied in `main.ts` before mounting the Vue app, ensuring they t
 
 If pinch-to-zoom still works on Android:
 
-1. **Check platform detection** - Verify `isAndroid()` returns `true`:
+1. **Check runtime detection** - Verify the Android playback capability is enabled:
    ```typescript
-   console.log(isAndroid()) // Should be true
+   const runtime = await getRuntimeProfile()
+   console.log(runtime.capabilities.usesAndroidPlaybackBackend) // Should be true
    ```
 
 2. **Verify styles are applied** - Check DevTools:
