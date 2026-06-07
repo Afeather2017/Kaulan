@@ -7,6 +7,7 @@ import {
   setStoredPlaybackSession,
   type StoredPlaybackQueueSong,
 } from "@/utils/storage";
+import type { MusicInfo } from "@/types/music";
 import type {
   PlaybackSession,
   PlayMode as AndroidPlayMode,
@@ -17,20 +18,7 @@ import type {
 // Related documentation:
 // - `docs/lyric-sync-timing.md`
 
-export interface MusicInfo {
-  id: number;
-  name: string;
-  lufs: number | null;
-  path: string;
-  stream_url?: string | null;
-  cover_url?: string | null;
-  source_key?: string | null;
-  sourceLabel?: string;
-  rowKey?: string;
-  mediaType?: "audio" | "video";
-  source?: "youtube" | "netease" | "bilibili";
-  is_temporary?: boolean;
-}
+export type { MusicInfo } from "@/types/music";
 
 export type PlayMode = "sequential" | "shuffle" | "loop";
 

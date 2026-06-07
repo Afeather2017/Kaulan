@@ -1,19 +1,7 @@
 import { ref, computed } from "vue";
 import { getLocalApiBase } from "@/utils/api";
 import { shouldUseRawContentPlayback } from "@/utils/platform";
-
-export interface MusicInfo {
-  id: number;
-  name: string;
-  lufs: number | null;
-  path: string;
-  stream_url?: string | null;
-}
-
-export interface Playlist {
-  name: string;
-  songs: MusicInfo[];
-}
+import type { MusicInfo, MusicResponse, Playlist } from "@/types/music";
 
 /** Query string to request content:// stream URLs from backend */
 async function streamParam(): Promise<string> {
@@ -92,7 +80,7 @@ export function usePlaylist() {
     currentView.value = "search";
   };
 
-  const getAllMusic = async (): Promise<any[]> => {
+  const getAllMusic = async (): Promise<MusicResponse[]> => {
     const response = await fetch(`${getLocalApiBase()}/music`);
     if (response.ok) {
       return await response.json();

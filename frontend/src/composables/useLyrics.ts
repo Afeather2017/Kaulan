@@ -19,6 +19,7 @@ import {
   type Ref,
 } from "vue";
 import { resolveSourceApiBase } from "@/utils/api";
+import type { MusicInfo } from "@/types/music";
 
 /**
  * Represents a single lyric line with timestamp and text(s)
@@ -28,17 +29,6 @@ export interface LyricLine {
   time: number;
   /** Array of lyric texts - single language has 1 element, bilingual has 2 */
   texts: string[];
-}
-
-/**
- * Song info interface (must match the one in SongListView)
- */
-export interface SongInfo {
-  id: number;
-  name: string;
-  lufs: number | null;
-  path: string;
-  source_key?: string | null;
 }
 
 const LYRIC_RESYNC_THRESHOLD_SECONDS = 0.1;
@@ -302,7 +292,7 @@ async function loadLyrics(
  * @returns Lyrics state and management functions
  */
 export function useLyrics(
-  currentSong: Ref<SongInfo | null>,
+  currentSong: Ref<MusicInfo | null>,
   currentTime: Ref<number>,
   isPlaying: Ref<boolean>,
 ) {

@@ -1,5 +1,4 @@
 import type { Ref } from "vue";
-import type { SongInfo } from "@/components/SongListView.vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
 import { resolveSourceApiBase } from "@/utils/api";
 import type { LibrarySourceGroup } from "@/types/library";
@@ -19,7 +18,7 @@ interface PrecacheLufsResult {
 interface UseLufsOptions {
   currentSong: Ref<MusicInfo | null>;
   activeQueue: Ref<MusicInfo[]>;
-  searchPlaybackSongs: Ref<SongInfo[]>;
+  searchPlaybackSongs: Ref<MusicInfo[]>;
   selectedPlaylist: Ref<PlaylistSelection | null>;
   sourceGroups: Ref<LibrarySourceGroup[]>;
   isAndroidPlayer: Ref<boolean>;
@@ -52,10 +51,10 @@ export function useLufs(options: UseLufsOptions) {
   const pendingLufsPolls = new Set<number>();
 
   const patchSongLufsInList = (
-    songs: SongInfo[],
+    songs: MusicInfo[],
     songId: number,
     lufs: number,
-  ): SongInfo[] => {
+  ): MusicInfo[] => {
     let changed = false;
     const updatedSongs = songs.map((song) => {
       if (song.id !== songId || song.lufs === lufs) {
@@ -249,7 +248,9 @@ export function useLufs(options: UseLufsOptions) {
     return song;
   };
 
-  const resolveSongForPlayback = async (song: SongInfo): Promise<SongInfo> => {
+  const resolveSongForPlayback = async (
+    song: MusicInfo,
+  ): Promise<MusicInfo> => {
     if (isAndroidPlayer.value) {
       return song;
     }

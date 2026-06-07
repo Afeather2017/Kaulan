@@ -1,5 +1,4 @@
 import type { Ref } from "vue";
-import type { SongInfo } from "@/components/SongListView.vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
 
 interface UseQueueEditingOptions {
@@ -8,7 +7,7 @@ interface UseQueueEditingOptions {
   currentSong: Ref<MusicInfo | null>;
   selectedSongMenuSong: Ref<MusicInfo | null>;
   replaceQueue: (nextQueue: MusicInfo[]) => Promise<void>;
-  handlePlaySong: (song: SongInfo, index?: number) => Promise<void>;
+  handlePlaySong: (song: MusicInfo, index?: number) => Promise<void>;
   closeSongMenu: () => void;
 }
 
@@ -70,10 +69,11 @@ export function useQueueEditing(options: UseQueueEditingOptions) {
 
     const currentQueue =
       activeQueue.value.length > 0 ? activeQueue.value : playbackSongs.value;
+    const currentQueueSong = currentSong.value;
     const currentIndex = currentQueue.findIndex(
       (item) =>
         getSongMenuIdentity(item) ===
-        getSongMenuIdentity(currentSong.value as MusicInfo),
+        (currentQueueSong ? getSongMenuIdentity(currentQueueSong) : ""),
     );
     const nextQueue = buildQueueWithSongInserted(
       song,
