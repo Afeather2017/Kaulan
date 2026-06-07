@@ -1,6 +1,6 @@
 use crate::entities;
 use sea_orm::sea_query::TableCreateStatement;
-use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbErr, Schema};
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbErr, Schema, Statement};
 use tracing::{debug, info};
 
 /// Get the database path based on platform and environment
@@ -45,21 +45,18 @@ pub async fn establish_connection(music_path: &str) -> Result<DatabaseConnection
     db.execute(backend.build(&music_stmt)).await?;
     debug!("Music table created/verified");
 
-    // Create collection table
-    let collection_stmt: TableCreateStatement = schema
-        .create_table_from_entity(entities::collection::Entity)
-        .if_not_exists()
-        .to_owned();
-    db.execute(backend.build(&collection_stmt)).await?;
-    debug!("Collection table created/verified");
-
-    // Create collection_item table
-    let collection_item_stmt: TableCreateStatement = schema
-        .create_table_from_entity(entities::collection_item::Entity)
-        .if_not_exists()
-        .to_owned();
-    db.execute(backend.build(&collection_item_stmt)).await?;
-    debug!("Collection_item table created/verified");
+    // Remove legacy collection tables. Collections are frontend-only state now.
+    db.execute(Statement::from_string(
+        backend,
+        "DROP TABLE IF EXISTS collection_item".to_string(),
+    ))
+    .await?;
+    db.execute(Statement::from_string(
+        backend,
+        "DROP TABLE IF EXISTS collection".to_string(),
+    ))
+    .await?;
+    debug!("Legacy collection tables removed if present");
 
     // Create db_meta table for startup scan state
     let db_meta_stmt: TableCreateStatement = schema
