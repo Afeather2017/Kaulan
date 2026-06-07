@@ -67,11 +67,11 @@ It uses capabilities to:
 
 ### Android back handling
 
-`frontend/src/App.vue` registers the Android back listener only when `supportsAndroidBackHandler` is true.
+The app shell registers the Android back listener only when `supportsAndroidBackHandler` is true. The actual registration now lives behind `useAndroidBackNavigation.ts`, and `App.vue` consumes it through `useAppShell.ts`.
 
 ### Playback initialization
 
-`frontend/src/composables/useAudioPlayer.ts` uses `usesAndroidPlaybackBackend` to choose the playback engine:
+`frontend/src/stores/player.ts` and `frontend/src/composables/useAudioPlayer.ts` use `usesAndroidPlaybackBackend` to choose the playback engine:
 
 - Android plugin session polling
 - browser `HTMLAudioElement`

@@ -148,8 +148,8 @@ backend/src/
 ### Frontend Structure
 ```
 frontend/src/
-├── main.ts                 # App entry point
-├── App.vue                 # Root container that coordinates player, library, collections, search, and modals
+├── main.ts                 # App entry point and Pinia registration
+├── App.vue                 # Thin root shell that renders layout and binds the app-shell composable
 ├── components/
 │   ├── AppContentView.vue     # Library / collection / search content area
 │   ├── AppPlayerView.vue      # Cover, lyrics, and desktop player panel
@@ -168,14 +168,23 @@ frontend/src/
 │       ├── SettingsModal.vue        # Settings panel and database actions
 │       └── UploadModal.vue          # File upload modal
 ├── composables/
+│   ├── useAppShell.ts       # Top-level shell orchestration for the root component
+│   ├── useAppShellLayout.ts # Wide-layout state, player panel presentation, and cover fallback handling
+│   ├── useAndroidBackNavigation.ts # Android back-button state machine and listener registration
 │   ├── useAudioPlayer.ts      # Playback state, queue persistence, Android player integration
 │   ├── useCollections.ts      # Local collection persistence, CRUD, and collection modal state
 │   ├── useLibrarySources.ts   # Multi-source library loading, filtering, and search
 │   ├── useLufs.ts             # LUFS pre-cache requests, polling, and metadata patching
 │   ├── useLyrics.ts           # LRC loading and lyric sync state
+│   ├── useQueueEditing.ts     # Queue insertion helpers for song action-sheet operations
 │   ├── useSelection.ts        # Shared multi-select behavior
 │   ├── useTimer.ts            # Sleep timer behavior
 │   └── useVolume.ts           # Volume and normalization settings
+├── stores/
+│   ├── collections.ts       # Shared local collection state and collection modal/menu state
+│   ├── library.ts           # Shared library source, filter, and search state
+│   ├── player.ts            # Shared playback, normalization, timer, and LUFS visibility state
+│   └── ui.ts                # Shared shell navigation, modal visibility, and selected playlist state
 ├── types/
 │   └── library.ts             # Source-group and capability models for the UI
 └── utils/
@@ -191,7 +200,7 @@ frontend/src-tauri/src/
 └── mediastore_adapter.rs # MediaStore implementations for Android (FileReader, MusicFileLister)
 ```
 
-**Note:** The active frontend is mounted directly from `App.vue`. Navigation is implemented as internal view state and source-aware lists, not Vue Router pages.
+**Note:** The active frontend is still mounted directly from `App.vue`. Navigation is implemented as internal view state and source-aware lists, not Vue Router pages, but most shared state now lives in Pinia stores and shell composables instead of the root component.
 
 ### Data Flow
 
