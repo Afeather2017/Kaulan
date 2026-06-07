@@ -123,6 +123,12 @@ pub struct LyricsSearchRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyLyricRequest {
+    pub song_id: i32,
+    pub lyric_selection: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LyricCandidate {
     pub source: DownloadSource,
     pub id: String,
@@ -148,6 +154,13 @@ pub struct DownloadTrackResponse {
     pub filename: Option<String>,
     pub lyric_filename: Option<String>,
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyLyricResponse {
+    pub success: bool,
+    pub message: String,
+    pub lyric_filename: Option<String>,
 }
 
 /// Response for file upload operation

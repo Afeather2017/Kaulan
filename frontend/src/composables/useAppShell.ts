@@ -19,6 +19,7 @@ import type {
   LibrarySourceGroup,
   LibrarySourceGroupSummary,
 } from "@/types/library";
+import { resolveSourceApiBase } from "@/utils/api";
 
 // Related documentation:
 // - `docs/runtime-platform-capabilities.md`
@@ -43,11 +44,14 @@ export function useAppShell() {
   const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
   const selectedSongMenuSong = ref<MusicInfo | null>(null);
 
-  const { lyrics, currentLyricIndex, hasLyrics } = useLyrics(
-    player.currentSong,
-    player.currentTime,
-    player.isPlaying,
-  );
+  const {
+    lyrics,
+    currentLyricIndex,
+    hasLyrics,
+    isLoading: isLyricsLoading,
+    reloadLyrics,
+  } = useLyrics(player.currentSong, player.currentTime, player.isPlaying);
+  const onlineSearchInitialQuery = ref("");
 
   const {
     requestSongLufs,
@@ -114,6 +118,7 @@ export function useAppShell() {
     showAddDeviceModal: ui.showAddDeviceModal,
     showUploadModal: ui.showUploadModal,
     showOnlineSearchModal: ui.showOnlineSearchModal,
+    showLyricSearchModal: ui.showLyricSearchModal,
     showCreateCollection: collections.showCreateCollection,
     showAddToCollection: collections.showAddToCollection,
     showSettings: ui.showSettings,
@@ -141,12 +146,33 @@ export function useAppShell() {
     uiStore.showSearchResults(library.searchQuery.value);
   };
 
-  const openOnlineSearchFromQuery = () => {
-    if (!library.trimmedSearchQuery.value) {
+  const openOnlineSearch = (query: string) => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return;
     }
     libraryStore.ensureOnlineSearchSourceExists();
+    onlineSearchInitialQuery.value = trimmedQuery;
     ui.showOnlineSearchModal.value = true;
+  };
+
+  const openOnlineSearchFromQuery = () => {
+    openOnlineSearch(library.trimmedSearchQuery.value);
+  };
+
+  const openOnlineLyricSearch = () => {
+    if (!player.currentSong.value?.name?.trim()) {
+      return;
+    }
+    ui.showLyricSearchModal.value = true;
+  };
+
+  const currentSongLyricApiBase = computed(() =>
+    resolveSourceApiBase(player.currentSong.value?.source_key),
+  );
+
+  const handleLyricApplied = async () => {
+    await reloadLyrics();
   };
 
   const syncSelectedPlaylistIntoPlayer = (playlist: PlaylistSelection) => {
@@ -628,6 +654,7 @@ export function useAppShell() {
     selectedLibrarySourceKey: library.selectedLibrarySourceKey,
     selectedLibraryPlaylistName: library.selectedLibraryPlaylistName,
     onlineSearchApiBase: library.onlineSearchApiBase,
+    onlineSearchInitialQuery,
     libraryGroupSummaries: library.libraryGroupSummaries,
     searchResults: library.searchResults,
     filterSources: library.filterSources,
@@ -646,6 +673,7 @@ export function useAppShell() {
     showAddDeviceModal: ui.showAddDeviceModal,
     showUploadModal: ui.showUploadModal,
     showOnlineSearchModal: ui.showOnlineSearchModal,
+    showLyricSearchModal: ui.showLyricSearchModal,
     showActiveQueueModal: ui.showActiveQueueModal,
     playerPanelMode: ui.playerPanelMode,
     isScanning: ui.isScanning,
@@ -656,6 +684,7 @@ export function useAppShell() {
     audioElement: player.audioElement,
     activeQueue: player.activeQueue,
     currentSong: player.currentSong,
+    currentSongLyricApiBase,
     isPlaying: player.isPlaying,
     currentTime: player.currentTime,
     duration: player.duration,
@@ -688,6 +717,7 @@ export function useAppShell() {
       selection.hasSelectedNonAllMusicCollection,
     lyrics,
     currentLyricIndex,
+    isLyricsLoading,
     hasLyrics,
     selectedSourceMenuGroup,
     selectedSongMenuSong,
@@ -741,6 +771,8 @@ export function useAppShell() {
     addSongToCollectionFromMenu,
     removeSongFromCollectionFromMenu,
     openOnlineSearchFromQuery,
+    openOnlineLyricSearch,
+    handleLyricApplied,
     handleSelectCollection,
     handleSelectLibraryPlaylist,
     handleBackToPlaylists,

@@ -1,10 +1,12 @@
 //! HTTP handlers for online music search, preview, lyrics, and download.
 
+use crate::entities::music::Entity as MusicEntity;
 use actix_files::NamedFile;
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use futures::future::join_all;
 use netease_api::types::SearchType;
 use netease_api::{NeteaseClient, NeteaseError};
+use sea_orm::EntityTrait;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -13,9 +15,9 @@ use tracing::{error, warn};
 
 use crate::services::{download as download_service, scanner};
 use crate::types::{
-    AppState, DirectoryNode, DownloadPreviewRequest, DownloadPreviewResponse, DownloadSource,
-    DownloadTrackRequest, DownloadTrackResponse, LyricCandidate, OnlineSearchRequest,
-    OnlineSearchResult, PreviewSong,
+    AppState, ApplyLyricRequest, ApplyLyricResponse, DirectoryNode, DownloadPreviewRequest,
+    DownloadPreviewResponse, DownloadSource, DownloadTrackRequest, DownloadTrackResponse,
+    LyricCandidate, OnlineSearchRequest, OnlineSearchResult, PreviewSong,
 };
 
 #[post("/api/download/search")]
@@ -109,6 +111,79 @@ pub async fn search_lyrics(body: web::Json<crate::types::LyricsSearchRequest>) -
             lyric_filename: None,
             warning: None,
         }),
+    }
+}
+
+#[post("/api/download/lyrics/apply")]
+pub async fn apply_lyric(
+    body: web::Json<ApplyLyricRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    let lyric_selection = body.lyric_selection.trim().to_string();
+    if lyric_selection.is_empty() {
+        return HttpResponse::BadRequest().json(ApplyLyricResponse {
+            success: false,
+            message: "缺少歌词选择".to_string(),
+            lyric_filename: None,
+        });
+    }
+
+    let music = match MusicEntity::find_by_id(body.song_id)
+        .one(&data.db_conn)
+        .await
+    {
+        Ok(Some(music)) => music,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ApplyLyricResponse {
+                success: false,
+                message: "歌曲不存在".to_string(),
+                lyric_filename: None,
+            });
+        }
+        Err(err) => {
+            error!(
+                "[DOWNLOAD] Failed to load music for lyric apply: song_id={}, error={}",
+                body.song_id, err
+            );
+            return HttpResponse::InternalServerError().json(ApplyLyricResponse {
+                success: false,
+                message: "读取歌曲信息失败".to_string(),
+                lyric_filename: None,
+            });
+        }
+    };
+
+    match write_selected_lyric(&lyric_selection, Path::new(&music.file_path)).await {
+        Ok(Some(path)) => HttpResponse::Ok().json(ApplyLyricResponse {
+            success: true,
+            message: "歌词已保存".to_string(),
+            lyric_filename: path
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string()),
+        }),
+        Ok(None) => HttpResponse::NotFound().json(ApplyLyricResponse {
+            success: false,
+            message: "未获取到可用歌词".to_string(),
+            lyric_filename: None,
+        }),
+        Err(err) if err == "无效的歌词歌曲 ID" => {
+            HttpResponse::BadRequest().json(ApplyLyricResponse {
+                success: false,
+                message: err,
+                lyric_filename: None,
+            })
+        }
+        Err(err) => {
+            warn!(
+                "[DOWNLOAD] Failed to apply lyric to song_id={}: {}",
+                body.song_id, err
+            );
+            HttpResponse::BadGateway().json(ApplyLyricResponse {
+                success: false,
+                message: format!("歌词下载失败: {err}"),
+                lyric_filename: None,
+            })
+        }
     }
 }
 
@@ -479,8 +554,42 @@ fn join_artists(artists: &[netease_api::types::Artist]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_lyric_content, resolve_target_dir};
+    use super::{apply_lyric, merge_lyric_content, resolve_target_dir, ApplyLyricRequest};
+    use crate::types::AppState;
+    use actix_web::{test as actix_test, web, App};
     use std::fs;
+    use std::sync::Arc;
+
+    async fn create_test_setup() -> (tempfile::TempDir, web::Data<AppState>) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let music_dir = temp_dir.path();
+
+        let audio_path = music_dir.join("test-song.mp3");
+        std::fs::write(&audio_path, b"fake audio content").unwrap();
+
+        let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+            .await
+            .unwrap();
+
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
+        let app_state = web::Data::new(AppState {
+            music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
+            download_root: Arc::new(music_dir.to_str().unwrap().to_string()),
+            preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
+            db_conn,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            discovery: discovery_state,
+        });
+
+        (temp_dir, app_state)
+    }
 
     #[test]
     fn target_dir_rejects_parent_components() {
@@ -506,5 +615,43 @@ mod tests {
         fs::create_dir_all(temp_dir.path().join("Album")).unwrap();
         let resolved = resolve_target_dir(temp_dir.path(), Some("Album/Live")).unwrap();
         assert_eq!(resolved, temp_dir.path().join("Album/Live"));
+    }
+
+    #[actix_web::test]
+    async fn test_apply_lyric_returns_not_found_for_missing_song() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(apply_lyric)).await;
+        let req = actix_test::TestRequest::post()
+            .uri("/api/download/lyrics/apply")
+            .set_json(&ApplyLyricRequest {
+                song_id: 999_999,
+                lyric_selection: "123".to_string(),
+            })
+            .to_request();
+
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 404);
+    }
+
+    #[actix_web::test]
+    async fn test_apply_lyric_rejects_invalid_lyric_id() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(apply_lyric)).await;
+        let req = actix_test::TestRequest::post()
+            .uri("/api/download/lyrics/apply")
+            .set_json(&ApplyLyricRequest {
+                song_id: 1,
+                lyric_selection: "invalid".to_string(),
+            })
+            .to_request();
+
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 400);
     }
 }

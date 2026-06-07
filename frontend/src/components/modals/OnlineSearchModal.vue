@@ -189,9 +189,8 @@
               <button
                 class="action-btn lyric-btn"
                 @click="toggleLyrics(result)"
-                :disabled="loadingLyricsKey === resultKey(result)"
               >
-                {{ loadingLyricsKey === resultKey(result) ? "读取中" : "歌词" }}
+                歌词
               </button>
               <button
                 class="action-btn download-btn"
@@ -209,59 +208,6 @@
                 }}
               </button>
             </div>
-
-            <div
-              v-if="expandedLyricsKey === resultKey(result)"
-              class="lyrics-candidates"
-            >
-              <div class="lyric-search-row">
-                <input
-                  :value="lyricSearchQueries[resultKey(result)] ?? ''"
-                  type="text"
-                  placeholder="输入歌词搜索关键字..."
-                  @input="updateLyricSearchQuery(result, $event)"
-                  @keyup.enter="refreshLyrics(result)"
-                />
-                <button
-                  class="secondary-btn"
-                  @click="refreshLyrics(result)"
-                  :disabled="
-                    loadingLyricsKey === resultKey(result) ||
-                    !getLyricSearchQuery(result)
-                  "
-                >
-                  {{
-                    loadingLyricsKey === resultKey(result)
-                      ? "搜索中"
-                      : "搜索歌词"
-                  }}
-                </button>
-              </div>
-              <div class="lyric-tip">
-                选择歌词后，点击这一行的“下载”会同时保存歌曲和歌词。
-              </div>
-              <div
-                v-for="candidate in lyricCandidates[resultKey(result)] || []"
-                :key="candidate.id"
-                :class="[
-                  'lyric-candidate',
-                  {
-                    selected:
-                      selectedLyrics[resultKey(result)]?.id === candidate.id,
-                  },
-                ]"
-                @click="selectLyric(result, candidate)"
-              >
-                <div class="candidate-title">{{ candidate.title }}</div>
-                <div class="candidate-meta">{{ candidate.artist }}</div>
-              </div>
-              <div
-                v-if="(lyricCandidates[resultKey(result)] || []).length === 0"
-                class="empty-candidate"
-              >
-                未找到可选歌词
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -274,11 +220,22 @@
         <button @click="$emit('close')" class="close-btn">关闭</button>
       </div>
     </div>
+
+    <LyricSearchModal
+      v-if="lyricPickerState"
+      :api-base="resolvedApiBase()"
+      :initial-query="buildDefaultLyricSearchQuery(lyricPickerState)"
+      mode="pick"
+      @close="lyricPickerState = null"
+      @selected="handleLyricSelected"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, onMounted, watch } from "vue";
+import LyricSearchModal from "@/components/modals/LyricSearchModal.vue";
+import { type LyricCandidate } from "@/components/LyricSearchPanel.vue";
 
 type DownloadSource = "youtube" | "netease" | "bilibili";
 type OnlineProvider = DownloadSource;
@@ -299,14 +256,6 @@ interface ProviderStatus {
   provider: OnlineProvider;
   enabled: boolean;
   summary: string;
-}
-
-interface LyricCandidate {
-  source: DownloadSource;
-  id: string;
-  title: string;
-  artist: string;
-  album?: string | null;
 }
 
 interface PreviewSong {
@@ -350,8 +299,6 @@ const isSearching = ref(false);
 const searchResults = ref<SearchResult[]>([]);
 const downloadingKey = ref<string | null>(null);
 const previewingKey = ref<string | null>(null);
-const loadingLyricsKey = ref<string | null>(null);
-const expandedLyricsKey = ref<string | null>(null);
 const showProviderSettings = ref(false);
 const managingProvider = ref<OnlineProvider | null>(null);
 const statusMessage = ref("");
@@ -362,10 +309,9 @@ const isLoadingDownloadDirectories = ref(false);
 const downloadDirectoryError = ref("");
 const showDownloadFolderPicker = ref(false);
 const selectedDownloadSubdir = ref("");
-const lyricCandidates = reactive<Record<string, LyricCandidate[]>>({});
 const selectedLyrics = reactive<Record<string, LyricCandidate | null>>({});
-const lyricSearchQueries = reactive<Record<string, string>>({});
 const supportsProviderAccountActions = ref(false);
+const lyricPickerState = ref<SearchResult | null>(null);
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
     provider: "youtube",
@@ -473,26 +419,6 @@ const buildDefaultLyricSearchQuery = (result: SearchResult): string => {
     return manualQuery;
   }
   return `${result.title} ${result.artist}`.trim();
-};
-
-const ensureLyricSearchQuery = (result: SearchResult): string => {
-  const key = resultKey(result);
-  const currentValue = lyricSearchQueries[key]?.trim();
-  if (currentValue) {
-    return currentValue;
-  }
-
-  const fallback = buildDefaultLyricSearchQuery(result);
-  lyricSearchQueries[key] = fallback;
-  return fallback;
-};
-
-const getLyricSearchQuery = (result: SearchResult): string =>
-  (lyricSearchQueries[resultKey(result)] ?? "").trim();
-
-const updateLyricSearchQuery = (result: SearchResult, event: Event) => {
-  const target = event.target as HTMLInputElement | null;
-  lyricSearchQueries[resultKey(result)] = target?.value ?? "";
 };
 
 const sourceLabel = (source: DownloadSource): string => {
@@ -689,7 +615,6 @@ const handleSearch = async () => {
   isSearching.value = true;
   statusMessage.value = "";
   searchResults.value = [];
-  expandedLyricsKey.value = null;
   try {
     const response = await fetch(resolvedApiBase() + "/download/search", {
       method: "POST",
@@ -750,61 +675,16 @@ const handlePreview = async (result: SearchResult) => {
   }
 };
 
-const fetchLyrics = async (result: SearchResult) => {
-  loadingLyricsKey.value = resultKey(result);
-  try {
-    const query = ensureLyricSearchQuery(result);
-    const response = await fetch(
-      resolvedApiBase() + "/download/lyrics/search",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query,
-        }),
-      },
-    );
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || "歌词搜索失败");
-    }
-    lyricCandidates[resultKey(result)] = await response.json();
-  } finally {
-    loadingLyricsKey.value = null;
-  }
+const toggleLyrics = (result: SearchResult) => {
+  lyricPickerState.value = result;
 };
 
-const refreshLyrics = async (result: SearchResult) => {
-  const query = getLyricSearchQuery(result);
-  if (!query) {
-    statusType.value = "error";
-    statusMessage.value = "请输入歌词搜索关键字";
+const handleLyricSelected = (candidate: LyricCandidate) => {
+  if (!lyricPickerState.value) {
     return;
   }
-
-  try {
-    await fetchLyrics(result);
-  } catch (error) {
-    statusType.value = "error";
-    statusMessage.value = `歌词搜索失败: ${error}`;
-  }
-};
-
-const toggleLyrics = async (result: SearchResult) => {
-  const key = resultKey(result);
-  if (expandedLyricsKey.value === key) {
-    expandedLyricsKey.value = null;
-    return;
-  }
-  expandedLyricsKey.value = key;
-  ensureLyricSearchQuery(result);
-  if (lyricCandidates[key] === undefined) {
-    await refreshLyrics(result);
-  }
-};
-
-const selectLyric = (result: SearchResult, candidate: LyricCandidate) => {
-  selectedLyrics[resultKey(result)] = candidate;
+  selectedLyrics[resultKey(lyricPickerState.value)] = candidate;
+  lyricPickerState.value = null;
 };
 
 const downloadTrackToApiBase = async (

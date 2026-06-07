@@ -32,8 +32,8 @@ pub use discovery::{
     set_device_name, start_discovery_scan,
 };
 pub use download::{
-    download_preview, download_track, get_download_directory_tree, get_online_provider_statuses,
-    get_preview_track, search_lyrics, search_online,
+    apply_lyric, download_preview, download_track, get_download_directory_tree,
+    get_online_provider_statuses, get_preview_track, search_lyrics, search_online,
 };
 pub use lufs::precache_lufs;
 pub use lyrics::{get_lyrics, get_lyrics_by_id};
@@ -285,6 +285,7 @@ pub async fn start_server(
                 .service(search_online)
                 .service(get_online_provider_statuses)
                 .service(search_lyrics)
+                .service(apply_lyric)
                 .service(get_download_directory_tree)
                 .service(download_preview)
                 .service(get_preview_track)

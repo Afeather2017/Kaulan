@@ -20,6 +20,7 @@ export const useUiStore = defineStore("ui", () => {
   const showAddDeviceModal = ref(false);
   const showUploadModal = ref(false);
   const showOnlineSearchModal = ref(false);
+  const showLyricSearchModal = ref(false);
   const showActiveQueueModal = ref(false);
   const playerPanelMode = ref<PlayerPanelMode>("collapsed");
   const isScanning = ref(false);
@@ -83,6 +84,7 @@ export const useUiStore = defineStore("ui", () => {
     showAddDeviceModal,
     showUploadModal,
     showOnlineSearchModal,
+    showLyricSearchModal,
     showActiveQueueModal,
     playerPanelMode,
     isScanning,

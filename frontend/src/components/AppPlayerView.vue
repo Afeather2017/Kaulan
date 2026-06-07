@@ -10,7 +10,20 @@
           class="lyric-panel"
           @click.self="$emit('showCoverPanel')"
         >
-          <div v-if="!hasLyrics" class="lyric-empty">暂无歌词</div>
+          <div v-if="isLyricsLoading" class="lyric-empty">歌词加载中...</div>
+          <div v-else-if="!hasLyrics" class="lyric-empty">
+            <div class="lyric-empty-content">
+              <div>暂无歌词</div>
+              <button
+                v-if="currentSongName"
+                type="button"
+                class="lyric-search-btn"
+                @click.stop="$emit('openOnlineLyricSearch')"
+              >
+                search online
+              </button>
+            </div>
+          </div>
           <div v-else class="lyric-container" ref="lyricContainerRef">
             <div
               v-for="(line, index) in lyrics"
@@ -98,6 +111,7 @@ const props = defineProps<{
   isWideLayout: boolean;
   isLyricPanelVisible: boolean;
   selectMode: boolean;
+  isLyricsLoading: boolean;
   hasLyrics: boolean;
   lyrics: LyricLine[];
   currentLyricIndex: number;
@@ -112,6 +126,7 @@ const props = defineProps<{
 
 defineEmits<{
   (e: "lyricLineClick", time: number): void;
+  (e: "openOnlineLyricSearch"): void;
   (e: "showCoverPanel"): void;
   (e: "showLyricsPanel"): void;
   (e: "coverLoadError"): void;
@@ -190,6 +205,31 @@ watch(
   height: 100%;
   color: #888;
   font-size: 16px;
+}
+
+.lyric-empty-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.lyric-search-btn {
+  border: 1px solid #176b3a;
+  background: #176b3a;
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lyric-search-btn:hover,
+.lyric-search-btn:focus-visible {
+  background: #145a31;
+  border-color: #145a31;
+  outline: none;
 }
 
 .lyric-container {
