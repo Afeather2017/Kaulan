@@ -39,6 +39,41 @@ interface ResolvedQueueState {
   currentSongUrl: string | null;
 }
 
+interface PlaybackBackend {
+  kind: "web" | "android";
+  init: () => Promise<void>;
+  cleanup: () => void;
+  usesRawPlaybackPath: (song: MusicInfo) => boolean;
+  playSong: (
+    song: MusicInfo,
+    seekTime?: number,
+    queueOverride?: MusicInfo[],
+    selectedIndex?: number,
+  ) => Promise<void>;
+  play: () => Promise<void>;
+  pause: () => Promise<void>;
+  previousSong: () => Promise<void>;
+  nextSong: () => Promise<void>;
+  seekToTime: (time: number) => Promise<void>;
+  syncQueueState: () => Promise<void>;
+  handlePlayModeChange: () => Promise<void>;
+  handleQueuePruned: (
+    queue: MusicInfo[],
+    index: number,
+    shouldResumePlayback: boolean,
+    source: string,
+  ) => Promise<void>;
+  refreshSession: (source?: string) => Promise<void>;
+  syncNormalizationConfig: (
+    mode: NormalizationMode,
+    manualVolume: number,
+    fixedLufs: number,
+    currentVolume: number,
+  ) => Promise<void>;
+  setTimedPause: (delayMs: number) => Promise<void>;
+  clearPlaybackState: () => Promise<void>;
+}
+
 export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const { songs, onSongEnd, onSongStart, prepareSong } = options;
 
@@ -110,12 +145,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   };
 
   const shouldUseRawPlaybackPath = (song: MusicInfo): boolean => {
-    if (!isAndroidPlayer.value) {
-      return false;
-    }
-
-    const sourceApiBase = resolveSourceApiBase(song.source_key);
-    return isLocalhostApiBase(sourceApiBase) && song.path.length > 0;
+    return getPlaybackBackend().usesRawPlaybackPath(song);
   };
 
   const buildSongPlaybackUrl = (song: MusicInfo, seekTime?: number): string => {
@@ -515,17 +545,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     );
   };
 
-  const refreshAndroidSession = async (source = "manual") => {
-    if (!isAndroidPlayer.value) return;
-    const plugin = await loadPluginApi();
-    const session = await plugin.getPlaybackSession();
-    applyAndroidSession(session, source);
-  };
-
-  const getAndroidSessionSnapshot = async (
+  const fetchAndroidSession = async (
     source = "manual",
-  ): Promise<PlaybackSession | null> => {
-    if (!isAndroidPlayer.value) return null;
+  ): Promise<PlaybackSession> => {
     const plugin = await loadPluginApi();
     const session = await plugin.getPlaybackSession();
     applyAndroidSession(session, source);
@@ -535,7 +557,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const startAndroidPolling = () => {
     if (pollingTimer) return;
     pollingTimer = setInterval(() => {
-      void refreshAndroidSession("poll").catch((error) => {
+      void fetchAndroidSession("poll").catch((error) => {
         console.warn(
           "[useAudioPlayer] Failed to poll Android playback session:",
           error,
@@ -556,7 +578,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     sourcePollingTimer = null;
   };
 
-  const clearPlaybackState = async () => {
+  const resetPlaybackState = () => {
     currentSong.value = null;
     currentIndex.value = -1;
     activeQueue.value = [];
@@ -564,21 +586,87 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentTime.value = 0;
     duration.value = 0;
     persistPlaybackSession([], null);
+  };
 
-    if (isAndroidPlayer.value) {
-      const plugin = await loadPluginApi();
-      await plugin.stop();
-      await plugin.setPlayingQueue(
-        { songs: [], currentIndex: null },
-        playMode.value as AndroidPlayMode,
-      );
-      return;
+  let webBackend: PlaybackBackend;
+  let androidBackend: PlaybackBackend;
+
+  const getPlaybackBackend = (): PlaybackBackend => {
+    return isAndroidPlayer.value ? androidBackend : webBackend;
+  };
+
+  const clearPlaybackState = async () => {
+    resetPlaybackState();
+    await getPlaybackBackend().clearPlaybackState();
+  };
+
+  const refreshAndroidSession = async (source = "manual") => {
+    await androidBackend.refreshSession(source);
+  };
+
+  const syncAndroidQueueState = async () => {
+    await androidBackend.syncQueueState();
+  };
+
+  const restartAndroidPlayback = async (
+    queue: MusicInfo[],
+    index: number,
+    source: string,
+    seekTime?: number,
+  ) => {
+    if (queue.length === 0) return;
+
+    const plugin = await loadPluginApi();
+    const resolvedIndex = Math.min(Math.max(index, 0), queue.length - 1);
+    const preparedTargetSong = await prepareSongForPlayback(
+      queue[resolvedIndex],
+    );
+    const preparedQueue = queue.map((song) => {
+      if (!songsMatch(song, preparedTargetSong)) {
+        return song;
+      }
+      return preparedTargetSong;
+    });
+    const targetSong = preparedQueue[resolvedIndex];
+    const payload: PlayingQueue = {
+      songs: preparedQueue.map((song) => toQueueSong(song)),
+      currentIndex: resolvedIndex,
+    };
+
+    console.log("[useAudioPlayer] restartAndroidPlayback", {
+      source,
+      resolvedIndex,
+      targetSongId: targetSong.id,
+      targetSongName: targetSong.name,
+      queueSize: preparedQueue.length,
+      playMode: playMode.value,
+    });
+
+    await plugin.stop();
+    await plugin.setPlayingQueue(payload, playMode.value as AndroidPlayMode);
+
+    activeQueue.value = preparedQueue;
+    currentIndex.value = resolvedIndex;
+    currentSong.value = targetSong;
+    persistPlaybackSession(activeQueue.value, currentSong.value);
+
+    if (seekTime !== undefined) {
+      pendingSeekTargetMs = Math.max(0, Math.floor(seekTime * 1000));
+      currentTime.value = pendingSeekTargetMs / 1000;
+      await plugin.seekAndPlay(Math.max(0, Math.floor(seekTime * 1000)));
+    } else {
+      pendingSeekTargetMs = null;
+      await plugin.play({
+        url: buildSongPlaybackUrl(targetSong),
+        title: targetSong.name,
+        coverUrl:
+          targetSong.cover_url ??
+          buildCoverUrl(targetSong.id, getSongSourceKey(targetSong)) ??
+          undefined,
+      });
     }
 
-    if (audioElement.value) {
-      audioElement.value.pause();
-      audioElement.value.src = "";
-    }
+    await fetchAndroidSession(source);
   };
 
   const pruneQueueBySourceKeys = async (
@@ -630,9 +718,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
           ? (filteredQueue[currentIndex.value] ?? null)
           : null;
       persistPlaybackSession(activeQueue.value, currentSong.value);
-      if (isAndroidPlayer.value) {
-        await syncAndroidQueueState();
-      }
+      await getPlaybackBackend().syncQueueState();
       return true;
     }
 
@@ -647,30 +733,11 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentSong.value = nextSongCandidate;
     persistPlaybackSession(activeQueue.value, currentSong.value);
 
-    if (!shouldResumePlayback) {
-      if (isAndroidPlayer.value) {
-        await syncAndroidQueueState();
-      } else if (audioElement.value) {
-        audioElement.value.pause();
-        audioElement.value.src = "";
-        isPlaying.value = false;
-      }
-      return true;
-    }
-
-    if (isAndroidPlayer.value) {
-      await restartAndroidPlayback(
-        filteredQueue,
-        currentIndex.value >= 0 ? currentIndex.value : 0,
-        "pruneQueueBySourceKeys",
-      );
-      return true;
-    }
-
-    await playSongAtIndex(
-      nextSongCandidate,
-      currentIndex.value >= 0 ? currentIndex.value : 0,
+    await getPlaybackBackend().handleQueuePruned(
       filteredQueue,
+      currentIndex.value >= 0 ? currentIndex.value : 0,
+      shouldResumePlayback,
+      "pruneQueueBySourceKeys",
     );
     return true;
   };
@@ -741,9 +808,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const syncAndroidQueue = async (
     selectedSong: MusicInfo,
     selectedIndex?: number,
+    queueOverride?: MusicInfo[],
   ) => {
     const plugin = await loadPluginApi();
-    const { queue, index } = buildQueueForMode(selectedSong, selectedIndex);
+    const { queue, index } = buildQueueForMode(
+      selectedSong,
+      selectedIndex,
+      queueOverride,
+    );
     console.log("[useAudioPlayer] syncAndroidQueue", {
       selectedSongId: selectedSong.id,
       selectedSongName: selectedSong.name,
@@ -763,91 +835,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     persistPlaybackSession(activeQueue.value, currentSong.value);
   };
 
-  const syncAndroidQueueState = async () => {
-    if (!isAndroidPlayer.value || activeQueue.value.length === 0) {
-      return;
-    }
-
-    const plugin = await loadPluginApi();
-    const payload: PlayingQueue = {
-      songs: activeQueue.value.map((song) => toQueueSong(song)),
-      currentIndex: currentIndex.value >= 0 ? currentIndex.value : null,
-    };
-
-    await plugin.setPlayingQueue(payload, playMode.value as AndroidPlayMode);
-    persistPlaybackSession(activeQueue.value, currentSong.value);
-  };
-
-  const restartAndroidPlayback = async (
-    queue: MusicInfo[],
-    index: number,
-    source: string,
-    seekTime?: number,
-  ) => {
-    if (queue.length === 0) return;
-
-    const plugin = await loadPluginApi();
-    const resolvedIndex = Math.min(Math.max(index, 0), queue.length - 1);
-    const preparedTargetSong = await prepareSongForPlayback(
-      queue[resolvedIndex],
-    );
-    const preparedQueue = queue.map((song) => {
-      if (!songsMatch(song, preparedTargetSong)) {
-        return song;
-      }
-      return preparedTargetSong;
-    });
-    const targetSong = preparedQueue[resolvedIndex];
-    const payload: PlayingQueue = {
-      songs: preparedQueue.map((song) => toQueueSong(song)),
-      currentIndex: resolvedIndex,
-    };
-
-    console.log("[useAudioPlayer] restartAndroidPlayback", {
-      source,
-      resolvedIndex,
-      targetSongId: targetSong.id,
-      targetSongName: targetSong.name,
-      queueSize: preparedQueue.length,
-      playMode: playMode.value,
-    });
-
-    await plugin.stop();
-    await plugin.setPlayingQueue(payload, playMode.value as AndroidPlayMode);
-
-    activeQueue.value = preparedQueue;
-    currentIndex.value = resolvedIndex;
-    currentSong.value = targetSong;
-    persistPlaybackSession(activeQueue.value, currentSong.value);
-
-    if (seekTime !== undefined) {
-      pendingSeekTargetMs = Math.max(0, Math.floor(seekTime * 1000));
-      currentTime.value = pendingSeekTargetMs / 1000;
-      await plugin.seekAndPlay(Math.max(0, Math.floor(seekTime * 1000)));
-    } else {
-      pendingSeekTargetMs = null;
-      await plugin.play({
-        url: buildSongPlaybackUrl(targetSong),
-        title: targetSong.name,
-        coverUrl:
-          targetSong.cover_url ??
-          buildCoverUrl(targetSong.id, getSongSourceKey(targetSong)) ??
-          undefined,
-      });
-    }
-
-    await refreshAndroidSession(source);
-  };
-
   const syncAndroidPlayMode = async () => {
-    if (!isAndroidPlayer.value) return;
     const plugin = await loadPluginApi();
     if (playMode.value === "shuffle" && currentSong.value) {
       await syncAndroidQueue(currentSong.value, currentIndex.value);
       return;
     }
     await plugin.setPlayMode(playMode.value as AndroidPlayMode);
-    await refreshAndroidSession();
+    await fetchAndroidSession();
   };
 
   const playSongAtIndex = async (
@@ -855,9 +850,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     index: number,
     queueOverride?: MusicInfo[],
   ) => {
-    currentIndex.value = index;
     playedSongIndexes.value.add(index);
-    await playSong(song, undefined, queueOverride);
+    await playSong(song, undefined, queueOverride, index);
   };
 
   const handlePlaybackFailure = async (): Promise<void> => {
@@ -909,182 +903,22 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     song: MusicInfo,
     seekTime?: number,
     queueOverride?: MusicInfo[],
+    selectedIndex?: number,
   ) => {
-    if (isAndroidPlayer.value) {
-      const { queue, index } = buildQueueForMode(
-        song,
-        currentIndex.value >= 0 ? currentIndex.value : undefined,
-        queueOverride,
-      );
-      await restartAndroidPlayback(queue, index, "playSong", seekTime);
-      return;
-    }
-
-    const preparedSong = await prepareSongForPlayback(song);
-    pendingSeekTargetMs = null;
-    const sourceQueue = getBaseQueue(queueOverride);
-    activeQueue.value = sourceQueue.map((sourceSong) => {
-      if (!songsMatch(sourceSong, preparedSong)) {
-        return sourceSong;
-      }
-      return preparedSong;
-    });
-
-    if (audioElement.value && !audioElement.value.paused) {
-      audioElement.value.pause();
-    }
-
-    const newAudio = new Audio();
-    const sourceUrl = buildSongPlaybackUrl(preparedSong, seekTime);
-    newAudio.src = sourceUrl;
-    newAudio.preload = "auto";
-
-    newAudio.addEventListener("loadedmetadata", () => {
-      duration.value = newAudio.duration || 0;
-      if (seekTime === undefined) {
-        return;
-      }
-
-      const clampedTime = Math.max(
-        0,
-        Math.min(seekTime, duration.value || seekTime),
-      );
-      newAudio.currentTime = clampedTime;
-      currentTime.value = clampedTime;
-    });
-
-    newAudio.addEventListener("timeupdate", () => {
-      currentTime.value = newAudio.currentTime || 0;
-    });
-
-    newAudio.addEventListener("seeked", () => {
-      currentTime.value = newAudio.currentTime || 0;
-    });
-
-    newAudio.addEventListener("seeking", () => {
-      currentTime.value = newAudio.currentTime || 0;
-    });
-
-    newAudio.addEventListener("ended", () => {
-      if (playMode.value === "loop") {
-        if (currentSong.value) {
-          void playSong(currentSong.value);
-        }
-      } else {
-        void nextSong();
-      }
-      onSongEnd?.();
-    });
-    newAudio.addEventListener("error", () => {
-      console.warn("[useAudioPlayer] Playback source failed", {
-        song: preparedSong.name,
-        url: sourceUrl,
-      });
-      void handlePlaybackFailure();
-    });
-
-    audioElement.value = newAudio;
-    currentSong.value = preparedSong;
-    currentIndex.value = activeQueue.value.findIndex((queueSong) =>
-      songsMatch(queueSong, preparedSong),
+    await getPlaybackBackend().playSong(
+      song,
+      seekTime,
+      queueOverride,
+      selectedIndex,
     );
-    duration.value = 0;
-    persistPlaybackSession(activeQueue.value, preparedSong);
-    isPlayingInternal = true;
-
-    maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value);
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    try {
-      await newAudio.play();
-      isPlaying.value = true;
-    } catch (error) {
-      console.error("Failed to play audio:", error);
-      isPlaying.value = false;
-    } finally {
-      isPlayingInternal = false;
-    }
   };
 
   const play = async () => {
-    if (isAndroidPlayer.value) {
-      const plugin = await loadPluginApi();
-      if (currentSong.value) {
-        if (currentTime.value > 0) {
-          await plugin.seekAndPlay(
-            Math.max(0, Math.floor(currentTime.value * 1000)),
-          );
-        } else {
-          await plugin.play({
-            url: buildSongPlaybackUrl(currentSong.value),
-            title: currentSong.value.name,
-            coverUrl:
-              currentSong.value.cover_url ??
-              buildCoverUrl(
-                currentSong.value.id,
-                getSongSourceKey(currentSong.value),
-              ) ??
-              undefined,
-          });
-        }
-      } else if (activeQueue.value.length > 0) {
-        const index = currentIndex.value >= 0 ? currentIndex.value : 0;
-        await playSongAtIndex(activeQueue.value[index], index);
-        return;
-      } else {
-        const sourceSongs = songs();
-        if (sourceSongs.length > 0) {
-          await playSongAtIndex(sourceSongs[0], 0);
-          return;
-        }
-      }
-      await refreshAndroidSession();
-      return;
-    }
-
-    if (!audioElement.value) return;
-
-    const allSongs = songs();
-    if (!currentSong.value && allSongs.length > 0) {
-      await playSongAtIndex(allSongs[0], 0);
-      return;
-    }
-
-    if (currentSong.value) {
-      if (!audioElement.value.src) {
-        const queue =
-          activeQueue.value.length > 0 ? activeQueue.value : allSongs;
-        const restoredIndex =
-          currentIndex.value >= 0
-            ? currentIndex.value
-            : queue.findIndex((song) =>
-                currentSong.value ? songsMatch(song, currentSong.value) : false,
-              );
-        if (restoredIndex >= 0 && queue[restoredIndex]) {
-          await playSongAtIndex(queue[restoredIndex], restoredIndex, queue);
-          return;
-        }
-        await playSong(currentSong.value);
-        return;
-      }
-      await audioElement.value.play();
-      isPlaying.value = true;
-    }
+    await getPlaybackBackend().play();
   };
 
   const pause = async () => {
-    if (isAndroidPlayer.value) {
-      const plugin = await loadPluginApi();
-      await plugin.pause();
-      await refreshAndroidSession();
-      return;
-    }
-
-    if (!audioElement.value) return;
-
-    audioElement.value.pause();
-    isPlaying.value = false;
+    await getPlaybackBackend().pause();
   };
 
   const togglePlayMode = async () => {
@@ -1115,31 +949,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       persistPlaybackSession(activeQueue.value, currentSong.value);
     }
 
-    if (isAndroidPlayer.value) {
-      await syncAndroidPlayMode();
-    }
+    await getPlaybackBackend().handlePlayModeChange();
   };
 
   const previousSong = async () => {
-    if (isAndroidPlayer.value) {
-      const session = await getAndroidSessionSnapshot("previousSong:before");
-      if (!session) return;
+    await getPlaybackBackend().previousSong();
+  };
 
-      const queue = session.queue.songs.map((song) => toMusicInfo(song));
-      if (queue.length === 0) return;
-
-      const sessionIndex = session.queue.currentIndex ?? 0;
-      const newIndex =
-        playMode.value === "loop"
-          ? sessionIndex
-          : sessionIndex <= 0
-            ? queue.length - 1
-            : sessionIndex - 1;
-
-      await restartAndroidPlayback(queue, newIndex, "previousSong");
-      return;
-    }
-
+  const playPreviousSongInWebQueue = async () => {
     const allSongs = activeQueue.value.length > 0 ? activeQueue.value : songs();
     if (!currentSong.value || allSongs.length === 0) return;
 
@@ -1158,25 +975,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   };
 
   const nextSong = async () => {
-    if (isAndroidPlayer.value) {
-      const session = await getAndroidSessionSnapshot("nextSong:before");
-      if (!session) return;
+    await getPlaybackBackend().nextSong();
+  };
 
-      const queue = session.queue.songs.map((song) => toMusicInfo(song));
-      if (queue.length === 0) return;
-
-      const sessionIndex = session.queue.currentIndex ?? 0;
-      const newIndex =
-        playMode.value === "loop"
-          ? sessionIndex
-          : sessionIndex >= queue.length - 1
-            ? 0
-            : sessionIndex + 1;
-
-      await restartAndroidPlayback(queue, newIndex, "nextSong");
-      return;
-    }
-
+  const playNextSongInWebQueue = async () => {
     const allSongs = activeQueue.value.length > 0 ? activeQueue.value : songs();
     if (!currentSong.value || allSongs.length === 0) return;
 
@@ -1195,7 +997,342 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   };
 
   const seekToTime = async (time: number) => {
-    if (isAndroidPlayer.value) {
+    await getPlaybackBackend().seekToTime(time);
+  };
+
+  const applyWebVolume = (volume: number) => {
+    const normalizedVolume = Math.min(1, Math.max(0, volume));
+    if (audioElement.value) {
+      audioElement.value.volume = normalizedVolume;
+    }
+  };
+
+  const syncNormalizationConfig = async (
+    mode: NormalizationMode,
+    manualVolume: number,
+    fixedLufs: number,
+    currentVolume: number,
+  ) => {
+    await getPlaybackBackend().syncNormalizationConfig(
+      mode,
+      manualVolume,
+      fixedLufs,
+      currentVolume,
+    );
+  };
+
+  const setTimedPause = async (delayMs: number) => {
+    await getPlaybackBackend().setTimedPause(delayMs);
+  };
+
+  const resetPlaylist = () => {
+    playedSongIndexes.value = new Set();
+    currentIndex.value = -1;
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  webBackend = {
+    kind: "web",
+    init: async () => {
+      audioElement.value = new Audio();
+      audioElement.value.addEventListener("timeupdate", () => {
+        currentTime.value = audioElement.value?.currentTime || 0;
+      });
+      audioElement.value.addEventListener("ended", () => {
+        if (playMode.value === "loop") {
+          if (currentSong.value) {
+            void playSong(currentSong.value);
+          }
+        } else {
+          void nextSong();
+        }
+        onSongEnd?.();
+      });
+
+      restoreWebPlaybackSession();
+      startSourcePolling();
+      await reconcileQueueSources();
+    },
+    cleanup: () => {
+      if (audioElement.value) {
+        audioElement.value.pause();
+        audioElement.value = null;
+      }
+    },
+    usesRawPlaybackPath: () => false,
+    playSong: async (song, seekTime, queueOverride) => {
+      const preparedSong = await prepareSongForPlayback(song);
+      pendingSeekTargetMs = null;
+      const sourceQueue = getBaseQueue(queueOverride);
+      activeQueue.value = sourceQueue.map((sourceSong) => {
+        if (!songsMatch(sourceSong, preparedSong)) {
+          return sourceSong;
+        }
+        return preparedSong;
+      });
+
+      if (audioElement.value && !audioElement.value.paused) {
+        audioElement.value.pause();
+      }
+
+      const newAudio = new Audio();
+      const sourceUrl = buildSongPlaybackUrl(preparedSong, seekTime);
+      newAudio.src = sourceUrl;
+      newAudio.preload = "auto";
+
+      newAudio.addEventListener("loadedmetadata", () => {
+        duration.value = newAudio.duration || 0;
+        if (seekTime === undefined) {
+          return;
+        }
+
+        const clampedTime = Math.max(
+          0,
+          Math.min(seekTime, duration.value || seekTime),
+        );
+        newAudio.currentTime = clampedTime;
+        currentTime.value = clampedTime;
+      });
+
+      newAudio.addEventListener("timeupdate", () => {
+        currentTime.value = newAudio.currentTime || 0;
+      });
+
+      newAudio.addEventListener("seeked", () => {
+        currentTime.value = newAudio.currentTime || 0;
+      });
+
+      newAudio.addEventListener("seeking", () => {
+        currentTime.value = newAudio.currentTime || 0;
+      });
+
+      newAudio.addEventListener("ended", () => {
+        if (playMode.value === "loop") {
+          if (currentSong.value) {
+            void playSong(currentSong.value);
+          }
+        } else {
+          void nextSong();
+        }
+        onSongEnd?.();
+      });
+      newAudio.addEventListener("error", () => {
+        console.warn("[useAudioPlayer] Playback source failed", {
+          song: preparedSong.name,
+          url: sourceUrl,
+        });
+        void handlePlaybackFailure();
+      });
+
+      audioElement.value = newAudio;
+      currentSong.value = preparedSong;
+      currentIndex.value = activeQueue.value.findIndex((queueSong) =>
+        songsMatch(queueSong, preparedSong),
+      );
+      duration.value = 0;
+      persistPlaybackSession(activeQueue.value, preparedSong);
+      isPlayingInternal = true;
+
+      maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      try {
+        await newAudio.play();
+        isPlaying.value = true;
+      } catch (error) {
+        console.error("Failed to play audio:", error);
+        isPlaying.value = false;
+      } finally {
+        isPlayingInternal = false;
+      }
+    },
+    play: async () => {
+      if (!audioElement.value) return;
+
+      const allSongs = songs();
+      if (!currentSong.value && allSongs.length > 0) {
+        await playSongAtIndex(allSongs[0], 0);
+        return;
+      }
+
+      if (currentSong.value) {
+        if (!audioElement.value.src) {
+          const queue =
+            activeQueue.value.length > 0 ? activeQueue.value : allSongs;
+          const restoredIndex =
+            currentIndex.value >= 0
+              ? currentIndex.value
+              : queue.findIndex((song) =>
+                  currentSong.value
+                    ? songsMatch(song, currentSong.value)
+                    : false,
+                );
+          if (restoredIndex >= 0 && queue[restoredIndex]) {
+            await playSongAtIndex(queue[restoredIndex], restoredIndex, queue);
+            return;
+          }
+          await playSong(currentSong.value);
+          return;
+        }
+        await audioElement.value.play();
+        isPlaying.value = true;
+      }
+    },
+    pause: async () => {
+      if (!audioElement.value) return;
+
+      audioElement.value.pause();
+      isPlaying.value = false;
+    },
+    previousSong: async () => {
+      await playPreviousSongInWebQueue();
+    },
+    nextSong: async () => {
+      await playNextSongInWebQueue();
+    },
+    seekToTime: async (time) => {
+      if (!audioElement.value || duration.value === 0) return;
+
+      const clampedTime = Math.max(0, Math.min(time, duration.value));
+      audioElement.value.currentTime = clampedTime;
+      currentTime.value = clampedTime;
+    },
+    syncQueueState: async () => {
+      persistPlaybackSession(activeQueue.value, currentSong.value);
+    },
+    handlePlayModeChange: async () => {},
+    handleQueuePruned: async (queue, index, shouldResumePlayback) => {
+      if (!shouldResumePlayback) {
+        if (audioElement.value) {
+          audioElement.value.pause();
+          audioElement.value.src = "";
+        }
+        isPlaying.value = false;
+        return;
+      }
+
+      const nextSongCandidate = queue[index] ?? queue[0];
+      if (!nextSongCandidate) {
+        return;
+      }
+
+      await playSongAtIndex(nextSongCandidate, index, queue);
+    },
+    refreshSession: async () => {},
+    syncNormalizationConfig: async (
+      _mode,
+      _manualVolume,
+      _fixedLufs,
+      currentVolume,
+    ) => {
+      applyWebVolume(currentVolume);
+    },
+    setTimedPause: async () => {},
+    clearPlaybackState: async () => {
+      if (audioElement.value) {
+        audioElement.value.pause();
+        audioElement.value.src = "";
+      }
+    },
+  };
+
+  androidBackend = {
+    kind: "android",
+    init: async () => {
+      startAndroidPolling();
+      await fetchAndroidSession("initAudio");
+      startSourcePolling();
+      await reconcileQueueSources();
+    },
+    cleanup: () => {},
+    usesRawPlaybackPath: (song) => {
+      const sourceApiBase = resolveSourceApiBase(song.source_key);
+      return isLocalhostApiBase(sourceApiBase) && song.path.length > 0;
+    },
+    playSong: async (song, seekTime, queueOverride, selectedIndex) => {
+      const { queue, index } = buildQueueForMode(
+        song,
+        selectedIndex ??
+          (currentIndex.value >= 0 ? currentIndex.value : undefined),
+        queueOverride,
+      );
+      await restartAndroidPlayback(queue, index, "playSong", seekTime);
+    },
+    play: async () => {
+      const plugin = await loadPluginApi();
+      if (currentSong.value) {
+        if (currentTime.value > 0) {
+          await plugin.seekAndPlay(
+            Math.max(0, Math.floor(currentTime.value * 1000)),
+          );
+        } else {
+          await plugin.play({
+            url: buildSongPlaybackUrl(currentSong.value),
+            title: currentSong.value.name,
+            coverUrl:
+              currentSong.value.cover_url ??
+              buildCoverUrl(
+                currentSong.value.id,
+                getSongSourceKey(currentSong.value),
+              ) ??
+              undefined,
+          });
+        }
+      } else if (activeQueue.value.length > 0) {
+        const index = currentIndex.value >= 0 ? currentIndex.value : 0;
+        await playSongAtIndex(activeQueue.value[index], index);
+        return;
+      } else {
+        const sourceSongs = songs();
+        if (sourceSongs.length > 0) {
+          await playSongAtIndex(sourceSongs[0], 0);
+          return;
+        }
+      }
+      await fetchAndroidSession();
+    },
+    pause: async () => {
+      const plugin = await loadPluginApi();
+      await plugin.pause();
+      await fetchAndroidSession();
+    },
+    previousSong: async () => {
+      const session = await fetchAndroidSession("previousSong:before");
+      const queue = session.queue.songs.map((song) => toMusicInfo(song));
+      if (queue.length === 0) return;
+
+      const sessionIndex = session.queue.currentIndex ?? 0;
+      const newIndex =
+        playMode.value === "loop"
+          ? sessionIndex
+          : sessionIndex <= 0
+            ? queue.length - 1
+            : sessionIndex - 1;
+
+      await restartAndroidPlayback(queue, newIndex, "previousSong");
+    },
+    nextSong: async () => {
+      const session = await fetchAndroidSession("nextSong:before");
+      const queue = session.queue.songs.map((song) => toMusicInfo(song));
+      if (queue.length === 0) return;
+
+      const sessionIndex = session.queue.currentIndex ?? 0;
+      const newIndex =
+        playMode.value === "loop"
+          ? sessionIndex
+          : sessionIndex >= queue.length - 1
+            ? 0
+            : sessionIndex + 1;
+
+      await restartAndroidPlayback(queue, newIndex, "nextSong");
+    },
+    seekToTime: async (time) => {
       if (duration.value === 0) return;
       const plugin = await loadPluginApi();
       const targetPositionMs = Math.max(0, Math.floor(time * 1000));
@@ -1216,95 +1353,70 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       } else {
         await plugin.seekAndPlay(targetPositionMs);
       }
-      await refreshAndroidSession("seekToTime");
-      return;
-    }
+      await fetchAndroidSession("seekToTime");
+    },
+    syncQueueState: async () => {
+      if (activeQueue.value.length === 0) {
+        return;
+      }
 
-    if (!audioElement.value || duration.value === 0) return;
+      const plugin = await loadPluginApi();
+      const payload: PlayingQueue = {
+        songs: activeQueue.value.map((song) => toQueueSong(song)),
+        currentIndex: currentIndex.value >= 0 ? currentIndex.value : null,
+      };
 
-    const clampedTime = Math.max(0, Math.min(time, duration.value));
-    audioElement.value.currentTime = clampedTime;
-    currentTime.value = clampedTime;
-  };
+      await plugin.setPlayingQueue(payload, playMode.value as AndroidPlayMode);
+      persistPlaybackSession(activeQueue.value, currentSong.value);
+    },
+    handlePlayModeChange: async () => {
+      await androidBackend.syncQueueState();
+      await syncAndroidPlayMode();
+    },
+    handleQueuePruned: async (queue, index, shouldResumePlayback, source) => {
+      if (!shouldResumePlayback) {
+        await androidBackend.syncQueueState();
+        return;
+      }
 
-  const applyWebVolume = (volume: number) => {
-    const normalizedVolume = Math.min(1, Math.max(0, volume));
-    if (audioElement.value) {
-      audioElement.value.volume = normalizedVolume;
-    }
-  };
-
-  const syncNormalizationConfig = async (
-    mode: NormalizationMode,
-    manualVolume: number,
-    fixedLufs: number,
-    currentVolume: number,
-  ) => {
-    if (isAndroidPlayer.value) {
+      await restartAndroidPlayback(queue, index, source);
+    },
+    refreshSession: async (source = "manual") => {
+      await fetchAndroidSession(source);
+    },
+    syncNormalizationConfig: async (mode, manualVolume, fixedLufs) => {
       const plugin = await loadPluginApi();
       await plugin.setNormalizationConfig({
         mode,
         manualVolume: Math.min(1, Math.max(0, manualVolume)),
         fixedLufs,
       });
-      return;
-    }
-
-    applyWebVolume(currentVolume);
-  };
-
-  const setTimedPause = async (delayMs: number) => {
-    if (!isAndroidPlayer.value) {
-      return;
-    }
-    const plugin = await loadPluginApi();
-    await plugin.pauseAfter(Math.max(0, Math.floor(delayMs)));
-  };
-
-  const resetPlaylist = () => {
-    playedSongIndexes.value = new Set();
-    currentIndex.value = -1;
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    },
+    setTimedPause: async (delayMs) => {
+      const plugin = await loadPluginApi();
+      await plugin.pauseAfter(Math.max(0, Math.floor(delayMs)));
+    },
+    clearPlaybackState: async () => {
+      const plugin = await loadPluginApi();
+      await plugin.stop();
+      await plugin.setPlayingQueue(
+        { songs: [], currentIndex: null },
+        playMode.value as AndroidPlayMode,
+      );
+    },
   };
 
   const initAudio = async () => {
     const runtimeCapabilities = await getRuntimeCapabilities();
-    isAndroidPlayer.value = runtimeCapabilities.usesAndroidPlaybackBackend;
-    if (isAndroidPlayer.value) {
-      startAndroidPolling();
-      await refreshAndroidSession("initAudio");
-      startSourcePolling();
-      await reconcileQueueSources();
-      return;
-    }
-
-    audioElement.value = new Audio();
-    audioElement.value.addEventListener("timeupdate", () => {
-      currentTime.value = audioElement.value?.currentTime || 0;
-    });
-    audioElement.value.addEventListener("ended", () => {
-      if (playMode.value === "loop") {
-        if (currentSong.value) {
-          void playSong(currentSong.value);
-        }
-      } else {
-        void nextSong();
-      }
-      onSongEnd?.();
-    });
-
-    restoreWebPlaybackSession();
-    startSourcePolling();
-    await reconcileQueueSources();
+    const playbackBackend = runtimeCapabilities.usesAndroidPlaybackBackend
+      ? androidBackend
+      : webBackend;
+    isAndroidPlayer.value = playbackBackend.kind === "android";
+    await playbackBackend.init();
   };
 
   watch(isPlaying, (playing) => {
-    if (isAndroidPlayer.value) return;
+    if (getPlaybackBackend().kind !== "web") return;
     if (!audioElement.value) return;
     if (isPlayingInternal) return;
 
@@ -1318,10 +1430,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const cleanup = () => {
     stopAndroidPolling();
     stopSourcePolling();
-    if (audioElement.value) {
-      audioElement.value.pause();
-      audioElement.value = null;
-    }
+    getPlaybackBackend().cleanup();
   };
 
   if (getCurrentScope()) {
