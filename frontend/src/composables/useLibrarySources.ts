@@ -106,8 +106,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
             ),
           }))
           .filter((playlist) => playlist.songs.length > 0 || !group.isOnline),
-      }))
-      .filter((group) => group.isOnline || group.playlists.length > 0),
+      })),
   );
 
   const allLibrarySongs = computed<MusicInfo[]>(() =>
@@ -122,6 +121,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       name: group.name,
       isLoading: group.isLoading,
       isOnline: group.isOnline,
+      errorMessage: group.errorMessage,
       playlists: group.playlists.map((playlist) => ({
         name: playlist.name,
         songCount: playlist.songs.length,
@@ -191,8 +191,6 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     groups: LibrarySourceGroup[],
   ): LibrarySourceGroup[] =>
     [...groups].sort((left, right) => {
-      if (left.isLoading && !right.isLoading) return -1;
-      if (!left.isLoading && right.isLoading) return 1;
       if (
         isLocalhostApiBase(left.apiBase) &&
         !isLocalhostApiBase(right.apiBase)
@@ -205,6 +203,8 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       ) {
         return 1;
       }
+      if (left.isLoading && !right.isLoading) return -1;
+      if (!left.isLoading && right.isLoading) return 1;
       return left.name.localeCompare(right.name);
     });
 
@@ -232,6 +232,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     name: buildSourceLabel(apiBase),
     isLoading: true,
     isOnline: false,
+    errorMessage: undefined,
     playlists: [],
     onlineProviderStatuses: [],
     capabilities: buildSourceCapabilities({
@@ -328,6 +329,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
         name: sourceLabel,
         isLoading: false,
         isOnline: true,
+        errorMessage: undefined,
         playlists,
         onlineProviderStatuses,
         capabilities: buildSourceCapabilities({
@@ -347,6 +349,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
         name: fallbackName,
         isLoading: false,
         isOnline: false,
+        errorMessage: "Current source is unreachable.",
         playlists: [],
         onlineProviderStatuses: [],
         capabilities: buildSourceCapabilities({

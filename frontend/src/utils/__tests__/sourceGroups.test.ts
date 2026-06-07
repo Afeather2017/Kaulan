@@ -171,4 +171,62 @@ describe("upsertSortedItem", () => {
       { sourceKey: "b", isLoading: false, isOnline: true },
     ]);
   });
+
+  it("keeps localhost first even when another source is loading", () => {
+    const result = upsertSortedItem(
+      [
+        {
+          sourceKey: "http://localhost:2080/api",
+          isLoading: false,
+          isOnline: true,
+        },
+        {
+          sourceKey: "http://10.255.255.1:2080/api",
+          isLoading: true,
+          isOnline: false,
+        },
+      ],
+      {
+        sourceKey: "http://10.255.255.1:2080/api",
+        isLoading: true,
+        isOnline: false,
+      },
+      (item) => item.sourceKey,
+      (items) =>
+        [...items].sort((left, right) => {
+          const leftIsLocalhost =
+            left.sourceKey === "http://localhost:2080/api";
+          const rightIsLocalhost =
+            right.sourceKey === "http://localhost:2080/api";
+
+          if (leftIsLocalhost && !rightIsLocalhost) {
+            return -1;
+          }
+          if (rightIsLocalhost && !leftIsLocalhost) {
+            return 1;
+          }
+          if (left.isLoading && !right.isLoading) {
+            return -1;
+          }
+          if (!left.isLoading && right.isLoading) {
+            return 1;
+          }
+
+          return left.sourceKey.localeCompare(right.sourceKey);
+        }),
+    );
+
+    expect(result).toEqual([
+      {
+        sourceKey: "http://localhost:2080/api",
+        isLoading: false,
+        isOnline: true,
+      },
+      {
+        sourceKey: "http://10.255.255.1:2080/api",
+        isLoading: true,
+        isOnline: false,
+      },
+    ]);
+  });
 });
