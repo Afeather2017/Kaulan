@@ -1,4 +1,4 @@
-import { ref, computed, watch, onUnmounted } from "vue";
+import { ref, computed, watch, getCurrentScope, onScopeDispose } from "vue";
 
 export function useTimer(onTimerComplete?: () => void) {
   // State
@@ -68,12 +68,15 @@ export function useTimer(onTimerComplete?: () => void) {
     timerMinutes.value = val;
   });
 
-  // Cleanup
-  onUnmounted(() => {
+  const cleanup = () => {
     if (timerInterval.value) {
       clearInterval(timerInterval.value);
     }
-  });
+  };
+
+  if (getCurrentScope()) {
+    onScopeDispose(cleanup);
+  }
 
   return {
     // State

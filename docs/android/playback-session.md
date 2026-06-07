@@ -39,6 +39,8 @@ The Android plugin stores:
 
 The frontend reads that state through `getPlaybackSession()`.
 
+The frontend app shell now consumes playback state through `frontend/src/stores/player.ts`, but that store only mirrors the runtime state. It does not replace plugin authority on Android.
+
 ## Frontend Responsibilities
 
 The Android frontend does not persist playback state locally.
