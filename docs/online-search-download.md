@@ -98,6 +98,9 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
   - `试听` for temporary playback
   - `歌词` for Netease lyric candidates
   - `下载` for a full download
+- Opening `歌词` expands a lyric search box for that result.
+- The lyric search box is pre-filled from the user's current main search input. If that input is empty, Kaulan falls back to `title + artist` for the selected result.
+- Users can edit that lyric query before searching again, so lyric matching is no longer locked to the chosen track metadata.
 - The lyric list is for selection only. After selecting a lyric candidate, the user still uses the song row's `下载` button to save both the audio file and the selected `.lrc`.
 
 ### Preview behavior
@@ -208,13 +211,13 @@ Stream a previously prepared preview file.
 
 ### `POST /api/download/lyrics/search`
 
-Search Netease lyric candidates for the selected result.
+Search Netease lyric candidates for the current lyric query.
 
 Request:
 
 ```json
 {
-  "query": "Song Title Artist Name"
+  "query": "user supplied lyric keywords"
 }
 ```
 
