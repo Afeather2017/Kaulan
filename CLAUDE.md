@@ -124,8 +124,6 @@ backend/src/
 ├── database/mod.rs  # SQLite connection, table creation
 ├── entities/        # SeaORM entities
 │   ├── music.rs           # Music table (id, filename, file_path, lufs, created_at)
-│   ├── collection.rs      # Collection table (id, name, created_at)
-│   ├── collection_item.rs # Collection-Item junction table (id, collection_id, music_id, created_at)
 │   ├── mod.rs
 │   └── prelude.rs
 ├── file_ops/
@@ -138,10 +136,9 @@ backend/src/
 - Uses SeaORM with SQLite for persistence
 - Database file: `music.db` (auto-created)
 - `music` table stores all audio files with LUFS values
-- `collection` table stores user-defined collections (favorites/playlists)
-- `collection_item` table provides many-to-many relationship between collections and music
 - Backend scans music directory on startup via `initialize_database()`
 - Two view modes: folder-based playlists and user-defined collections
+- User-defined collections are frontend-only state stored in browser localStorage
 - **Source-resolved file operations** - `file_ops` resolves each stored raw path to a source implementation:
   - `StdFs` handles normal filesystem paths on desktop and Android app-private storage
   - `AndroidMediaStoreContent` handles `content://` URIs on Android

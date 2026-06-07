@@ -35,40 +35,6 @@ pub struct Playlist {
     pub songs: Vec<MusicInfo>,
 }
 
-/// Collection metadata (without songs)
-#[derive(Serialize, Deserialize)]
-pub struct Collection {
-    pub id: i32,
-    pub name: String,
-    pub created_at: String,
-}
-
-/// Collection with songs
-#[derive(Serialize, Deserialize)]
-pub struct CollectionWithSongs {
-    pub id: i32,
-    pub name: String,
-    pub songs: Vec<MusicInfo>,
-}
-
-/// Request to create a new collection
-#[derive(Deserialize)]
-pub struct CreateCollectionRequest {
-    pub name: String,
-}
-
-/// Request to add songs to a collection
-#[derive(Deserialize)]
-pub struct AddToCollectionRequest {
-    pub music_ids: Vec<i32>,
-}
-
-/// Request to remove songs from a collection
-#[derive(Deserialize)]
-pub struct RemoveFromCollectionRequest {
-    pub music_ids: Vec<i32>,
-}
-
 /// Application state shared across all handlers
 pub struct AppState {
     pub music_path: Arc<String>,

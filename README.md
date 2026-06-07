@@ -11,7 +11,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Android Notification Cover Art** - Android playback notifications reuse embedded cover art from the backend cover endpoint when available
 - **Audio Streaming** - Direct streaming from server to browser with position-based seeking
 - **File System Playlists** - Automatic playlist creation from folder structure
-- **Collection Management** - User-defined playlists/collections
+- **Collection Management** - User-defined playlists/collections stored locally in the browser
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Real-time Search** - Search across all songs instantly
 - **Remote Log Streaming** - View real-time logs via TCP on port 2081
