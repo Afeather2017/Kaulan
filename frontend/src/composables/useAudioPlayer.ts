@@ -99,7 +99,6 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   let lastStartedSongIdentity: string | null = null;
   let pendingSeekTargetMs: number | null = null;
   let sourceCheckInFlight = false;
-  let androidTimedPauseDeadlineMs = 0;
 
   const loadPluginApi = async (): Promise<MusicNotificationApi> => {
     if (pluginApiPromise === null) {
@@ -665,17 +664,6 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
           buildCoverUrl(targetSong.id, getSongSourceKey(targetSong)) ??
           undefined,
       });
-    }
-
-    if (androidTimedPauseDeadlineMs > 0) {
-      const remainingDelayMs = Math.max(
-        0,
-        androidTimedPauseDeadlineMs - Date.now(),
-      );
-      await plugin.pauseAfter(remainingDelayMs);
-      if (remainingDelayMs === 0) {
-        androidTimedPauseDeadlineMs = 0;
-      }
     }
 
     await fetchAndroidSession(source);
@@ -1406,10 +1394,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     },
     setTimedPause: async (delayMs) => {
       const plugin = await loadPluginApi();
-      const normalizedDelayMs = Math.max(0, Math.floor(delayMs));
-      androidTimedPauseDeadlineMs =
-        normalizedDelayMs > 0 ? Date.now() + normalizedDelayMs : 0;
-      await plugin.pauseAfter(normalizedDelayMs);
+      await plugin.pauseAfter(Math.max(0, Math.floor(delayMs)));
     },
     clearPlaybackState: async () => {
       const plugin = await loadPluginApi();
