@@ -259,6 +259,7 @@ Behavior:
 
 - Disabled: the timer keeps the current behavior and only stops playback.
 - Enabled: the timer stops the Android playback service, releases backend playback state, and exits the Android app.
+- Switching songs or playlists on Android keeps the active sleep timer and reapplies the remaining delay to the restarted playback service.
 - The setting is stored in frontend localStorage under `kaulan_timer_exit_app_on_android`.
 
 ### Viewing Current Music Directory

@@ -13,6 +13,7 @@ const plugin = {
   stop: vi.fn(() => Promise.resolve()),
   play: vi.fn(() => Promise.resolve()),
   pause: vi.fn(() => Promise.resolve()),
+  pauseAfter: vi.fn(() => Promise.resolve()),
   setPlayMode: vi.fn(() => Promise.resolve()),
   setNormalizationConfig: vi.fn(() => Promise.resolve()),
 };
@@ -61,6 +62,7 @@ describe("useAudioPlayer - Android correction guard", () => {
     plugin.stop.mockClear();
     plugin.play.mockClear();
     plugin.pause.mockClear();
+    plugin.pauseAfter.mockClear();
     plugin.setPlayMode.mockClear();
     plugin.setNormalizationConfig.mockClear();
 
@@ -166,5 +168,44 @@ describe("useAudioPlayer - Android correction guard", () => {
     expect(latestQueue?.songs?.[0]?.url).toBe(
       "content://media/external/audio/media/1",
     );
+  });
+
+  it("should reapply Android timed pause after restarting playback", async () => {
+    const songs = [
+      {
+        id: 1,
+        name: "Test Song",
+        lufs: -12,
+        path: "content://media/external/audio/media/1",
+        stream_url: "content://media/external/audio/media/1",
+        source_key: "http://localhost:2080/api",
+      },
+    ];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs, currentIndex: 0 },
+      currentSongId: 1,
+      runtime: { isPlaying: true, positionMs: 0, durationMs: 180000 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, setTimedPause, playSongAtIndex } = useAudioPlayer({
+      songs: () => songs,
+    });
+
+    await initAudio();
+    await setTimedPause(60000);
+    await playSongAtIndex(songs[0], 0, songs);
+
+    expect(plugin.pauseAfter).toHaveBeenCalledTimes(2);
+    expect(plugin.pauseAfter).toHaveBeenNthCalledWith(1, 60000);
+
+    const pauseAfterCalls = plugin.pauseAfter.mock.calls as unknown as Array<
+      [number]
+    >;
+    const replayDelayMs = pauseAfterCalls[1]?.[0];
+    expect(typeof replayDelayMs).toBe("number");
+    expect(replayDelayMs).toBeGreaterThan(0);
+    expect(replayDelayMs).toBeLessThanOrEqual(60000);
   });
 });
