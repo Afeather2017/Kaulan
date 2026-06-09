@@ -346,12 +346,15 @@ The update process will:
 - WAV (`.wav`)
 - AAC (`.aac`)
 - FLAC (`.flac`)
+- M4A (`.m4a`)
+- Opus (`.opus`)
+- Bilibili DASH audio (`.m4s`)
+- YouTube raw audio container (`.webm`)
 
 ### Supported Video Formats
 
 - MP4 (`.mp4`)
 - Matroska (`.mkv`)
-- WebM (`.webm`)
 - AVI (`.avi`)
 - MOV (`.mov`)
 - 3GP (`.3gp`)
