@@ -98,24 +98,24 @@
         {{ selectedSongMenuSong.name }}
       </div>
       <button class="source-menu-action" @click="$emit('queueSongNext')">
-        Play next
+        下一首播放
       </button>
       <button class="source-menu-action" @click="$emit('addSongToQueue')">
-        Add to queue
+        添加到队列
       </button>
       <button
         v-if="activeTab === 'library'"
         class="source-menu-action"
         @click="$emit('addSongToCollection')"
       >
-        Add to collection
+        添加到收藏
       </button>
       <button
         v-if="activeTab === 'collections'"
         class="source-menu-action danger-action"
         @click="$emit('removeSongFromCollection')"
       >
-        Remove from collection
+        从收藏中移除
       </button>
     </div>
   </div>
