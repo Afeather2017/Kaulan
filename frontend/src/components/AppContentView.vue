@@ -108,24 +108,45 @@
       :current-song-name="currentSongName"
       :show-remove-button="activeTab === 'collections'"
       :show-add-button="activeTab === 'library'"
-      :show-song-action-button="true"
-      song-action-label="⋮"
       :show-header="true"
       :show-lufs="showLufs"
       :show-select-button="false"
-      :show-header-action-button="activeTab === 'collections'"
+      :show-header-action-button="true"
       header-action-label="⋮"
+      :selection-count="selectedSongs.size"
+      :selection-action-label="songSelectionActionLabel"
       @back="$emit('backToPlaylists')"
       @toggle-select-mode="$emit('toggleSelectMode')"
       @toggle-selection="$emit('toggleSongSelection', $event)"
       @play="(song, index) => $emit('playSong', song, index)"
-      @remove="$emit('removeFromCollection')"
-      @show-add-modal="$emit('showAddToCollectionModal')"
-      @song-action="$emit('songAction', $event)"
-      @header-action="$emit('openCollectionMenu', selectedPlaylistTitle)"
+      @selection-action="$emit('performSongSelectionAction')"
+      @header-action="$emit('openSongListMenu', selectedPlaylistTitle)"
     />
 
     <div v-if="currentView === 'search'">
+      <SongListView
+        v-if="searchResults.length > 0 || selectMode"
+        ref="searchViewRef"
+        title="库内结果"
+        :songs="searchResults"
+        :select-mode="selectMode"
+        :selected-songs="selectedSongs"
+        :selection-count="selectedSongs.size"
+        :selection-action-label="songSelectionActionLabel"
+        :show-remove-button="false"
+        :show-add-button="false"
+        :show-header="true"
+        :show-back-button="false"
+        :show-select-button="false"
+        :show-header-action-button="searchResults.length > 0"
+        header-action-label="⋮"
+        :show-lufs="showLufs"
+        @toggle-select-mode="$emit('toggleSelectMode')"
+        @toggle-selection="$emit('toggleSongSelection', $event)"
+        @play="(song, index) => $emit('playSong', song, index)"
+        @selection-action="$emit('performSongSelectionAction')"
+        @header-action="$emit('openSongListMenu', '搜索结果')"
+      />
       <div class="search-results-actions">
         <button
           class="online-search-entry"
@@ -134,21 +155,7 @@
           在线搜索 “{{ trimmedSearchQuery }}”
         </button>
       </div>
-      <SongListView
-        v-if="searchResults.length > 0"
-        ref="searchViewRef"
-        title="库内结果"
-        :songs="searchResults"
-        :select-mode="false"
-        :selected-songs="new Set()"
-        :show-remove-button="false"
-        :show-add-button="false"
-        :show-header="false"
-        :show-lufs="showLufs"
-        @back="$emit('backToPlaylists')"
-        @play="(song, index) => $emit('playSong', song, index)"
-      />
-      <div v-else class="empty-state">
+      <div v-if="searchResults.length === 0 && !selectMode" class="empty-state">
         <div>未找到库内结果</div>
         <button
           class="empty-online-search-btn"
@@ -186,6 +193,7 @@ const props = defineProps<{
   showLufs: boolean;
   trimmedSearchQuery: string;
   searchResults: MusicInfo[];
+  songSelectionActionLabel: string;
 }>();
 
 defineEmits<{
@@ -205,13 +213,12 @@ defineEmits<{
   (e: "showCreateModal"): void;
   (e: "deleteSelectedCollections"): void;
   (e: "openCollectionMenu", name: string): void;
+  (e: "openSongListMenu", title: string): void;
   (e: "backToPlaylists"): void;
   (e: "toggleSelectMode"): void;
   (e: "toggleSongSelection", key: string): void;
   (e: "playSong", song: MusicInfo, index: number): void;
-  (e: "removeFromCollection"): void;
-  (e: "showAddToCollectionModal"): void;
-  (e: "songAction", song: MusicInfo): void;
+  (e: "performSongSelectionAction"): void;
   (e: "openOnlineSearchFromQuery"): void;
   (e: "resetLibraryFilter"): void;
 }>();

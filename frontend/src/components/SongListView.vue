@@ -1,24 +1,44 @@
 <template>
   <div ref="songListRef" class="song-list">
     <div v-if="showHeader" class="list-header">
-      <button v-if="showBackButton" class="back-button" @click="$emit('back')">
-        ← 返回
-      </button>
-      <h2>{{ title }}</h2>
-      <button
-        v-if="showHeaderActionButton"
-        class="header-action-btn"
-        @click="$emit('headerAction')"
-      >
-        {{ headerActionLabel }}
-      </button>
-      <button
-        v-if="showSelectButton"
-        class="select-mode-btn"
-        @click="$emit('toggleSelectMode')"
-      >
-        {{ selectMode ? "取消勾选" : "选择" }}
-      </button>
+      <template v-if="selectMode">
+        <button class="back-button" @click="$emit('toggleSelectMode')">
+          取消
+        </button>
+        <h2>已选择 {{ selectionCount }}</h2>
+        <button
+          v-if="selectionActionLabel"
+          class="select-mode-btn"
+          @click="$emit('selectionAction')"
+        >
+          {{ selectionActionLabel }}
+        </button>
+        <div v-else class="header-action-placeholder"></div>
+      </template>
+      <template v-else>
+        <button
+          v-if="showBackButton"
+          class="back-button"
+          @click="$emit('back')"
+        >
+          ← 返回
+        </button>
+        <h2>{{ title }}</h2>
+        <button
+          v-if="showHeaderActionButton"
+          class="header-action-btn"
+          @click="$emit('headerAction')"
+        >
+          {{ headerActionLabel }}
+        </button>
+        <button
+          v-if="showSelectButton"
+          class="select-mode-btn"
+          @click="$emit('toggleSelectMode')"
+        >
+          {{ selectMode ? "取消勾选" : "选择" }}
+        </button>
+      </template>
     </div>
     <div
       v-for="(song, index) in songs"
@@ -46,31 +66,6 @@
           {{ song.lufs !== null ? `${song.lufs} LUFS` : "-" }}
         </span>
       </div>
-      <button
-        v-if="!selectMode && showSongActionButton"
-        class="song-action-btn"
-        @click.stop="$emit('songAction', song)"
-      >
-        {{ songActionLabel || "⋮" }}
-      </button>
-    </div>
-
-    <!-- Selection Mode Actions -->
-    <div v-if="selectMode" class="selection-actions selection-actions-floating">
-      <button
-        v-if="showRemoveButton"
-        class="action-btn remove-btn"
-        @click="$emit('remove')"
-      >
-        从收藏夹移除
-      </button>
-      <button
-        v-if="showAddButton"
-        class="action-btn add-btn"
-        @click="$emit('showAddModal')"
-      >
-        添加到收藏夹
-      </button>
     </div>
   </div>
 </template>
@@ -85,11 +80,11 @@ withDefaults(
     songs: MusicInfo[];
     selectMode: boolean;
     selectedSongs: Set<string>;
+    selectionCount?: number;
+    selectionActionLabel?: string;
     currentSongName?: string;
     showRemoveButton: boolean;
     showAddButton: boolean;
-    showSongActionButton?: boolean;
-    songActionLabel?: string;
     showHeader?: boolean;
     showLufs?: boolean;
     showBackButton?: boolean;
@@ -100,8 +95,6 @@ withDefaults(
   {
     showHeader: true,
     showLufs: false,
-    showSongActionButton: false,
-    songActionLabel: "⋮",
     showBackButton: true,
     showSelectButton: true,
     showHeaderActionButton: false,
@@ -116,8 +109,8 @@ defineEmits<{
   (e: "play", song: MusicInfo, index: number): void;
   (e: "remove"): void;
   (e: "showAddModal"): void;
-  (e: "songAction", song: MusicInfo): void;
   (e: "headerAction"): void;
+  (e: "selectionAction"): void;
 }>();
 
 const songListRef = ref<HTMLDivElement | null>(null);
@@ -199,6 +192,11 @@ defineExpose({
   cursor: pointer;
 }
 
+.header-action-placeholder {
+  width: 80px;
+  flex: none;
+}
+
 .song-item {
   padding: 12px 15px;
   border-bottom: 1px solid #f0f0f0;
@@ -246,68 +244,5 @@ defineExpose({
   color: #999;
   font-weight: 400;
   white-space: nowrap;
-}
-
-.song-action-btn {
-  flex: none;
-  width: 38px;
-  height: 38px;
-  border: none;
-  border-radius: 10px;
-  background: #f0f0f0;
-  color: #333;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.song-action-btn:hover {
-  background: #e4e4e4;
-}
-
-.selection-actions {
-  padding: 20px;
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-
-.selection-actions-floating {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 15px;
-  background-color: #fff;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-  z-index: 20;
-}
-
-.action-btn {
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.add-btn {
-  background-color: #1db954;
-  color: white;
-}
-
-.add-btn:hover {
-  background-color: #1ed760;
-}
-
-.remove-btn {
-  background-color: #e74c3c;
-  color: white;
-}
-
-.remove-btn:hover {
-  background-color: #c0392b;
 }
 </style>

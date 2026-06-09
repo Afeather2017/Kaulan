@@ -37,7 +37,7 @@ pub use download::{
 };
 pub use lufs::precache_lufs;
 pub use lyrics::{get_lyrics, get_lyrics_by_id};
-pub use music::{get_all_music, get_music, get_music_by_id, get_music_cover};
+pub use music::{delete_music_batch, get_all_music, get_music, get_music_by_id, get_music_cover};
 pub use playlists::{get_all_playlists, get_playlist};
 pub use settings::{get_media_types, get_music_directory, set_media_types, set_music_directory};
 pub use upload::{get_directory_tree, upload_files};
@@ -260,6 +260,7 @@ pub async fn start_server(
                 .service(get_music_by_id)
                 .service(get_music)
                 .service(get_all_music)
+                .service(delete_music_batch)
                 .service(precache_lufs)
                 // Lyrics endpoints (ID-based first, then filename-based)
                 .service(get_lyrics_by_id)

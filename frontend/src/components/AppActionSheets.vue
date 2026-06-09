@@ -68,6 +68,30 @@
   </div>
 
   <div
+    v-if="selectedSongListMenuTitle"
+    class="modal-overlay source-menu-overlay"
+    @click="$emit('closeSongListMenu')"
+  >
+    <div class="source-menu-sheet" @click.stop>
+      <div class="source-menu-title">
+        {{ selectedSongListMenuTitle }}
+      </div>
+      <button
+        class="source-menu-action"
+        @click="$emit('startSongListCollectionSelection')"
+      >
+        多选
+      </button>
+      <button
+        class="source-menu-action danger-action"
+        @click="$emit('startSongListDeleteSelection')"
+      >
+        删除
+      </button>
+    </div>
+  </div>
+
+  <div
     v-if="selectedCollectionMenuName"
     class="modal-overlay source-menu-overlay"
     @click="$emit('closeCollectionMenu')"
@@ -87,49 +111,16 @@
       </button>
     </div>
   </div>
-
-  <div
-    v-if="selectedSongMenuSong"
-    class="modal-overlay source-menu-overlay"
-    @click="$emit('closeSongMenu')"
-  >
-    <div class="source-menu-sheet" @click.stop>
-      <div class="source-menu-title">
-        {{ selectedSongMenuSong.name }}
-      </div>
-      <button class="source-menu-action" @click="$emit('queueSongNext')">
-        下一首播放
-      </button>
-      <button class="source-menu-action" @click="$emit('addSongToQueue')">
-        添加到队列
-      </button>
-      <button
-        v-if="activeTab === 'library'"
-        class="source-menu-action"
-        @click="$emit('addSongToCollection')"
-      >
-        添加到收藏
-      </button>
-      <button
-        v-if="activeTab === 'collections'"
-        class="source-menu-action danger-action"
-        @click="$emit('removeSongFromCollection')"
-      >
-        从收藏中移除
-      </button>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">
-import type { MusicInfo } from "@/composables/useAudioPlayer";
 import type { LibrarySourceGroup } from "@/types/library";
 
 defineProps<{
   activeTab: "library" | "collections";
   selectedSourceMenuGroup: LibrarySourceGroup | null;
+  selectedSongListMenuTitle: string | null;
   selectedCollectionMenuName: string | null;
-  selectedSongMenuSong: MusicInfo | null;
 }>();
 
 defineEmits<{
@@ -141,14 +132,12 @@ defineEmits<{
   (e: "retrySourceConnection", apiBase: string): void;
   (e: "showSourceDetails", group: LibrarySourceGroup): void;
   (e: "deleteSource", group: LibrarySourceGroup): void;
+  (e: "closeSongListMenu"): void;
+  (e: "startSongListCollectionSelection"): void;
+  (e: "startSongListDeleteSelection"): void;
   (e: "closeCollectionMenu"): void;
   (e: "renameCollection"): void;
   (e: "deleteCollection"): void;
-  (e: "closeSongMenu"): void;
-  (e: "queueSongNext"): void;
-  (e: "addSongToQueue"): void;
-  (e: "addSongToCollection"): void;
-  (e: "removeSongFromCollection"): void;
 }>();
 </script>
 

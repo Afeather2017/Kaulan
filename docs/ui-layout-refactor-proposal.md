@@ -317,7 +317,7 @@ The top search entry should not force the user to choose online/offline first.
 
 ```text
 +--------------------------------------------------+
-| [< Back] Search                                  |
+| [< Back] Search                             [⋮]  |
 +--------------------------------------------------+
 | [ Search songs, playlists...                 ] |
 +--------------------------------------------------+
@@ -336,7 +336,7 @@ If there are no local results:
 
 ```text
 +--------------------------------------------------+
-| [< Back] Search                                  |
+| [< Back] Search                             [⋮]  |
 +--------------------------------------------------+
 | [ Search songs, playlists...                 ] |
 +--------------------------------------------------+
@@ -357,6 +357,24 @@ That panel already handles:
 - lyrics selection
 - download to the selected source library
 - optional extra local copy when the selected source is not localhost
+
+Search result list actions should match library detail actions:
+
+- `⋮` opens a list action menu
+- `Multi-select` enters batch selection mode for the current result list
+- `Delete` is best-effort only and may be unavailable or fail for some sources
+
+Search selection mode:
+
+```text
++--------------------------------------------------+
+| [Cancel]      Selected 3      [Add to Collection] |
++--------------------------------------------------+
+| [x] Song A                           [This Device]|
+| [x] Song B                           [Living Room]|
+| [ ] Song C                           [Downloads]  |
++--------------------------------------------------+
+```
 
 ### Online Search Panel
 
@@ -457,15 +475,15 @@ Examples:
 ### Mobile Library Detail
 
 ```text
-+--------------------------------------------------+
-| [< Back] Library / RedmiNote7 [This Device]      |
-+--------------------------------------------------+
-| Song A                                           |
-| Song B                                           |
-| Song C                                           |
-|                                                  |
-| Song row menu still supports add to collection   |
-+--------------------------------------------------+
++-------------------------------------------------+
+| [< Back] Library / RedmiNote7 [This Device] [⋮] |
++-------------------------------------------------+
+| Song A                                          |
+| Song B                                          |
+| Song C                                          |
+|                                                 |
+| Song row menu still supports add to collection  |
++-------------------------------------------------+
 ```
 
 ## Wide Mode
@@ -477,33 +495,33 @@ Wide mode can show browsing and playback together, but the library should still 
 `Library` tab:
 
 ```text
-+----------------------------------------------------------------------------------+
-| Kaulan                  [ Search all music sources...                 ] [⋮]      |
-+----------------------------------------------------------------------------------+
-| [Library] [My Collections] [Filter] [Add device] | Now Playing / Lyrics          |
-+---------------------------------------+------------------------------------------+
-| This Device          [Online]    [⋮]  |              [ Cover ]                   |
-|  所有音乐                             |              [ Cover ]                   |
-|  mp3                                  |              [ Cover ]                   |
-|  RedmiNote7                           |              [ Cover ]                   |
-|                                       |------------------------------------------|
++------------------------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮]              |
++------------------------------------------------------------------------------------------+
+| [Library] [My Collections] [Filter] [Add device] | Now Playing / Lyrics                  |
++---------------------------------------+--------------------------------------------------+
+| This Device          [Online]    [⋮]  |              [ Cover ]                           |
+|  所有音乐                             |              [ Cover ]                           |
+|  mp3                                  |              [ Cover ]                           |
+|  RedmiNote7                           |              [ Cover ]                           |
+|                                       |--------------------------------------------------|
 | Living Room PC       [Online]    [⋮]  | [Cover] Song Name                                |
 |  Downloads                            | [Cover]      progress bar                        |
 |  Anime                                | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
-+---------------------------------------+------------------------------------------+
++---------------------------------------+--------------------------------------------------+
 ```
 
 `My Collections` tab:
 
 ```text
-+------------------------------------------------------------------------------------------+
-| Kaulan                  [ Search all music sources...                 ] [⋮]              |
-+------------------------------------------------------------------------------------------+
-| [Library] [My Collections] [Filter] [New Collection] | Now Playing / Queue               |
-+------------------------------------------------------+-----------------------------------+
-| No personal collections yet.                                                            |
-| Use "New Collection" to create your first one.                                          |
-+------------------------------------------------------+-----------------------------------+
++-----------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮] |
++-----------------------------------------------------------------------------+
+| [Library] [My Collections] [Filter] [New Collection] | Now Playing / Queue  |
++------------------------------------------------------+----------------------+
+| No personal collections yet.                                                |
+| Use "New Collection" to create your first one.                              |
++------------------------------------------------------+----------------------+
 ```
 
 ### Desktop Offline Example
@@ -703,26 +721,60 @@ This avoids collisions when two servers have the same file names.
 
 ## Collection Actions
 
-Collection editing should feel like a normal song action, not a special operating mode.
+Batch song actions should use the same pattern in library detail, search results, and collection detail.
 
 ### Recommended Entry Points
 
-- song row `⋮` menu
-- now playing `⋮` menu
-- collection row `⋮` menu
+- library detail header `⋮` menu
+- search results header `⋮` menu
+- collection detail header `⋮` menu
 
-### Song Row Menu
+### List Action Menu
 
 ```text
 +--------------------------------------------------+
-| Song A                                      [⋮]|
+| [< Back] Library / RedmiNote7                [⋮] |
 +--------------------------------------------------+
-| Play next                                        |
-| Add to queue                                     |
-| Add to collection                                |
-| Remove from collection                           |
+| Song A                                           |
+| Song B                                           |
+| Song C                                           |
++--------------------------------------------------+
+| Multi-select                                     |
+| Delete                                           |
 +--------------------------------------------------+
 ```
+
+Tap the header `⋮` button to open this menu.
+
+### Library Or Search Selection Mode
+
+```text
++--------------------------------------------------+
+| [Cancel]      Selected 2      [Add to Collection] |
++--------------------------------------------------+
+| [x] Song A                                       |
+| [x] Song B                                       |
+| [ ] Song C                                       |
++--------------------------------------------------+
+```
+
+### Collection Selection Mode
+
+```text
++--------------------------------------------------+
+| [Cancel]   Selected 2   [Remove from Collection] |
++--------------------------------------------------+
+| [x] Song A                                       |
+| [x] Song C                                       |
+| [ ] Song F                                       |
++--------------------------------------------------+
+```
+
+Deletion note:
+
+- `Delete` should be documented as best-effort
+- some sources may disable it entirely
+- Android MediaStore-backed sources do not currently implement deletion, so delete may fail there
 
 ### Add To Collection Modal
 
@@ -769,6 +821,7 @@ Collection editing should feel like a normal song action, not a special operatin
 Collection overflow menu:
 
 ```text
+Multi-select
 Rename collection
 Delete collection
 ```
@@ -848,7 +901,7 @@ Keep visible in normal use:
 - queue
 - lyrics entry
 - source-group `⋮` actions
-- per-song collection actions
+- header-based batch song actions
 
 ## Suggested Frontend Refactor
 
