@@ -45,6 +45,7 @@
             :show-lufs="showLufs"
             :trimmed-search-query="trimmedSearchQuery"
             :search-results="searchResults"
+            :song-selection-action-label="songSelectionActionLabel"
             @set-active-tab="activeTab = $event"
             @open-filter-sheet="openFilterSheet"
             @add-device="handleAddDevice"
@@ -57,13 +58,12 @@
             @show-create-modal="handleShowCreateModal"
             @delete-selected-collections="handleDeleteSelectedCollections"
             @open-collection-menu="handleOpenCollectionMenu"
+            @open-song-list-menu="handleOpenSongListMenu"
             @back-to-playlists="handleBackToPlaylists"
             @toggle-select-mode="toggleSelectMode"
             @toggle-song-selection="toggleSongSelection"
             @play-song="handlePlaySong"
-            @remove-from-collection="handleRemoveFromCollection"
-            @show-add-to-collection-modal="handleShowAddToCollectionModal"
-            @song-action="handleSongCollectionAction"
+            @perform-song-selection-action="handleSongSelectionAction"
             @open-online-search-from-query="openOnlineSearchFromQuery"
             @reset-library-filter="resetLibraryFilter"
           />
@@ -211,10 +211,10 @@
     />
 
     <AppActionSheets
-      :active-tab="activeTab"
+      :active-tab="songMenuTab"
       :selected-source-menu-group="selectedSourceMenuGroup"
+      :selected-song-list-menu-title="selectedSongListMenuTitle"
       :selected-collection-menu-name="selectedCollectionMenuName"
-      :selected-song-menu-song="selectedSongMenuSong"
       @close-source-menu="closeSourceMenu"
       @refresh-source="handleUpdateSourceDatabase"
       @upload-to-source="openUploadForSource"
@@ -223,14 +223,12 @@
       @retry-source-connection="handleRetrySourceConnection"
       @show-source-details="handleShowSourceDetails"
       @delete-source="handleDeleteSource"
+      @close-song-list-menu="closeSongListMenu"
+      @start-song-list-collection-selection="startSongListCollectionSelection"
+      @start-song-list-delete-selection="startSongListDeleteSelection"
       @close-collection-menu="closeCollectionMenu"
       @rename-collection="renameCollection"
       @delete-collection="deleteCollectionFromMenu"
-      @close-song-menu="closeSongMenu"
-      @queue-song-next="queueSongNextFromMenu"
-      @add-song-to-queue="addSongToQueueFromMenu"
-      @add-song-to-collection="addSongToCollectionFromMenu"
-      @remove-song-from-collection="removeSongFromCollectionFromMenu"
     />
   </div>
 </template>
@@ -303,6 +301,7 @@ const {
   selectedCollectionMenuName,
   selectMode,
   selectedSongs,
+  songSelectionActionLabel,
   collectionSelectMode,
   selectedCollectionsList,
   hasSelectedNonAllMusicCollection,
@@ -311,7 +310,8 @@ const {
   isLyricsLoading,
   hasLyrics,
   selectedSourceMenuGroup,
-  selectedSongMenuSong,
+  selectedSongListMenuTitle,
+  songMenuTab,
   showBackButton,
   showActionBar,
   isWideLayout,
@@ -350,14 +350,12 @@ const {
   handleShowSourceDetails,
   handleDeleteSource,
   closeSourceMenu,
+  closeSongListMenu,
+  startSongListCollectionSelection,
+  startSongListDeleteSelection,
   closeCollectionMenu,
   renameCollection,
   deleteCollectionFromMenu,
-  closeSongMenu,
-  queueSongNextFromMenu,
-  addSongToQueueFromMenu,
-  addSongToCollectionFromMenu,
-  removeSongFromCollectionFromMenu,
   openOnlineSearchFromQuery,
   openOnlineLyricSearch,
   handleSelectCollection,
@@ -368,9 +366,7 @@ const {
   toggleCollectionSelectMode,
   toggleCollectionSelection,
   handlePlaySong,
-  handleRemoveFromCollection,
-  handleShowAddToCollectionModal,
-  handleSongCollectionAction,
+  handleSongSelectionAction,
   handleLyricLineClick,
   handleShowActiveQueue,
   togglePlayerPanelMode,
@@ -387,6 +383,7 @@ const {
   handleAddDevice,
   handleOpenSourceMenu,
   handleOpenCollectionMenu,
+  handleOpenSongListMenu,
   handleDeleteSelectedCollections,
   handleShowCreateModal,
   hideSettingsModal,

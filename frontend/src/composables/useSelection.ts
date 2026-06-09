@@ -1,17 +1,36 @@
 import { ref } from "vue";
 
+export type SongSelectionAction = "collection" | "remove" | "delete";
+
 export function useSelection() {
   // Song selection state
   const selectMode = ref(false);
   const selectedSongs = ref<Set<string>>(new Set());
+  const songSelectionAction = ref<SongSelectionAction | null>(null);
 
   // Collection selection state
   const collectionSelectMode = ref(false);
   const selectedCollectionsList = ref<Set<string>>(new Set());
 
-  const toggleSelectMode = () => {
-    selectMode.value = !selectMode.value;
+  const startSongSelection = (action: SongSelectionAction) => {
+    selectMode.value = true;
+    songSelectionAction.value = action;
     selectedSongs.value.clear();
+  };
+
+  const stopSongSelection = () => {
+    selectMode.value = false;
+    songSelectionAction.value = null;
+    selectedSongs.value.clear();
+  };
+
+  const toggleSelectMode = () => {
+    if (selectMode.value) {
+      stopSongSelection();
+      return;
+    }
+
+    startSongSelection("collection");
   };
 
   const toggleSongSelection = (songName: string) => {
@@ -23,7 +42,7 @@ export function useSelection() {
   };
 
   const clearSongSelection = () => {
-    selectedSongs.value.clear();
+    stopSongSelection();
   };
 
   const toggleCollectionSelectMode = () => {
@@ -50,8 +69,7 @@ export function useSelection() {
   };
 
   const resetAll = () => {
-    selectMode.value = false;
-    selectedSongs.value.clear();
+    stopSongSelection();
     collectionSelectMode.value = false;
     selectedCollectionsList.value.clear();
   };
@@ -60,10 +78,13 @@ export function useSelection() {
     // Song selection state
     selectMode,
     selectedSongs,
+    songSelectionAction,
     // Collection selection state
     collectionSelectMode,
     selectedCollectionsList,
     // Song selection methods
+    startSongSelection,
+    stopSongSelection,
     toggleSelectMode,
     toggleSongSelection,
     clearSongSelection,

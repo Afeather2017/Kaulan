@@ -20,12 +20,14 @@
 //! See [`docs/position-based-streaming.md`](../../../docs/position-based-streaming.md) for details.
 
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity, Model as MusicModel};
-use crate::file_ops::get_file_reader;
-use crate::types::{AppState, MusicResponse};
-use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
+use crate::file_ops::{get_file_reader, source_remove_file};
+use crate::types::{
+    AppState, DeleteMusicFailure, DeleteMusicRequest, DeleteMusicResponse, MusicResponse,
+};
+use actix_web::{delete, get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
 // lofty imports are used locally in cover art extraction functions below
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, ModelTrait, QueryFilter};
 use serde::Deserialize;
 use tracing::{debug, error, info, warn};
 
@@ -429,6 +431,129 @@ pub async fn get_all_music(data: web::Data<AppState>) -> impl Responder {
             error!("Database error while fetching all music: {}", e);
             info!("[ACCESS] GET /api/music - Status: 500");
             HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
+#[delete("/api/music/batch")]
+pub async fn delete_music_batch(
+    payload: web::Json<DeleteMusicRequest>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    let ids = payload.ids.clone();
+    info!(
+        "[ACCESS] DELETE /api/music/batch - Started ({} ids)",
+        ids.len()
+    );
+
+    if ids.is_empty() {
+        return HttpResponse::BadRequest().json(DeleteMusicResponse {
+            success: false,
+            message: "No music IDs provided".to_string(),
+            deleted_ids: Vec::new(),
+            failed: Vec::new(),
+        });
+    }
+
+    let mut deleted_ids = Vec::new();
+    let mut failed = Vec::new();
+
+    for id in ids {
+        match MusicEntity::find_by_id(id).one(&data.db_conn).await {
+            Ok(Some(music)) => {
+                if let Err(err) = source_remove_file(&music.file_path).await {
+                    warn!(
+                        "Failed to delete music file for ID {} ({}): {}",
+                        id, music.file_path, err
+                    );
+                    failed.push(DeleteMusicFailure {
+                        id,
+                        reason: err.to_string(),
+                    });
+                    continue;
+                }
+
+                remove_sidecar_lyrics(&music.file_path).await;
+
+                match music.delete(&data.db_conn).await {
+                    Ok(_) => {
+                        info!("Deleted music ID {} from filesystem and database", id);
+                        deleted_ids.push(id);
+                    }
+                    Err(err) => {
+                        error!("Failed to delete music ID {} from database: {}", id, err);
+                        failed.push(DeleteMusicFailure {
+                            id,
+                            reason: err.to_string(),
+                        });
+                    }
+                }
+            }
+            Ok(None) => failed.push(DeleteMusicFailure {
+                id,
+                reason: "Music not found".to_string(),
+            }),
+            Err(err) => {
+                error!(
+                    "Database error while loading music ID {} for deletion: {}",
+                    id, err
+                );
+                failed.push(DeleteMusicFailure {
+                    id,
+                    reason: err.to_string(),
+                });
+            }
+        }
+    }
+
+    let success = failed.is_empty();
+    let mut status = if success {
+        HttpResponse::Ok()
+    } else if deleted_ids.is_empty() {
+        HttpResponse::BadRequest()
+    } else {
+        HttpResponse::Ok()
+    };
+
+    info!(
+        "[ACCESS] DELETE /api/music/batch - Status: {} ({} deleted, {} failed)",
+        if success {
+            200
+        } else if deleted_ids.is_empty() {
+            400
+        } else {
+            200
+        },
+        deleted_ids.len(),
+        failed.len()
+    );
+
+    status.json(DeleteMusicResponse {
+        success,
+        message: if success {
+            format!("Deleted {} songs", deleted_ids.len())
+        } else {
+            format!(
+                "Deleted {} songs, {} failed",
+                deleted_ids.len(),
+                failed.len()
+            )
+        },
+        deleted_ids,
+        failed,
+    })
+}
+
+async fn remove_sidecar_lyrics(file_path: &str) {
+    for extension in ["lrc", "vtt"] {
+        let lyric_path = std::path::Path::new(file_path)
+            .with_extension(extension)
+            .to_string_lossy()
+            .to_string();
+        match source_remove_file(&lyric_path).await {
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => warn!("Failed to remove sidecar lyric {}: {}", lyric_path, err),
         }
     }
 }

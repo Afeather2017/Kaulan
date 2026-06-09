@@ -10,10 +10,12 @@ import {
   buildSongRowKey,
   inferMediaType,
 } from "@/composables/useLibrarySources";
-import { useSelection } from "@/composables/useSelection";
+import {
+  useSelection,
+  type SongSelectionAction,
+} from "@/composables/useSelection";
 import { useLyrics } from "@/composables/useLyrics";
 import { useLufs } from "@/composables/useLufs";
-import { useQueueEditing } from "@/composables/useQueueEditing";
 import type { MusicInfo, PlayMode } from "@/composables/useAudioPlayer";
 import type {
   LibrarySourceGroup,
@@ -40,9 +42,29 @@ export function useAppShell() {
   const currentSongs = computed<MusicInfo[]>(
     () => ui.selectedPlaylist.value?.songs || [],
   );
+  const visibleSongs = computed<MusicInfo[]>(() =>
+    ui.currentView.value === "search"
+      ? library.searchResults.value
+      : currentSongs.value,
+  );
 
   const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
-  const selectedSongMenuSong = ref<MusicInfo | null>(null);
+  const selectedSongListMenuTitle = ref<string | null>(null);
+  const songMenuTab = computed<"library" | "collections">(() =>
+    ui.currentView.value === "search" ? "library" : ui.activeTab.value,
+  );
+  const songSelectionActionLabel = computed(() => {
+    switch (selection.songSelectionAction.value) {
+      case "collection":
+        return "添加到收藏夹";
+      case "remove":
+        return "移除收藏夹";
+      case "delete":
+        return "删除";
+      default:
+        return "";
+    }
+  });
 
   const {
     lyrics,
@@ -85,13 +107,11 @@ export function useAppShell() {
   };
 
   const clearSongSelection = () => {
-    selection.selectMode.value = false;
-    selection.selectedSongs.value.clear();
+    selection.stopSongSelection();
   };
 
   const resetSelectionModes = () => {
-    selection.selectMode.value = false;
-    selection.selectedSongs.value.clear();
+    selection.stopSongSelection();
     selection.collectionSelectMode.value = false;
     selection.selectedCollectionsList.value.clear();
   };
@@ -103,8 +123,8 @@ export function useAppShell() {
   };
 
   const handleBackToPlaylists = () => {
+    closeSongListMenu();
     collectionsStore.closeCollectionMenu();
-    closeSongMenu();
     backToPlaylists();
     resetSelectionModes();
   };
@@ -112,8 +132,8 @@ export function useAppShell() {
   const androidBackNavigation = useAndroidBackNavigation({
     showFilterSheet: library.showFilterSheet,
     selectedSourceMenuGroup,
+    selectedSongListMenuTitle,
     selectedCollectionMenuName: collections.selectedCollectionMenuName,
-    selectedSongMenuSong,
     showActiveQueueModal: ui.showActiveQueueModal,
     showAddDeviceModal: ui.showAddDeviceModal,
     showUploadModal: ui.showUploadModal,
@@ -123,7 +143,7 @@ export function useAppShell() {
     showAddToCollection: collections.showAddToCollection,
     showSettings: ui.showSettings,
     selectMode: selection.selectMode,
-    selectedSongs: selection.selectedSongs,
+    clearSongSelection,
     collectionSelectMode: selection.collectionSelectMode,
     selectedCollectionsList: selection.selectedCollectionsList,
     playerPanelMode: ui.playerPanelMode,
@@ -132,10 +152,10 @@ export function useAppShell() {
     closeSourceMenu: () => {
       selectedSourceMenuGroup.value = null;
     },
-    closeCollectionMenu: collectionsStore.closeCollectionMenu,
-    closeSongMenu: () => {
-      selectedSongMenuSong.value = null;
+    closeSongListMenu: () => {
+      selectedSongListMenuTitle.value = null;
     },
+    closeCollectionMenu: collectionsStore.closeCollectionMenu,
     hideCreateCollectionModal: collectionsStore.hideCreateCollectionModal,
     hideAddToCollectionModal: collectionsStore.hideAddToCollectionModal,
     closeSettings: uiStore.closeSettings,
@@ -307,8 +327,8 @@ export function useAppShell() {
 
   const handleShowSettingsModal = () => {
     closeSourceMenu();
+    closeSongListMenu();
     collectionsStore.closeCollectionMenu();
-    closeSongMenu();
     uiStore.openSettings();
   };
 
@@ -362,13 +382,14 @@ export function useAppShell() {
 
   const handleAddDevice = () => {
     selectedSourceMenuGroup.value = null;
+    closeSongListMenu();
     collectionsStore.closeCollectionMenu();
-    closeSongMenu();
     void libraryStore.refreshSourceGroups();
     ui.showAddDeviceModal.value = true;
   };
 
   const handleOpenSourceMenu = (group: LibrarySourceGroupSummary) => {
+    closeSongListMenu();
     selectedSourceMenuGroup.value =
       library.sourceGroups.value.find(
         (item) => item.sourceKey === group.sourceKey,
@@ -377,6 +398,33 @@ export function useAppShell() {
 
   const closeSourceMenu = () => {
     selectedSourceMenuGroup.value = null;
+  };
+
+  const handleOpenSongListMenu = (title: string) => {
+    closeSourceMenu();
+    collectionsStore.closeCollectionMenu();
+    selectedSongListMenuTitle.value = title;
+  };
+
+  const closeSongListMenu = () => {
+    selectedSongListMenuTitle.value = null;
+  };
+
+  const startSongSelection = (action: SongSelectionAction) => {
+    closeSongListMenu();
+    selection.startSongSelection(action);
+  };
+
+  const startSongListCollectionSelection = () => {
+    const action =
+      ui.currentView.value === "songs" && ui.activeTab.value === "collections"
+        ? "remove"
+        : "collection";
+    startSongSelection(action);
+  };
+
+  const startSongListDeleteSelection = () => {
+    startSongSelection("delete");
   };
 
   const handleRetrySourceConnection = async (apiBase: string) => {
@@ -406,52 +454,8 @@ export function useAppShell() {
   };
 
   const handleOpenCollectionMenu = (collectionName: string) => {
-    selectedSongMenuSong.value = null;
+    closeSongListMenu();
     collectionsStore.openCollectionMenu(collectionName);
-  };
-
-  const openSongMenu = (song: MusicInfo) => {
-    collections.selectedCollectionMenuName.value = null;
-    selectedSongMenuSong.value = song;
-  };
-
-  const closeSongMenu = () => {
-    selectedSongMenuSong.value = null;
-  };
-
-  const { queueSongNextFromMenu, addSongToQueueFromMenu } = useQueueEditing({
-    activeQueue: player.activeQueue,
-    playbackSongs: player.playbackSongs,
-    currentSong: player.currentSong,
-    selectedSongMenuSong,
-    replaceQueue: playerStore.replaceQueue,
-    handlePlaySong,
-    closeSongMenu,
-  });
-
-  const addSongToCollectionFromMenu = () => {
-    const song = selectedSongMenuSong.value;
-    if (!song) {
-      return;
-    }
-
-    collectionsStore.addSongToCollectionFromMenu(song);
-    closeSongMenu();
-  };
-
-  const removeSongFromCollectionFromMenu = () => {
-    const song = selectedSongMenuSong.value;
-    if (!song || !ui.selectedPlaylist.value) {
-      return;
-    }
-
-    collectionsStore.removeSingleSongFromCollection(
-      ui.selectedPlaylist.value.name,
-      song,
-      buildSongRowKey,
-    );
-    handleSelectCollection(ui.selectedPlaylist.value.name);
-    closeSongMenu();
   };
 
   const openUploadForSource = (group: LibrarySourceGroup) => {
@@ -482,8 +486,100 @@ export function useAppShell() {
     }
   };
 
-  const handleSongCollectionAction = (song: MusicInfo) => {
-    openSongMenu(song);
+  const deleteSongsBySource = async (apiBase: string, ids: number[]) => {
+    const response = await fetch(`${apiBase}/music/batch`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ids }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.message || "删除失败");
+    }
+    return payload as {
+      deleted_ids: number[];
+      failed: Array<{ id: number; reason: string }>;
+      message: string;
+    };
+  };
+
+  const deleteSelectedSongs = async () => {
+    const selectedVisibleSongs = visibleSongs.value.filter((song) =>
+      selection.selectedSongs.value.has(song.rowKey || buildSongRowKey(song)),
+    );
+    if (selectedVisibleSongs.length === 0) {
+      alert("没有选中的歌曲");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `确定要删除选中的 ${selectedVisibleSongs.length} 首歌曲吗？`,
+      )
+    ) {
+      return;
+    }
+
+    const songsByApiBase = new Map<string, MusicInfo[]>();
+    for (const song of selectedVisibleSongs) {
+      const apiBase = resolveSourceApiBase(song.source_key);
+      const bucket = songsByApiBase.get(apiBase);
+      if (bucket) {
+        bucket.push(song);
+      } else {
+        songsByApiBase.set(apiBase, [song]);
+      }
+    }
+
+    const deletedKeys = new Set<string>();
+    const failureMessages: string[] = [];
+
+    for (const [apiBase, songs] of songsByApiBase) {
+      const payload = await deleteSongsBySource(
+        apiBase,
+        songs.map((song) => song.id),
+      );
+      const deletedIds = new Set(payload.deleted_ids);
+      for (const song of songs) {
+        if (deletedIds.has(song.id)) {
+          deletedKeys.add(song.rowKey || buildSongRowKey(song));
+        }
+      }
+      for (const failure of payload.failed) {
+        const failedSong = songs.find((song) => song.id === failure.id);
+        failureMessages.push(
+          `${failedSong?.name || failure.id}: ${failure.reason}`,
+        );
+      }
+    }
+
+    if (deletedKeys.size > 0) {
+      collectionsStore.pruneSongsByKeys(deletedKeys, buildSongRowKey);
+      await Promise.all(
+        Array.from(songsByApiBase.keys()).map((apiBase) =>
+          libraryStore.refreshSingleSource(apiBase),
+        ),
+      );
+      await playerStore.refreshAndroidSession();
+      if (
+        ui.currentView.value === "songs" &&
+        ui.activeTab.value === "collections" &&
+        ui.selectedPlaylist.value
+      ) {
+        handleSelectCollection(ui.selectedPlaylist.value.name);
+      }
+    }
+
+    clearSongSelection();
+
+    if (failureMessages.length > 0) {
+      alert(`部分歌曲删除失败：\n${failureMessages.join("\n")}`);
+      return;
+    }
+
+    alert("删除成功");
   };
 
   const handleDeleteSelectedCollections = async () => {
@@ -510,10 +606,6 @@ export function useAppShell() {
     alert(`已删除 ${deletedCount} 个收藏夹`);
     selection.collectionSelectMode.value = false;
     selection.selectedCollectionsList.value.clear();
-  };
-
-  const handleShowAddToCollectionModal = () => {
-    collectionsStore.showAddToCollectionModal();
   };
 
   const handleRemoveFromCollection = async () => {
@@ -548,11 +640,27 @@ export function useAppShell() {
 
   const addToCollection = async () => {
     collectionsStore.addToCollection(
-      currentSongs.value,
+      visibleSongs.value,
       selection.selectedSongs.value,
       buildSongRowKey,
       clearSongSelection,
     );
+  };
+
+  const handleSongSelectionAction = async () => {
+    switch (selection.songSelectionAction.value) {
+      case "collection":
+        collectionsStore.showAddToCollectionModal();
+        return;
+      case "remove":
+        await handleRemoveFromCollection();
+        return;
+      case "delete":
+        await deleteSelectedSongs();
+        return;
+      default:
+        return;
+    }
   };
 
   const renameCollection = () => {
@@ -711,6 +819,7 @@ export function useAppShell() {
     selectedCollectionMenuName: collections.selectedCollectionMenuName,
     selectMode: selection.selectMode,
     selectedSongs: selection.selectedSongs,
+    songSelectionActionLabel,
     collectionSelectMode: selection.collectionSelectMode,
     selectedCollectionsList: selection.selectedCollectionsList,
     hasSelectedNonAllMusicCollection:
@@ -720,7 +829,8 @@ export function useAppShell() {
     isLyricsLoading,
     hasLyrics,
     selectedSourceMenuGroup,
-    selectedSongMenuSong,
+    selectedSongListMenuTitle,
+    songMenuTab,
     showBackButton: shellLayout.showBackButton,
     showActionBar: shellLayout.showActionBar,
     isWideLayout: shellLayout.isWideLayout,
@@ -762,14 +872,13 @@ export function useAppShell() {
     handleShowSourceDetails,
     handleDeleteSource,
     closeSourceMenu,
+    handleOpenSongListMenu,
+    closeSongListMenu,
+    startSongListCollectionSelection,
+    startSongListDeleteSelection,
     closeCollectionMenu: collectionsStore.closeCollectionMenu,
     renameCollection,
     deleteCollectionFromMenu,
-    closeSongMenu,
-    queueSongNextFromMenu,
-    addSongToQueueFromMenu,
-    addSongToCollectionFromMenu,
-    removeSongFromCollectionFromMenu,
     openOnlineSearchFromQuery,
     openOnlineLyricSearch,
     handleLyricApplied,
@@ -782,8 +891,7 @@ export function useAppShell() {
     toggleCollectionSelection: selection.toggleCollectionSelection,
     handlePlaySong,
     handleRemoveFromCollection,
-    handleShowAddToCollectionModal,
-    handleSongCollectionAction,
+    handleSongSelectionAction,
     handleLyricLineClick,
     handleShowActiveQueue: uiStore.showActiveQueue,
     togglePlayerPanelMode: shellLayout.togglePlayerPanelMode,

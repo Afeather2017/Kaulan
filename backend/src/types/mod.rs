@@ -17,6 +17,25 @@ pub struct MusicResponse {
     pub created_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteMusicRequest {
+    pub ids: Vec<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteMusicFailure {
+    pub id: i32,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteMusicResponse {
+    pub success: bool,
+    pub message: String,
+    pub deleted_ids: Vec<i32>,
+    pub failed: Vec<DeleteMusicFailure>,
+}
+
 /// Music information for playlist responses
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MusicInfo {

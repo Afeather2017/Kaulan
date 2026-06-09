@@ -5,8 +5,8 @@ import type { Ref } from "vue";
 interface UseAndroidBackNavigationOptions {
   showFilterSheet: Ref<boolean>;
   selectedSourceMenuGroup: Ref<unknown | null>;
+  selectedSongListMenuTitle: Ref<string | null>;
   selectedCollectionMenuName: Ref<string | null>;
-  selectedSongMenuSong: Ref<unknown | null>;
   showActiveQueueModal: Ref<boolean>;
   showAddDeviceModal: Ref<boolean>;
   showUploadModal: Ref<boolean>;
@@ -16,15 +16,15 @@ interface UseAndroidBackNavigationOptions {
   showAddToCollection: Ref<boolean>;
   showSettings: Ref<boolean>;
   selectMode: Ref<boolean>;
-  selectedSongs: Ref<Set<string>>;
+  clearSongSelection: () => void;
   collectionSelectMode: Ref<boolean>;
   selectedCollectionsList: Ref<Set<string>>;
   playerPanelMode: Ref<PlayerPanelMode>;
   isWideLayout: Ref<boolean>;
   currentView: Ref<MainView>;
   closeSourceMenu: () => void;
+  closeSongListMenu: () => void;
   closeCollectionMenu: () => void;
-  closeSongMenu: () => void;
   hideCreateCollectionModal: () => void;
   hideAddToCollectionModal: () => void;
   closeSettings: () => void;
@@ -37,8 +37,8 @@ export function useAndroidBackNavigation(
   const {
     showFilterSheet,
     selectedSourceMenuGroup,
+    selectedSongListMenuTitle,
     selectedCollectionMenuName,
-    selectedSongMenuSong,
     showActiveQueueModal,
     showAddDeviceModal,
     showUploadModal,
@@ -48,15 +48,15 @@ export function useAndroidBackNavigation(
     showAddToCollection,
     showSettings,
     selectMode,
-    selectedSongs,
+    clearSongSelection,
     collectionSelectMode,
     selectedCollectionsList,
     playerPanelMode,
     isWideLayout,
     currentView,
     closeSourceMenu,
+    closeSongListMenu,
     closeCollectionMenu,
-    closeSongMenu,
     hideCreateCollectionModal,
     hideAddToCollectionModal,
     closeSettings,
@@ -76,13 +76,13 @@ export function useAndroidBackNavigation(
       return true;
     }
 
-    if (selectedCollectionMenuName.value) {
-      closeCollectionMenu();
+    if (selectedSongListMenuTitle.value) {
+      closeSongListMenu();
       return true;
     }
 
-    if (selectedSongMenuSong.value) {
-      closeSongMenu();
+    if (selectedCollectionMenuName.value) {
+      closeCollectionMenu();
       return true;
     }
 
@@ -135,8 +135,7 @@ export function useAndroidBackNavigation(
     }
 
     if (selectMode.value) {
-      selectMode.value = false;
-      selectedSongs.value.clear();
+      clearSongSelection();
       return true;
     }
 

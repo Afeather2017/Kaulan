@@ -182,6 +182,24 @@ export const useCollectionsStore = defineStore("collections", () => {
     syncLocalCollections();
   };
 
+  const pruneSongsByKeys = (
+    songKeys: Set<string>,
+    buildSongRowKey: (song: MusicInfo) => string,
+  ) => {
+    if (songKeys.size === 0) {
+      return;
+    }
+
+    localCollections.value = localCollections.value.map((collection) => ({
+      ...collection,
+      songs: collection.songs.filter(
+        (song) => !songKeys.has(song.rowKey || buildSongRowKey(song)),
+      ),
+    }));
+
+    syncLocalCollections();
+  };
+
   const showCreateCollectionModal = () => {
     newCollectionName.value = "";
     showCreateCollection.value = true;
@@ -310,6 +328,7 @@ export const useCollectionsStore = defineStore("collections", () => {
     addToCollection,
     removeSongsFromCollection,
     removeSingleSongFromCollection,
+    pruneSongsByKeys,
     showCreateCollectionModal,
     createCollectionFromAddModal,
     hideCreateCollectionModal,

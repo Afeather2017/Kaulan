@@ -135,9 +135,21 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       return [];
     }
 
-    return allLibrarySongs.value.filter((song) =>
-      song.name.toLowerCase().includes(query),
-    );
+    const seenRowKeys = new Set<string>();
+
+    return allLibrarySongs.value.filter((song) => {
+      if (!song.name.toLowerCase().includes(query)) {
+        return false;
+      }
+
+      const rowKey = song.rowKey || buildSongRowKey(song);
+      if (seenRowKeys.has(rowKey)) {
+        return false;
+      }
+
+      seenRowKeys.add(rowKey);
+      return true;
+    });
   });
 
   const filterSources = computed(() =>
