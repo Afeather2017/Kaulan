@@ -12,8 +12,6 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn, error};
 
 use crate::entities::music::{Entity as MusicEntity, ActiveModel as MusicActiveModel};
-use crate::file_ops::get_file_reader;
-use lufsgen::LufsCalculator;
 
 /// LUFS calculation job submitted to the queue
 pub struct LufsJob {
@@ -135,30 +133,5 @@ async fn run_worker(
 
 /// Calculates LUFS for a file path using seekable reader
 async fn calculate_lufs(file_path: &str) -> Result<Option<f64>, String> {
-    let reader = get_file_reader()
-        .open_seekable_reader(file_path)
-        .await
-        .map_err(|e| format!("Failed to open seekable reader: {}", e))?;
-
-    let file_label = file_path.to_string();
-
-    tokio::task::spawn_blocking(move || {
-        let calc = LufsCalculator::default();
-        match calc.calculate_from_reader(reader) {
-            Ok(Some(lufs)) => {
-                info!("[LUFS] SUCCESS: {} - LUFS: {}", file_label, lufs);
-                Some(lufs)
-            }
-            Ok(None) => {
-                warn!("[LUFS] FAILED: Unsupported format for: {}", file_label);
-                None
-            }
-            Err(e) => {
-                error!("[LUFS] ERROR: Failed to calculate LUFS for {}: {}", file_label, e);
-                None
-            }
-        }
-    })
-    .await
-    .map_err(|e| format!("LUFS task execution failed: {}", e))
+    crate::ffmpeg::calculate_lufs_for_source(file_path).await
 }

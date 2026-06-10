@@ -7,10 +7,9 @@
 //! Documentation: [docs/settings-and-database-management.md](../../../docs/settings-and-database-management.md)
 
 use crate::entities::music::{ActiveModel as MusicActiveModel, Entity as MusicEntity};
-use crate::file_ops::{get_file_reader, is_video_file};
+use crate::file_ops::is_video_file;
 use crate::types::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
-use lufsgen::LufsCalculator;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::Serialize;
 use tracing::{debug, error, info, warn};
@@ -101,46 +100,12 @@ pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> i
                     id, file_label
                 );
 
-                // Open seekable reader
-                let reader = match get_file_reader().open_seekable_reader(&file_path).await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        error!(
-                            "Background LUFS: Failed to open seekable reader for music ID {}: {}",
-                            id, e
-                        );
-                        return;
-                    }
-                };
-
-                // Calculate LUFS in blocking thread
-                let lufs_result = tokio::task::spawn_blocking(move || {
-                    let calc = LufsCalculator::default();
-                    match calc.calculate_from_reader(reader) {
-                        Ok(Some(lufs)) => {
-                            info!("[LUFS] BACKGROUND SUCCESS: {} - LUFS: {}", file_label, lufs);
-                            Some(lufs)
-                        }
-                        Ok(None) => {
-                            warn!(
-                                "[LUFS] BACKGROUND FAILED: Unsupported format for: {}",
-                                file_label
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            error!(
-                                "[LUFS] BACKGROUND ERROR: Failed to calculate LUFS for {}: {}",
-                                file_label, e
-                            );
-                            None
-                        }
-                    }
-                })
-                .await;
-
-                match lufs_result {
+                match crate::ffmpeg::calculate_lufs_for_source(&file_path).await {
                     Ok(Some(lufs_value)) => {
+                        info!(
+                            "[LUFS] BACKGROUND SUCCESS: {} - LUFS: {}",
+                            file_label, lufs_value
+                        );
                         // Update database with calculated LUFS
                         match MusicEntity::find_by_id(id).one(&db_conn).await {
                             Ok(Some(music_to_update)) => {
@@ -168,11 +133,19 @@ pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> i
                         }
                     }
                     Ok(None) => {
+                        warn!(
+                            "[LUFS] BACKGROUND FAILED: Unsupported format for: {}",
+                            file_label
+                        );
                         debug!("Background LUFS: Unsupported format for music ID {}", id);
                     }
                     Err(e) => {
                         error!(
-                            "Background LUFS: Task execution failed for music ID {}: {}",
+                            "[LUFS] BACKGROUND ERROR: Failed to calculate LUFS for {}: {}",
+                            file_label, e
+                        );
+                        error!(
+                            "Background LUFS: Calculation failed for music ID {}: {}",
                             id, e
                         );
                     }

@@ -31,10 +31,10 @@ async-trait = "0.1"
 bytes = "1"
 tokio-util = { version = "0.7", features = ["io"] }
 lofty = "0.24"
-lufsgen = "0.2.0"
 uuid = { version = "1.22.0", features = ["v4", "serde"] }
 gethostname = "1.1.0"
 tempfile = "3"
+rusty_ffmpeg = { path = "../vendor/rusty_ffmpeg", features = ["link_system_ffmpeg", "ffmpeg8_1"] }
 ytdl-audio = { path = "../vendor/ytdl-audio" }
 netease-api = { path = "../vendor/ncmdump-rs/netease-api" }
 bilibili-api = { path = "../vendor/ncmdump-rs/bilibili-api" }

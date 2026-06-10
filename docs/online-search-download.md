@@ -109,6 +109,7 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 - The frontend replaces the current playback queue with a single temporary track.
 - Temporary preview tracks are not inserted into the main library database.
 - On Android, preview files are stored in the app download root under `.preview-cache`.
+- On desktop, YouTube preview downloads are transcoded to MP3 through Kaulan's backend FFmpeg pipeline.
 - On Android, Bilibili preview downloads keep the provider's raw DASH audio container instead of running FFmpeg conversion. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`.
 
 ### Download behavior
@@ -116,8 +117,8 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 - Full downloads are saved under the configured online download root.
 - On Android, Kaulan uses the app external files music directory:
   - `/sdcard/Android/data/afeather.kaulan/files/Music`
+- On desktop, YouTube full downloads are re-encoded to `.mp3` through Kaulan's backend FFmpeg pipeline. Related sources: `backend/src/services/download/youtube.rs`, `backend/src/ffmpeg.rs`.
 - On Android, Bilibili full downloads are saved as raw DASH audio files with the `.m4s` extension because FFmpeg is not integrated in the Android path yet. The standard filesystem scan treats `.m4s` as a supported audio suffix, so these downloads are indexed on the next library refresh. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`, `backend/src/file_ops/mod.rs`.
-- YouTube downloads may also remain as `.webm` when Kaulan keeps the provider container. The standard filesystem scan currently treats `.webm` as an audio suffix so these downloads are indexed before in-repo FFmpeg conversion is available. Related sources: `backend/src/services/download/youtube.rs`, `backend/src/file_ops/mod.rs`.
 - If the user selected a lyric candidate, Kaulan tries to save a matching `.lrc` file beside the audio file.
 - After a successful full download, Kaulan refreshes the music database across both library roots:
   - the configured music directory
