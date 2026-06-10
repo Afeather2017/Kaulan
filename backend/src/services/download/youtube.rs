@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::warn;
-use ytdl_audio::{DownloadOpts, StdFileWriter, YoutubeClient};
+use ytdl_audio::{DownloadOpts, YoutubeClient};
 
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
 
@@ -91,7 +91,7 @@ impl MusicProvider for YoutubeProvider {
             .await
             .map_err(|e| e.to_string())?;
         let (final_name, final_path) =
-            finalize_youtube_audio(&result.audio_path, preview_root, &token, Some("ogg"))?;
+            finalize_youtube_audio(&result.audio_path, preview_root, &token)?;
 
         Ok(PreviewBuildResult {
             source: DownloadSource::Youtube,
@@ -126,7 +126,7 @@ impl MusicProvider for YoutubeProvider {
 
         let title = sanitize_filename(&request.title);
         let (_final_filename, final_path) =
-            finalize_youtube_audio(&result.audio_path, target_dir, &title, Some("ogg"))?;
+            finalize_youtube_audio(&result.audio_path, target_dir, &title)?;
 
         Ok(FullDownloadResult { final_path })
     }
@@ -151,34 +151,12 @@ fn finalize_youtube_audio(
     source_audio: &Path,
     output_dir: &Path,
     output_stem: &str,
-    preferred_extension: Option<&str>,
 ) -> Result<(String, PathBuf), String> {
-    let preferred_extension = preferred_extension.unwrap_or("ogg");
-    let converted_name = format!("{output_stem}.{preferred_extension}");
+    let converted_name = format!("{output_stem}.mp3");
     let converted_path = output_dir.join(&converted_name);
 
-    match ytdl_audio::convert_audio(source_audio, &converted_path, None, &StdFileWriter) {
-        Ok(()) => Ok((converted_name, converted_path)),
-        Err(err) => {
-            warn!(
-                "[DOWNLOAD] FFmpeg conversion unavailable, keeping original audio container: source={}, target={}, error={}",
-                source_audio.display(),
-                converted_path.display(),
-                err
-            );
-
-            let source_extension = source_audio
-                .extension()
-                .and_then(|value| value.to_str())
-                .filter(|value| !value.is_empty())
-                .unwrap_or("webm");
-            let fallback_name = format!("{output_stem}.{source_extension}");
-            let fallback_path = output_dir.join(&fallback_name);
-            fs::copy(source_audio, &fallback_path)
-                .map_err(|copy_err| format!("无法保存原始音频文件: {copy_err}"))?;
-            Ok((fallback_name, fallback_path))
-        }
-    }
+    crate::ffmpeg::transcode_audio_to_mp3(source_audio, &converted_path)?;
+    Ok((converted_name, converted_path))
 }
 
 fn load_youtube_cookie_header() -> Option<String> {
@@ -208,20 +186,17 @@ fn youtube_cookie_file_path() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::finalize_youtube_audio;
-    use std::fs;
+    use std::path::Path;
 
     #[test]
-    fn youtube_finalize_falls_back_to_original_container_without_ffmpeg() {
+    fn youtube_finalize_reports_transcode_errors() {
         let temp_dir = tempfile::tempdir().unwrap();
         let source_audio = temp_dir.path().join("source.webm");
-        fs::write(&source_audio, b"webm").unwrap();
+        std::fs::write(&source_audio, b"webm").unwrap();
+        let err =
+            finalize_youtube_audio(Path::new(&source_audio), temp_dir.path(), "preview-token")
+                .unwrap_err();
 
-        let (file_name, final_path) =
-            finalize_youtube_audio(&source_audio, temp_dir.path(), "preview-token", Some("ogg"))
-                .unwrap();
-
-        assert_eq!(file_name, "preview-token.webm");
-        assert_eq!(final_path, temp_dir.path().join("preview-token.webm"));
-        assert_eq!(fs::read(final_path).unwrap(), b"webm");
+        assert!(err.contains("failed to open input file") || err.contains("Invalid data found"));
     }
 }

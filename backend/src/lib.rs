@@ -132,6 +132,7 @@ pub mod types;
 pub mod database;
 pub mod discovery;
 pub mod entities;
+pub mod ffmpeg;
 pub mod log_broadcast;
 pub mod lufsgen;
 

@@ -349,7 +349,7 @@ The update process will:
 - M4A (`.m4a`)
 - Opus (`.opus`)
 - Bilibili DASH audio (`.m4s`)
-- YouTube raw audio container (`.webm`)
+- WebM audio (`.webm`)
 
 ### Supported Video Formats
 

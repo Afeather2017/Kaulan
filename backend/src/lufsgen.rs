@@ -1,4 +1,3 @@
-use lufsgen::LufsCalculator;
 use std::path::Path;
 use tracing::{error, info, warn};
 
@@ -13,10 +12,9 @@ pub struct LufsResult {
     pub lufs: Option<f64>,
 }
 
-/// Calculates LUFS value using the lufsgen crate
+/// Calculates LUFS value using FFmpeg's ebur128 filter.
 pub fn get_lufs(file_path: &str) -> Option<f64> {
-    let calc = LufsCalculator::default();
-    match calc.calculate_from_file(Path::new(file_path)) {
+    match crate::ffmpeg::calculate_lufs(Path::new(file_path)) {
         Ok(Some(lufs)) => {
             info!("[LUFS] SUCCESS: {} - LUFS: {}", file_path, lufs);
             Some(lufs)
