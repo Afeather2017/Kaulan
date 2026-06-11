@@ -5,10 +5,8 @@
 use crate::file_ops::{get_file_reader, resolve_path, PathKind};
 use futures::StreamExt;
 use rusty_ffmpeg::ffi;
-use serde::Deserialize;
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::ptr;
 use tokio::io::AsyncWriteExt;
 
@@ -92,7 +90,55 @@ pub async fn calculate_lufs_for_source(file_path: &str) -> Result<Option<f64>, S
     calculate_lufs(input.path())
 }
 
+enum PreferredAudioOutput {
+    Remux { extension: &'static str },
+    TranscodeFlac,
+    TranscodeMp3,
+}
+
+pub fn export_audio_for_download(
+    input: &Path,
+    output_dir: &Path,
+    output_stem: &str,
+) -> Result<(String, PathBuf), String> {
+    let codec_id = detect_primary_audio_codec(input)?;
+    let (file_name, output_path) = match preferred_output_for_codec(codec_id) {
+        PreferredAudioOutput::Remux { extension } => {
+            let file_name = format!("{output_stem}.{extension}");
+            let output_path = output_dir.join(&file_name);
+            remux_audio_stream(input, &output_path)?;
+            (file_name, output_path)
+        }
+        PreferredAudioOutput::TranscodeFlac => {
+            let file_name = format!("{output_stem}.flac");
+            let output_path = output_dir.join(&file_name);
+            transcode_audio_to_flac(input, &output_path)?;
+            (file_name, output_path)
+        }
+        PreferredAudioOutput::TranscodeMp3 => {
+            let file_name = format!("{output_stem}.mp3");
+            let output_path = output_dir.join(&file_name);
+            transcode_audio_to_mp3(input, &output_path)?;
+            (file_name, output_path)
+        }
+    };
+
+    Ok((file_name, output_path))
+}
+
 pub fn transcode_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String> {
+    transcode_audio(input, output, AudioTranscodeTarget::Mp3)
+}
+
+pub fn transcode_audio_to_flac(input: &Path, output: &Path) -> Result<(), String> {
+    transcode_audio(input, output, AudioTranscodeTarget::Flac)
+}
+
+fn transcode_audio(
+    input: &Path,
+    output: &Path,
+    target: AudioTranscodeTarget,
+) -> Result<(), String> {
     let input = path_to_cstring(input)?;
     let output = path_to_cstring(output)?;
 
@@ -106,18 +152,24 @@ pub fn transcode_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String>
         normalize_channel_layout(decoder_ctx.as_mut_ptr(), 2)?;
 
         let mut output_ctx = OutputContext::create(&output)?;
-        let encoder = find_mp3_encoder()?;
+        let encoder = find_encoder(target)?;
         let mut encoder_ctx = CodecContext::encoder(encoder)?;
-        configure_mp3_encoder(encoder, decoder_ctx.as_ptr(), encoder_ctx.as_mut_ptr())?;
+        configure_encoder(
+            target,
+            encoder,
+            decoder_ctx.as_ptr(),
+            encoder_ctx.as_mut_ptr(),
+        )?;
 
         let out_stream = output_ctx.new_stream(encoder)?;
         if (*output_ctx.view().oformat).flags & ffi::AVFMT_GLOBALHEADER as i32 != 0 {
             (*encoder_ctx.as_mut_ptr()).flags |= ffi::AV_CODEC_FLAG_GLOBAL_HEADER as i32;
         }
 
+        let encoder_name = target.display_name();
         ffmpeg_call(
             ffi::avcodec_open2(encoder_ctx.as_mut_ptr(), encoder, ptr::null_mut()),
-            "failed to open MP3 encoder",
+            &format!("failed to open {encoder_name} encoder"),
         )?;
 
         (*out_stream).time_base = (*encoder_ctx.as_ptr()).time_base;
@@ -132,7 +184,14 @@ pub fn transcode_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String>
             "failed to write output header",
         )?;
 
-        let mut swr = Resampler::new(decoder_ctx.as_ptr(), encoder_ctx.as_ptr())?;
+        let mut swr = if matches!(target, AudioTranscodeTarget::Flac)
+            || audio_formats_match(decoder_ctx.as_ptr(), encoder_ctx.as_ptr())
+        {
+            None
+        } else {
+            Some(Resampler::new(decoder_ctx.as_ptr(), encoder_ctx.as_ptr())?)
+        };
+        let mut fifo = AudioFifo::new(encoder_ctx.as_ptr())?;
         let mut packet = Packet::new()?;
         let mut decoded = Frame::new()?;
         let mut converted = Frame::new()?;
@@ -143,13 +202,13 @@ pub fn transcode_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String>
                 decode_and_encode(
                     decoder_ctx.as_mut_ptr(),
                     encoder_ctx.as_mut_ptr(),
-                    swr.as_mut_ptr(),
+                    swr.as_mut().map_or(ptr::null_mut(), Resampler::as_mut_ptr),
                     decoded.as_mut_ptr(),
                     converted.as_mut_ptr(),
                     packet.as_mut_ptr(),
                     output_ctx.as_mut_ptr(),
                     out_stream,
-                    input_stream,
+                    fifo.as_mut_ptr(),
                     &mut next_pts,
                 )?;
             }
@@ -163,12 +222,30 @@ pub fn transcode_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String>
         receive_decoded_frames(
             decoder_ctx.as_mut_ptr(),
             encoder_ctx.as_mut_ptr(),
-            swr.as_mut_ptr(),
+            swr.as_mut().map_or(ptr::null_mut(), Resampler::as_mut_ptr),
             decoded.as_mut_ptr(),
             converted.as_mut_ptr(),
             output_ctx.as_mut_ptr(),
             out_stream,
-            input_stream,
+            fifo.as_mut_ptr(),
+            &mut next_pts,
+        )?;
+        if let Some(swr) = swr.as_mut() {
+            drain_resampler_into_fifo(
+                encoder_ctx.as_mut_ptr(),
+                swr.as_mut_ptr(),
+                converted.as_mut_ptr(),
+                fifo.as_mut_ptr(),
+                output_ctx.as_mut_ptr(),
+                out_stream,
+                &mut next_pts,
+            )?;
+        }
+        flush_audio_fifo(
+            encoder_ctx.as_mut_ptr(),
+            fifo.as_mut_ptr(),
+            output_ctx.as_mut_ptr(),
+            out_stream,
             &mut next_pts,
         )?;
         flush_encoder(
@@ -187,72 +264,158 @@ pub fn transcode_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String>
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum AudioTranscodeTarget {
+    Mp3,
+    Flac,
+}
+
+impl AudioTranscodeTarget {
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Mp3 => "MP3",
+            Self::Flac => "FLAC",
+        }
+    }
+}
+
+pub fn detect_primary_audio_codec(input: &Path) -> Result<ffi::AVCodecID, String> {
+    let input = path_to_cstring(input)?;
+    unsafe {
+        let mut input_ctx = InputContext::open(&input)?;
+        let (stream_index, _) = input_ctx.best_audio_stream()?;
+        let stream = input_ctx.stream(stream_index as usize)?;
+        Ok((*(*stream).codecpar).codec_id)
+    }
+}
+
+pub fn remux_audio_stream(input: &Path, output: &Path) -> Result<(), String> {
+    let input = path_to_cstring(input)?;
+    let output = path_to_cstring(output)?;
+
+    unsafe {
+        let mut input_ctx = InputContext::open(&input)?;
+        let (stream_index, _) = input_ctx.best_audio_stream()?;
+        let input_stream = input_ctx.stream(stream_index as usize)?;
+
+        let mut output_ctx = OutputContext::create(&output)?;
+        let out_stream = output_ctx.new_stream(ptr::null())?;
+        ffmpeg_call(
+            ffi::avcodec_parameters_copy((*out_stream).codecpar, (*input_stream).codecpar),
+            "failed to copy audio stream parameters for remux",
+        )?;
+        (*(*out_stream).codecpar).codec_tag = 0;
+        (*out_stream).time_base = (*input_stream).time_base;
+
+        output_ctx.open_io(&output)?;
+        ffmpeg_call(
+            ffi::avformat_write_header(output_ctx.as_mut_ptr(), ptr::null_mut()),
+            "failed to write remux output header",
+        )?;
+
+        let mut packet = Packet::new()?;
+        while ffi::av_read_frame(input_ctx.as_mut_ptr(), packet.as_mut_ptr()) >= 0 {
+            if (*packet.as_ptr()).stream_index == stream_index {
+                ffi::av_packet_rescale_ts(
+                    packet.as_mut_ptr(),
+                    (*input_stream).time_base,
+                    (*out_stream).time_base,
+                );
+                (*packet.as_mut_ptr()).stream_index = (*out_stream).index;
+                (*packet.as_mut_ptr()).pos = -1;
+                ffmpeg_call(
+                    ffi::av_interleaved_write_frame(output_ctx.as_mut_ptr(), packet.as_mut_ptr()),
+                    "failed to write remuxed packet",
+                )?;
+            }
+            ffi::av_packet_unref(packet.as_mut_ptr());
+        }
+
+        ffmpeg_call(
+            ffi::av_write_trailer(output_ctx.as_mut_ptr()),
+            "failed to finalize remuxed output file",
+        )?;
+    }
+
+    Ok(())
+}
+
 pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, String> {
-    if !has_embedded_cover(input)? {
-        return Ok(None);
+    let input = path_to_cstring(input)?;
+
+    unsafe {
+        let input_ctx = InputContext::open(&input)?;
+        let Some((stream, codec_id)) = input_ctx.attached_picture_stream() else {
+            return Ok(None);
+        };
+
+        let packet = &(*stream).attached_pic;
+        if packet.data.is_null() || packet.size <= 0 {
+            return Ok(None);
+        }
+
+        let bytes = std::slice::from_raw_parts(packet.data, packet.size as usize).to_vec();
+        if bytes.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some((cover_mime_type(codec_id).to_string(), bytes)))
     }
-
-    let temp_dir = tempfile::tempdir().map_err(|e| format!("failed to create temp dir: {e}"))?;
-    let output = temp_dir.path().join("cover.png");
-    let result = Command::new("ffmpeg")
-        .args(["-v", "error", "-nostdin", "-y", "-i"])
-        .arg(input)
-        .args(["-an", "-map", "0:v:0", "-frames:v", "1"])
-        .arg(&output)
-        .output()
-        .map_err(|e| format!("failed to run ffmpeg for cover extraction: {e}"))?;
-
-    if !result.status.success() {
-        return Err(format!(
-            "ffmpeg cover extraction failed: {}",
-            stderr_message(&result.stderr)
-        ));
-    }
-
-    let bytes =
-        std::fs::read(&output).map_err(|e| format!("failed to read extracted cover image: {e}"))?;
-    if bytes.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(("image/png".to_string(), bytes)))
 }
 
 pub fn calculate_lufs(input: &Path) -> Result<Option<f64>, String> {
-    let result = Command::new("ffmpeg")
-        .args(["-hide_banner", "-nostdin", "-i"])
-        .arg(input)
-        .args(["-filter:a", "ebur128=framelog=verbose", "-f", "null", "-"])
-        .output()
-        .map_err(|e| format!("failed to run ffmpeg for LUFS calculation: {e}"))?;
+    let input = path_to_cstring(input)?;
 
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    let parsed = parse_integrated_lufs(stderr.as_ref());
+    unsafe {
+        let mut input_ctx = match InputContext::open(&input) {
+            Ok(ctx) => ctx,
+            Err(err) if is_unsupported_media_error(&err) => return Ok(None),
+            Err(err) => return Err(err),
+        };
+        let (stream_index, decoder) = match input_ctx.best_audio_stream() {
+            Ok(stream) => stream,
+            Err(err) if err.contains("failed to find an audio stream") => return Ok(None),
+            Err(err) => return Err(err),
+        };
+        let input_stream = input_ctx.stream(stream_index as usize)?;
+        let mut decoder_ctx = CodecContext::decoder(decoder, (*input_stream).codecpar)?;
+        normalize_channel_layout(decoder_ctx.as_mut_ptr(), 2)?;
 
-    if result.status.success() {
-        return Ok(parsed);
-    }
+        let mut analyzer = LoudnessAnalyzer::new(decoder_ctx.as_ptr())?;
+        let mut packet = Packet::new()?;
+        let mut decoded = Frame::new()?;
+        let mut filtered = Frame::new()?;
+        let mut integrated_lufs = None;
 
-    if parsed.is_some() {
-        return Ok(parsed);
-    }
+        while ffi::av_read_frame(input_ctx.as_mut_ptr(), packet.as_mut_ptr()) >= 0 {
+            if (*packet.as_ptr()).stream_index == stream_index {
+                decode_and_analyze_loudness(
+                    decoder_ctx.as_mut_ptr(),
+                    analyzer.as_mut_ptr(),
+                    decoded.as_mut_ptr(),
+                    filtered.as_mut_ptr(),
+                    packet.as_mut_ptr(),
+                    &mut integrated_lufs,
+                )?;
+            }
+            ffi::av_packet_unref(packet.as_mut_ptr());
+        }
 
-    let message = stderr_message(&result.stderr);
-    if message.contains("Invalid data found")
-        || message.contains("Output file #0 does not contain any stream")
-    {
-        return Ok(None);
-    }
+        ffmpeg_call(
+            ffi::avcodec_send_packet(decoder_ctx.as_mut_ptr(), ptr::null()),
+            "failed to flush decoder",
+        )?;
+        receive_loudness_frames(
+            decoder_ctx.as_mut_ptr(),
+            analyzer.as_mut_ptr(),
+            decoded.as_mut_ptr(),
+            filtered.as_mut_ptr(),
+            &mut integrated_lufs,
+        )?;
+        analyzer.close_source()?;
+        analyzer.drain(filtered.as_mut_ptr(), &mut integrated_lufs)?;
 
-    Err(format!("ffmpeg LUFS calculation failed: {message}"))
-}
-
-fn stderr_message(stderr: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stderr).trim().to_string();
-    if text.is_empty() {
-        "unknown ffmpeg error".to_string()
-    } else {
-        text
+        Ok(integrated_lufs)
     }
 }
 
@@ -273,7 +436,7 @@ fn ffmpeg_call(code: i32, context: &str) -> Result<(), String> {
 }
 
 fn ffmpeg_error_string(code: i32) -> String {
-    let mut buffer = [0i8; ffi::AV_ERROR_MAX_STRING_SIZE as usize];
+    let mut buffer = [0 as std::ffi::c_char; ffi::AV_ERROR_MAX_STRING_SIZE as usize];
     unsafe {
         ffi::av_strerror(code, buffer.as_mut_ptr(), buffer.len());
         CStr::from_ptr(buffer.as_ptr())
@@ -282,18 +445,83 @@ fn ffmpeg_error_string(code: i32) -> String {
     }
 }
 
-unsafe fn find_mp3_encoder() -> Result<*const ffi::AVCodec, String> {
-    let codec_name = CString::new("libmp3lame").unwrap();
-    let encoder = ffi::avcodec_find_encoder_by_name(codec_name.as_ptr());
-    if !encoder.is_null() {
-        return Ok(encoder);
+fn preferred_output_for_codec(codec_id: ffi::AVCodecID) -> PreferredAudioOutput {
+    match codec_id {
+        ffi::AV_CODEC_ID_AAC => PreferredAudioOutput::Remux { extension: "m4a" },
+        ffi::AV_CODEC_ID_OPUS | ffi::AV_CODEC_ID_VORBIS => {
+            PreferredAudioOutput::Remux { extension: "ogg" }
+        }
+        ffi::AV_CODEC_ID_MP3 => PreferredAudioOutput::Remux { extension: "mp3" },
+        ffi::AV_CODEC_ID_FLAC => PreferredAudioOutput::Remux { extension: "flac" },
+        codec_id if is_pcm_codec(codec_id) => PreferredAudioOutput::TranscodeFlac,
+        _ => PreferredAudioOutput::TranscodeMp3,
     }
+}
 
-    let fallback = ffi::avcodec_find_encoder(ffi::AV_CODEC_ID_MP3);
-    if fallback.is_null() {
-        Err("failed to find an MP3 encoder in the linked FFmpeg libraries".to_string())
-    } else {
-        Ok(fallback)
+fn is_pcm_codec(codec_id: ffi::AVCodecID) -> bool {
+    matches!(
+        codec_id,
+        ffi::AV_CODEC_ID_PCM_S16LE
+            | ffi::AV_CODEC_ID_PCM_S16BE
+            | ffi::AV_CODEC_ID_PCM_U16LE
+            | ffi::AV_CODEC_ID_PCM_U16BE
+            | ffi::AV_CODEC_ID_PCM_S8
+            | ffi::AV_CODEC_ID_PCM_U8
+            | ffi::AV_CODEC_ID_PCM_MULAW
+            | ffi::AV_CODEC_ID_PCM_ALAW
+            | ffi::AV_CODEC_ID_PCM_S32LE
+            | ffi::AV_CODEC_ID_PCM_S32BE
+            | ffi::AV_CODEC_ID_PCM_U32LE
+            | ffi::AV_CODEC_ID_PCM_U32BE
+            | ffi::AV_CODEC_ID_PCM_S24LE
+            | ffi::AV_CODEC_ID_PCM_S24BE
+            | ffi::AV_CODEC_ID_PCM_U24LE
+            | ffi::AV_CODEC_ID_PCM_U24BE
+            | ffi::AV_CODEC_ID_PCM_S24DAUD
+            | ffi::AV_CODEC_ID_PCM_ZORK
+            | ffi::AV_CODEC_ID_PCM_S16LE_PLANAR
+            | ffi::AV_CODEC_ID_PCM_DVD
+            | ffi::AV_CODEC_ID_PCM_F32BE
+            | ffi::AV_CODEC_ID_PCM_F32LE
+            | ffi::AV_CODEC_ID_PCM_F64BE
+            | ffi::AV_CODEC_ID_PCM_F64LE
+            | ffi::AV_CODEC_ID_PCM_BLURAY
+            | ffi::AV_CODEC_ID_PCM_LXF
+            | ffi::AV_CODEC_ID_PCM_S8_PLANAR
+            | ffi::AV_CODEC_ID_PCM_S24LE_PLANAR
+            | ffi::AV_CODEC_ID_PCM_S32LE_PLANAR
+            | ffi::AV_CODEC_ID_PCM_S16BE_PLANAR
+            | ffi::AV_CODEC_ID_PCM_S64LE
+            | ffi::AV_CODEC_ID_PCM_S64BE
+            | ffi::AV_CODEC_ID_PCM_F16LE
+            | ffi::AV_CODEC_ID_PCM_F24LE
+    )
+}
+
+unsafe fn find_encoder(target: AudioTranscodeTarget) -> Result<*const ffi::AVCodec, String> {
+    match target {
+        AudioTranscodeTarget::Mp3 => {
+            let codec_name = CString::new("libmp3lame").unwrap();
+            let encoder = ffi::avcodec_find_encoder_by_name(codec_name.as_ptr());
+            if !encoder.is_null() {
+                return Ok(encoder);
+            }
+
+            let fallback = ffi::avcodec_find_encoder(ffi::AV_CODEC_ID_MP3);
+            if fallback.is_null() {
+                Err("failed to find an MP3 encoder in the linked FFmpeg libraries".to_string())
+            } else {
+                Ok(fallback)
+            }
+        }
+        AudioTranscodeTarget::Flac => {
+            let encoder = ffi::avcodec_find_encoder(ffi::AV_CODEC_ID_FLAC);
+            if encoder.is_null() {
+                Err("failed to find a FLAC encoder in the linked FFmpeg libraries".to_string())
+            } else {
+                Ok(encoder)
+            }
+        }
     }
 }
 
@@ -316,13 +544,14 @@ unsafe fn normalize_channel_layout(
     }
 }
 
-unsafe fn configure_mp3_encoder(
+unsafe fn configure_encoder(
+    target: AudioTranscodeTarget,
     encoder: *const ffi::AVCodec,
     decoder_ctx: *const ffi::AVCodecContext,
     encoder_ctx: *mut ffi::AVCodecContext,
 ) -> Result<(), String> {
     let sample_rate = select_sample_rate(encoder, (*decoder_ctx).sample_rate);
-    let sample_fmt = select_sample_fmt(encoder)?;
+    let sample_fmt = select_sample_fmt(encoder, target, (*decoder_ctx).sample_fmt)?;
     let channel_layout = select_channel_layout(encoder, &(*decoder_ctx).ch_layout)?;
 
     (*encoder_ctx).sample_rate = sample_rate;
@@ -331,7 +560,9 @@ unsafe fn configure_mp3_encoder(
         ffi::av_channel_layout_copy(&mut (*encoder_ctx).ch_layout, &channel_layout),
         "failed to copy encoder channel layout",
     )?;
-    (*encoder_ctx).bit_rate = 320_000;
+    if matches!(target, AudioTranscodeTarget::Mp3) {
+        (*encoder_ctx).bit_rate = 320_000;
+    }
     (*encoder_ctx).time_base = ffi::AVRational {
         num: 1,
         den: sample_rate,
@@ -361,25 +592,49 @@ unsafe fn select_sample_rate(encoder: *const ffi::AVCodec, preferred: i32) -> i3
     fallback
 }
 
-unsafe fn select_sample_fmt(encoder: *const ffi::AVCodec) -> Result<ffi::AVSampleFormat, String> {
+unsafe fn select_sample_fmt(
+    encoder: *const ffi::AVCodec,
+    target: AudioTranscodeTarget,
+    decoder_sample_fmt: ffi::AVSampleFormat,
+) -> Result<ffi::AVSampleFormat, String> {
     let formats = (*encoder).sample_fmts;
     if formats.is_null() {
-        return Err("mp3 encoder did not expose supported sample formats".to_string());
+        return Err(format!(
+            "{} encoder did not expose supported sample formats",
+            target.display_name()
+        ));
     }
 
     let mut index = 0;
+    let preferred = match target {
+        AudioTranscodeTarget::Mp3 => Some(ffi::AV_SAMPLE_FMT_FLTP),
+        AudioTranscodeTarget::Flac => Some(decoder_sample_fmt),
+    };
+    let secondary_preferred = match target {
+        AudioTranscodeTarget::Mp3 => None,
+        AudioTranscodeTarget::Flac => Some(ffi::AV_SAMPLE_FMT_S16),
+    };
+    let mut fallback = None;
     while *formats.add(index) != ffi::AV_SAMPLE_FMT_NONE {
         let value = *formats.add(index);
-        if value == ffi::AV_SAMPLE_FMT_FLTP {
+        if Some(value) == preferred {
+            return Ok(value);
+        }
+        if Some(value) == secondary_preferred {
             return Ok(value);
         }
         if index == 0 {
-            return Ok(value);
+            fallback = Some(value);
         }
         index += 1;
     }
 
-    Err("mp3 encoder did not expose any usable sample format".to_string())
+    fallback.ok_or_else(|| {
+        format!(
+            "{} encoder did not expose any usable sample format",
+            target.display_name()
+        )
+    })
 }
 
 unsafe fn select_channel_layout(
@@ -428,6 +683,15 @@ unsafe fn select_channel_layout(
     }
 }
 
+unsafe fn audio_formats_match(
+    decoder_ctx: *const ffi::AVCodecContext,
+    encoder_ctx: *const ffi::AVCodecContext,
+) -> bool {
+    (*decoder_ctx).sample_fmt == (*encoder_ctx).sample_fmt
+        && (*decoder_ctx).sample_rate == (*encoder_ctx).sample_rate
+        && ffi::av_channel_layout_compare(&(*decoder_ctx).ch_layout, &(*encoder_ctx).ch_layout) == 0
+}
+
 unsafe fn decode_and_encode(
     decoder_ctx: *mut ffi::AVCodecContext,
     encoder_ctx: *mut ffi::AVCodecContext,
@@ -437,7 +701,7 @@ unsafe fn decode_and_encode(
     packet: *mut ffi::AVPacket,
     output_ctx: *mut ffi::AVFormatContext,
     out_stream: *mut ffi::AVStream,
-    input_stream: *const ffi::AVStream,
+    fifo: *mut AudioFifoContext,
     next_pts: &mut i64,
 ) -> Result<(), String> {
     ffmpeg_call(
@@ -452,9 +716,44 @@ unsafe fn decode_and_encode(
         converted,
         output_ctx,
         out_stream,
-        input_stream,
+        fifo,
         next_pts,
     )
+}
+
+unsafe fn decode_and_analyze_loudness(
+    decoder_ctx: *mut ffi::AVCodecContext,
+    analyzer: *mut LoudnessAnalyzerGraph,
+    decoded: *mut ffi::AVFrame,
+    filtered: *mut ffi::AVFrame,
+    packet: *mut ffi::AVPacket,
+    integrated_lufs: &mut Option<f64>,
+) -> Result<(), String> {
+    ffmpeg_call(
+        ffi::avcodec_send_packet(decoder_ctx, packet),
+        "failed to send audio packet to decoder",
+    )?;
+    receive_loudness_frames(decoder_ctx, analyzer, decoded, filtered, integrated_lufs)
+}
+
+unsafe fn receive_loudness_frames(
+    decoder_ctx: *mut ffi::AVCodecContext,
+    analyzer: *mut LoudnessAnalyzerGraph,
+    decoded: *mut ffi::AVFrame,
+    filtered: *mut ffi::AVFrame,
+    integrated_lufs: &mut Option<f64>,
+) -> Result<(), String> {
+    loop {
+        let code = ffi::avcodec_receive_frame(decoder_ctx, decoded);
+        if code == ffi::AVERROR(ffi::EAGAIN) || code == ffi::AVERROR_EOF {
+            return Ok(());
+        }
+        ffmpeg_call(code, "failed to receive decoded audio frame")?;
+
+        (*analyzer).push_frame(decoded)?;
+        (*analyzer).drain(filtered, integrated_lufs)?;
+        ffi::av_frame_unref(decoded);
+    }
 }
 
 unsafe fn receive_decoded_frames(
@@ -465,7 +764,7 @@ unsafe fn receive_decoded_frames(
     converted: *mut ffi::AVFrame,
     output_ctx: *mut ffi::AVFormatContext,
     out_stream: *mut ffi::AVStream,
-    input_stream: *const ffi::AVStream,
+    fifo: *mut AudioFifoContext,
     next_pts: &mut i64,
 ) -> Result<(), String> {
     loop {
@@ -482,20 +781,27 @@ unsafe fn receive_decoded_frames(
             ffi::av_channel_layout_copy(&mut (*converted).ch_layout, &(*encoder_ctx).ch_layout),
             "failed to copy converted frame channel layout",
         )?;
-        (*converted).nb_samples =
-            ffi::swr_get_out_samples(swr, (*decoded).nb_samples).max((*decoded).nb_samples);
+        (*converted).nb_samples = if swr.is_null() {
+            (*decoded).nb_samples
+        } else {
+            ffi::swr_get_out_samples(swr, (*decoded).nb_samples).max((*decoded).nb_samples)
+        };
         ffmpeg_call(
-            ffi::swr_convert_frame(swr, converted, decoded),
-            "failed to convert decoded audio frame",
+            if swr.is_null() {
+                ffi::av_frame_ref(converted, decoded)
+            } else {
+                ffi::swr_convert_frame(swr, converted, decoded)
+            },
+            if swr.is_null() {
+                "failed to clone decoded audio frame"
+            } else {
+                "failed to convert decoded audio frame"
+            },
         )?;
-        (*converted).pts = *next_pts;
-        *next_pts += (*converted).nb_samples as i64;
-
-        encode_converted_frame(encoder_ctx, converted, output_ctx, out_stream)?;
+        (*fifo).write(converted)?;
+        encode_fifo_frames(encoder_ctx, fifo, output_ctx, out_stream, next_pts, false)?;
         ffi::av_frame_unref(decoded);
         ffi::av_frame_unref(converted);
-
-        let _ = input_stream;
     }
 }
 
@@ -528,6 +834,86 @@ unsafe fn encode_converted_frame(
             "failed to write encoded MP3 packet",
         )?;
         ffi::av_packet_unref(packet.as_mut_ptr());
+    }
+}
+
+unsafe fn drain_resampler_into_fifo(
+    encoder_ctx: *mut ffi::AVCodecContext,
+    swr: *mut ffi::SwrContext,
+    converted: *mut ffi::AVFrame,
+    fifo: *mut AudioFifoContext,
+    output_ctx: *mut ffi::AVFormatContext,
+    out_stream: *mut ffi::AVStream,
+    next_pts: &mut i64,
+) -> Result<(), String> {
+    loop {
+        ffi::av_frame_unref(converted);
+        (*converted).format = (*encoder_ctx).sample_fmt as i32;
+        (*converted).sample_rate = (*encoder_ctx).sample_rate;
+        ffmpeg_call(
+            ffi::av_channel_layout_copy(&mut (*converted).ch_layout, &(*encoder_ctx).ch_layout),
+            "failed to copy drained frame channel layout",
+        )?;
+        (*converted).nb_samples = ffi::swr_get_out_samples(swr, 0);
+        if (*converted).nb_samples <= 0 {
+            break;
+        }
+
+        ffmpeg_call(
+            ffi::swr_convert_frame(swr, converted, ptr::null()),
+            "failed to drain resampler",
+        )?;
+        if (*converted).nb_samples <= 0 {
+            ffi::av_frame_unref(converted);
+            break;
+        }
+
+        (*fifo).write(converted)?;
+        encode_fifo_frames(encoder_ctx, fifo, output_ctx, out_stream, next_pts, false)?;
+        ffi::av_frame_unref(converted);
+    }
+
+    Ok(())
+}
+
+unsafe fn flush_audio_fifo(
+    encoder_ctx: *mut ffi::AVCodecContext,
+    fifo: *mut AudioFifoContext,
+    output_ctx: *mut ffi::AVFormatContext,
+    out_stream: *mut ffi::AVStream,
+    next_pts: &mut i64,
+) -> Result<(), String> {
+    encode_fifo_frames(encoder_ctx, fifo, output_ctx, out_stream, next_pts, true)
+}
+
+unsafe fn encode_fifo_frames(
+    encoder_ctx: *mut ffi::AVCodecContext,
+    fifo: *mut AudioFifoContext,
+    output_ctx: *mut ffi::AVFormatContext,
+    out_stream: *mut ffi::AVStream,
+    next_pts: &mut i64,
+    flush_partial: bool,
+) -> Result<(), String> {
+    let frame_size = (*encoder_ctx).frame_size.max(1);
+    loop {
+        let available = (*fifo).size();
+        if available <= 0 {
+            return Ok(());
+        }
+        if !flush_partial && available < frame_size {
+            return Ok(());
+        }
+
+        let samples = if flush_partial {
+            available.min(frame_size)
+        } else {
+            frame_size
+        };
+        let mut frame = allocate_audio_frame(encoder_ctx, samples)?;
+        frame.set_pts(*next_pts);
+        *next_pts += i64::from(samples);
+        (*fifo).read(frame.as_mut_ptr(), samples)?;
+        encode_converted_frame(encoder_ctx, frame.as_mut_ptr(), output_ctx, out_stream)?;
     }
 }
 
@@ -583,6 +969,20 @@ impl InputContext {
         &*(self.0.cast::<FormatContextView>())
     }
 
+    unsafe fn stream(&self, index: usize) -> Result<*mut ffi::AVStream, String> {
+        let view = self.view();
+        if index >= view.nb_streams as usize {
+            return Err(format!("stream index {index} out of range"));
+        }
+
+        let stream = *view.streams.add(index);
+        if stream.is_null() {
+            Err(format!("stream index {index} is null"))
+        } else {
+            Ok(stream)
+        }
+    }
+
     unsafe fn best_audio_stream(&mut self) -> Result<(i32, *const ffi::AVCodec), String> {
         let mut decoder: *const ffi::AVCodec = ptr::null();
         let index = ffi::av_find_best_stream(
@@ -601,6 +1001,27 @@ impl InputContext {
         }
 
         Ok((index, decoder))
+    }
+
+    unsafe fn attached_picture_stream(&self) -> Option<(*mut ffi::AVStream, ffi::AVCodecID)> {
+        let view = self.view();
+        for index in 0..view.nb_streams as usize {
+            let stream = *view.streams.add(index);
+            if stream.is_null() {
+                continue;
+            }
+
+            let has_attached_pic =
+                ((*stream).disposition & ffi::AV_DISPOSITION_ATTACHED_PIC as i32) != 0;
+            let packet = &(*stream).attached_pic;
+            if !has_attached_pic || packet.data.is_null() || packet.size <= 0 {
+                continue;
+            }
+
+            return Some((stream, (*(*stream).codecpar).codec_id));
+        }
+
+        None
     }
 }
 
@@ -751,6 +1172,12 @@ impl Frame {
     fn as_mut_ptr(&mut self) -> *mut ffi::AVFrame {
         self.0
     }
+
+    fn set_pts(&mut self, pts: i64) {
+        unsafe {
+            (*self.0).pts = pts;
+        }
+    }
 }
 
 impl Drop for Frame {
@@ -835,85 +1262,354 @@ impl Drop for Resampler {
     }
 }
 
-fn parse_integrated_lufs(stderr: &str) -> Option<f64> {
-    stderr.lines().rev().find_map(|line| {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("I:") || !trimmed.contains("LUFS") {
+struct AudioFifo(*mut AudioFifoContext);
+
+impl AudioFifo {
+    unsafe fn new(encoder_ctx: *const ffi::AVCodecContext) -> Result<Self, String> {
+        let fifo = AudioFifoContext::new(encoder_ctx)?;
+        Ok(Self(Box::into_raw(Box::new(fifo))))
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut AudioFifoContext {
+        self.0
+    }
+}
+
+impl Drop for AudioFifo {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.0.is_null() {
+                drop(Box::from_raw(self.0));
+            }
+        }
+    }
+}
+
+struct AudioFifoContext {
+    fifo: *mut ffi::AVAudioFifo,
+    sample_fmt: ffi::AVSampleFormat,
+}
+
+impl AudioFifoContext {
+    unsafe fn new(encoder_ctx: *const ffi::AVCodecContext) -> Result<Self, String> {
+        let fifo = ffi::av_audio_fifo_alloc(
+            (*encoder_ctx).sample_fmt,
+            (*encoder_ctx).ch_layout.nb_channels,
+            (*encoder_ctx).frame_size.max(1),
+        );
+        if fifo.is_null() {
+            return Err("failed to allocate audio fifo".to_string());
+        }
+
+        Ok(Self {
+            fifo,
+            sample_fmt: (*encoder_ctx).sample_fmt,
+        })
+    }
+
+    unsafe fn write(&mut self, frame: *mut ffi::AVFrame) -> Result<(), String> {
+        if (*frame).nb_samples <= 0 {
+            return Ok(());
+        }
+
+        let written = ffi::av_audio_fifo_write(
+            self.fifo,
+            (*frame).extended_data.cast(),
+            (*frame).nb_samples,
+        );
+        ffmpeg_call(written, "failed to write samples into audio fifo")?;
+        Ok(())
+    }
+
+    unsafe fn read(&mut self, frame: *mut ffi::AVFrame, nb_samples: i32) -> Result<(), String> {
+        let read = ffi::av_audio_fifo_read(self.fifo, (*frame).extended_data.cast(), nb_samples);
+        ffmpeg_call(read, "failed to read samples from audio fifo")?;
+        if read != nb_samples {
+            return Err(format!(
+                "audio fifo returned {read} samples, expected {nb_samples}"
+            ));
+        }
+        Ok(())
+    }
+
+    unsafe fn size(&mut self) -> i32 {
+        ffi::av_audio_fifo_size(self.fifo)
+    }
+}
+
+impl Drop for AudioFifoContext {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.fifo.is_null() {
+                ffi::av_audio_fifo_free(self.fifo);
+            }
+            let _ = self.sample_fmt;
+        }
+    }
+}
+
+unsafe fn allocate_audio_frame(
+    encoder_ctx: *mut ffi::AVCodecContext,
+    nb_samples: i32,
+) -> Result<Frame, String> {
+    let mut frame = Frame::new()?;
+    (*frame.as_mut_ptr()).format = (*encoder_ctx).sample_fmt as i32;
+    (*frame.as_mut_ptr()).sample_rate = (*encoder_ctx).sample_rate;
+    (*frame.as_mut_ptr()).nb_samples = nb_samples;
+    ffmpeg_call(
+        ffi::av_channel_layout_copy(
+            &mut (*frame.as_mut_ptr()).ch_layout,
+            &(*encoder_ctx).ch_layout,
+        ),
+        "failed to copy allocated frame channel layout",
+    )?;
+    ffmpeg_call(
+        ffi::av_frame_get_buffer(frame.as_mut_ptr(), 0),
+        "failed to allocate audio frame buffer",
+    )?;
+    Ok(frame)
+}
+
+struct LoudnessAnalyzer {
+    graph: LoudnessAnalyzerGraph,
+}
+
+impl LoudnessAnalyzer {
+    unsafe fn new(decoder_ctx: *const ffi::AVCodecContext) -> Result<Self, String> {
+        Ok(Self {
+            graph: LoudnessAnalyzerGraph::new(decoder_ctx)?,
+        })
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut LoudnessAnalyzerGraph {
+        &mut self.graph
+    }
+
+    fn close_source(&mut self) -> Result<(), String> {
+        unsafe { self.graph.close_source() }
+    }
+
+    fn drain(
+        &mut self,
+        frame: *mut ffi::AVFrame,
+        integrated_lufs: &mut Option<f64>,
+    ) -> Result<(), String> {
+        unsafe { self.graph.drain(frame, integrated_lufs) }
+    }
+}
+
+struct LoudnessAnalyzerGraph {
+    graph: *mut ffi::AVFilterGraph,
+    source: *mut ffi::AVFilterContext,
+    sink: *mut ffi::AVFilterContext,
+}
+
+impl LoudnessAnalyzerGraph {
+    unsafe fn new(decoder_ctx: *const ffi::AVCodecContext) -> Result<Self, String> {
+        let graph = ffi::avfilter_graph_alloc();
+        if graph.is_null() {
+            return Err("failed to allocate loudness filter graph".to_string());
+        }
+
+        let mut source = ptr::null_mut();
+        let mut filter = ptr::null_mut();
+        let mut sink = ptr::null_mut();
+
+        let buffer_name = CString::new("abuffer").unwrap();
+        let loudness_name = CString::new("ebur128").unwrap();
+        let sink_name = CString::new("abuffersink").unwrap();
+        let source_instance = CString::new("in").unwrap();
+        let filter_instance = CString::new("loudness").unwrap();
+        let sink_instance = CString::new("out").unwrap();
+        let filter_args = CString::new("metadata=1:video=0").unwrap();
+
+        ffmpeg_call(
+            ffi::avfilter_graph_create_filter(
+                &mut source,
+                ffi::avfilter_get_by_name(buffer_name.as_ptr()),
+                source_instance.as_ptr(),
+                ptr::null(),
+                ptr::null_mut(),
+                graph,
+            ),
+            "failed to create loudness source filter",
+        )?;
+
+        let mut params = BufferSrcParameters::new(decoder_ctx)?;
+        ffmpeg_call(
+            ffi::av_buffersrc_parameters_set(source, params.as_mut_ptr()),
+            "failed to configure loudness source filter",
+        )?;
+
+        ffmpeg_call(
+            ffi::avfilter_graph_create_filter(
+                &mut filter,
+                ffi::avfilter_get_by_name(loudness_name.as_ptr()),
+                filter_instance.as_ptr(),
+                filter_args.as_ptr(),
+                ptr::null_mut(),
+                graph,
+            ),
+            "failed to create ebur128 filter",
+        )?;
+
+        ffmpeg_call(
+            ffi::avfilter_graph_create_filter(
+                &mut sink,
+                ffi::avfilter_get_by_name(sink_name.as_ptr()),
+                sink_instance.as_ptr(),
+                ptr::null(),
+                ptr::null_mut(),
+                graph,
+            ),
+            "failed to create loudness sink filter",
+        )?;
+
+        ffmpeg_call(
+            ffi::avfilter_link(source, 0, filter, 0),
+            "failed to link loudness source filter",
+        )?;
+        ffmpeg_call(
+            ffi::avfilter_link(filter, 0, sink, 0),
+            "failed to link ebur128 filter to sink",
+        )?;
+        ffmpeg_call(
+            ffi::avfilter_graph_config(graph, ptr::null_mut()),
+            "failed to configure loudness filter graph",
+        )?;
+
+        Ok(Self {
+            graph,
+            source,
+            sink,
+        })
+    }
+
+    unsafe fn push_frame(&mut self, frame: *mut ffi::AVFrame) -> Result<(), String> {
+        ffmpeg_call(
+            ffi::av_buffersrc_write_frame(self.source, frame),
+            "failed to push decoded frame into ebur128 filter",
+        )
+    }
+
+    unsafe fn close_source(&mut self) -> Result<(), String> {
+        ffmpeg_call(
+            ffi::av_buffersrc_close(self.source, ffi::AV_NOPTS_VALUE, 0),
+            "failed to close loudness filter source",
+        )
+    }
+
+    unsafe fn drain(
+        &mut self,
+        frame: *mut ffi::AVFrame,
+        integrated_lufs: &mut Option<f64>,
+    ) -> Result<(), String> {
+        loop {
+            let code = ffi::av_buffersink_get_frame(self.sink, frame);
+            if code == ffi::AVERROR(ffi::EAGAIN) || code == ffi::AVERROR_EOF {
+                return Ok(());
+            }
+            ffmpeg_call(code, "failed to receive filtered loudness frame")?;
+
+            if let Some(value) = frame_loudness_metadata(frame, "lavfi.r128.I") {
+                *integrated_lufs = Some(value);
+            }
+
+            ffi::av_frame_unref(frame);
+        }
+    }
+}
+
+impl Drop for LoudnessAnalyzerGraph {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.graph.is_null() {
+                ffi::avfilter_graph_free(&mut self.graph);
+            }
+        }
+    }
+}
+
+struct BufferSrcParameters(*mut ffi::AVBufferSrcParameters);
+
+impl BufferSrcParameters {
+    unsafe fn new(decoder_ctx: *const ffi::AVCodecContext) -> Result<Self, String> {
+        let params = ffi::av_buffersrc_parameters_alloc();
+        if params.is_null() {
+            return Err("failed to allocate buffer source parameters".to_string());
+        }
+
+        (*params).format = (*decoder_ctx).sample_fmt as i32;
+        (*params).sample_rate = (*decoder_ctx).sample_rate;
+        (*params).time_base = ffi::AVRational {
+            num: 1,
+            den: (*decoder_ctx).sample_rate.max(1),
+        };
+        ffmpeg_call(
+            ffi::av_channel_layout_copy(&mut (*params).ch_layout, &(*decoder_ctx).ch_layout),
+            "failed to copy buffer source channel layout",
+        )?;
+
+        Ok(Self(params))
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut ffi::AVBufferSrcParameters {
+        self.0
+    }
+}
+
+impl Drop for BufferSrcParameters {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.0.is_null() {
+                ffi::av_channel_layout_uninit(&mut (*self.0).ch_layout);
+                ffi::av_free(self.0.cast());
+            }
+        }
+    }
+}
+
+fn cover_mime_type(codec_id: ffi::AVCodecID) -> &'static str {
+    match codec_id {
+        ffi::AV_CODEC_ID_PNG | ffi::AV_CODEC_ID_APNG => "image/png",
+        ffi::AV_CODEC_ID_MJPEG | ffi::AV_CODEC_ID_MJPEGB => "image/jpeg",
+        ffi::AV_CODEC_ID_BMP => "image/bmp",
+        ffi::AV_CODEC_ID_GIF => "image/gif",
+        ffi::AV_CODEC_ID_TIFF => "image/tiff",
+        ffi::AV_CODEC_ID_WEBP => "image/webp",
+        _ => "application/octet-stream",
+    }
+}
+
+fn frame_loudness_metadata(frame: *mut ffi::AVFrame, key: &str) -> Option<f64> {
+    let key = CString::new(key).ok()?;
+    unsafe {
+        let entry = ffi::av_dict_get((*frame).metadata, key.as_ptr(), ptr::null(), 0);
+        if entry.is_null() || (*entry).value.is_null() {
             return None;
         }
 
-        trimmed
-            .split_whitespace()
-            .nth(1)
+        CStr::from_ptr((*entry).value)
+            .to_str()
+            .ok()
             .and_then(|value| value.parse::<f64>().ok())
-    })
-}
-
-#[derive(Debug, Deserialize)]
-struct FfprobeStreams {
-    #[serde(default)]
-    streams: Vec<FfprobeStream>,
-}
-
-#[derive(Debug, Deserialize)]
-struct FfprobeStream {
-    #[serde(default)]
-    disposition: FfprobeDisposition,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct FfprobeDisposition {
-    #[serde(default)]
-    attached_pic: i32,
-}
-
-fn has_embedded_cover(input: &Path) -> Result<bool, String> {
-    let result = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v",
-            "-show_entries",
-            "stream=disposition",
-            "-of",
-            "json",
-        ])
-        .arg(input)
-        .output()
-        .map_err(|e| format!("failed to run ffprobe: {e}"))?;
-
-    if !result.status.success() {
-        return Err(format!(
-            "ffprobe failed while checking cover art: {}",
-            stderr_message(&result.stderr)
-        ));
     }
+}
 
-    let parsed: FfprobeStreams = serde_json::from_slice(&result.stdout)
-        .map_err(|e| format!("failed to parse ffprobe output: {e}"))?;
-
-    Ok(parsed
-        .streams
-        .iter()
-        .any(|stream| stream.disposition.attached_pic == 1))
+fn is_unsupported_media_error(message: &str) -> bool {
+    message.contains("Invalid data found")
+        || message.contains("End of file")
+        || message.contains("No such file or directory")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_integrated_lufs, transcode_audio_to_mp3};
-    use std::path::Path;
-
-    #[test]
-    fn parse_integrated_lufs_reads_summary_value() {
-        let stderr = r#"
-[Parsed_ebur128_0 @ 0x0] Summary:
-  Integrated loudness:
-    I:         -14.7 LUFS
-"#;
-
-        assert_eq!(parse_integrated_lufs(stderr), Some(-14.7));
-    }
+    use super::{
+        cover_mime_type, detect_primary_audio_codec, export_audio_for_download, path_to_cstring,
+        transcode_audio_to_mp3, InputContext,
+    };
+    use rusty_ffmpeg::ffi;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn transcode_audio_to_mp3_reports_open_input_errors() {
@@ -923,5 +1619,155 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("failed to open input file"));
+    }
+
+    #[test]
+    fn cover_codec_ids_map_to_expected_mime_types() {
+        assert_eq!(cover_mime_type(ffi::AV_CODEC_ID_MJPEG), "image/jpeg");
+        assert_eq!(cover_mime_type(ffi::AV_CODEC_ID_PNG), "image/png");
+    }
+
+    #[test]
+    fn transcode_sample_webm_to_mp3() {
+        assert_sample_converts_to_mp3("music/1.webm");
+    }
+
+    #[test]
+    fn transcode_sample_m4s_to_mp3() {
+        assert_sample_converts_to_mp3("music/1.m4s");
+    }
+
+    #[test]
+    fn export_sample_webm_to_ogg_without_transcoding() {
+        assert_sample_exports_with_codec("music/1.webm", "exported.ogg", ffi::AV_CODEC_ID_OPUS);
+    }
+
+    #[test]
+    fn export_sample_m4s_to_m4a_without_transcoding() {
+        assert_sample_exports_with_codec("music/1.m4s", "exported.m4a", ffi::AV_CODEC_ID_AAC);
+    }
+
+    #[test]
+    fn export_sample_wav_to_flac_with_lossless_transcoding() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let input = temp_dir.path().join("input.wav");
+        write_silent_wav(&input, 48_000, 2, 16, 48_000).unwrap();
+        assert_export_with_codec(
+            &input,
+            temp_dir.path(),
+            "exported.flac",
+            ffi::AV_CODEC_ID_FLAC,
+        );
+    }
+
+    fn assert_sample_converts_to_mp3(sample_name: &str) {
+        let input = repo_root().join(sample_name);
+        if !input.exists() {
+            eprintln!(
+                "skipping sample conversion test, missing {}",
+                input.display()
+            );
+            return;
+        }
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output = temp_dir.path().join("converted.mp3");
+
+        transcode_audio_to_mp3(&input, &output)
+            .unwrap_or_else(|err| panic!("failed to transcode sample {}: {err}", input.display()));
+
+        let metadata = std::fs::metadata(&output).unwrap();
+        assert!(metadata.len() > 0, "converted output is empty");
+        assert_mp3_stream(&output);
+    }
+
+    fn assert_mp3_stream(output: &Path) {
+        let output = path_to_cstring(output).unwrap();
+        unsafe {
+            let mut input_ctx = InputContext::open(&output).unwrap();
+            let (stream_index, _) = input_ctx.best_audio_stream().unwrap();
+            let stream = input_ctx.stream(stream_index as usize).unwrap();
+            let codec_id = (*(*stream).codecpar).codec_id;
+            assert_eq!(codec_id, ffi::AV_CODEC_ID_MP3);
+        }
+    }
+
+    fn assert_sample_exports_with_codec(
+        sample_name: &str,
+        expected_file_name: &str,
+        expected_codec: ffi::AVCodecID,
+    ) {
+        let input = repo_root().join(sample_name);
+        if !input.exists() {
+            eprintln!("skipping sample export test, missing {}", input.display());
+            return;
+        }
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        assert_export_with_codec(&input, temp_dir.path(), expected_file_name, expected_codec);
+    }
+
+    fn assert_export_with_codec(
+        input: &Path,
+        output_dir: &Path,
+        expected_file_name: &str,
+        expected_codec: ffi::AVCodecID,
+    ) {
+        let (file_name, output) = export_audio_for_download(input, output_dir, "exported")
+            .unwrap_or_else(|err| panic!("failed to export sample {}: {err}", input.display()));
+
+        assert_eq!(file_name, expected_file_name);
+        assert_eq!(
+            output.file_name().and_then(|v| v.to_str()),
+            Some(expected_file_name)
+        );
+
+        let metadata = std::fs::metadata(&output).unwrap();
+        assert!(metadata.len() > 0, "exported output is empty");
+
+        let output_codec = detect_primary_audio_codec(&output).unwrap();
+        assert_eq!(output_codec, expected_codec);
+    }
+
+    fn write_silent_wav(
+        path: &Path,
+        sample_rate: u32,
+        channels: u16,
+        bits_per_sample: u16,
+        frames: u32,
+    ) -> Result<(), std::io::Error> {
+        use std::io::Write;
+
+        let bytes_per_sample = u32::from(bits_per_sample / 8);
+        let data_size = frames * u32::from(channels) * bytes_per_sample;
+        let byte_rate = sample_rate * u32::from(channels) * bytes_per_sample;
+        let block_align = channels * (bits_per_sample / 8);
+        let riff_size = 36 + data_size;
+
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(b"RIFF")?;
+        file.write_all(&riff_size.to_le_bytes())?;
+        file.write_all(b"WAVE")?;
+        file.write_all(b"fmt ")?;
+        file.write_all(&16_u32.to_le_bytes())?;
+        file.write_all(&1_u16.to_le_bytes())?;
+        file.write_all(&channels.to_le_bytes())?;
+        file.write_all(&sample_rate.to_le_bytes())?;
+        file.write_all(&byte_rate.to_le_bytes())?;
+        file.write_all(&block_align.to_le_bytes())?;
+        file.write_all(&bits_per_sample.to_le_bytes())?;
+        file.write_all(b"data")?;
+        file.write_all(&data_size.to_le_bytes())?;
+
+        let silence = vec![0_u8; data_size as usize];
+        file.write_all(&silence)?;
+        Ok(())
+    }
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf()
     }
 }

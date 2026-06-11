@@ -152,11 +152,7 @@ fn finalize_youtube_audio(
     output_dir: &Path,
     output_stem: &str,
 ) -> Result<(String, PathBuf), String> {
-    let converted_name = format!("{output_stem}.mp3");
-    let converted_path = output_dir.join(&converted_name);
-
-    crate::ffmpeg::transcode_audio_to_mp3(source_audio, &converted_path)?;
-    Ok((converted_name, converted_path))
+    crate::ffmpeg::export_audio_for_download(source_audio, output_dir, output_stem)
 }
 
 fn load_youtube_cookie_header() -> Option<String> {
