@@ -2,10 +2,8 @@
 
 ## Overview
 
-Kaulan currently uses a hybrid FFmpeg backend:
-
-- vendored [`rusty_ffmpeg`](../vendor/rusty_ffmpeg) for desktop audio transcoding to MP3
-- system `ffmpeg` and `ffprobe` binaries for LUFS calculation and cover-art probing
+Kaulan currently uses an in-process FFmpeg backend through vendored
+[`rusty_ffmpeg`](../vendor/rusty_ffmpeg).
 
 This pipeline currently covers:
 
@@ -32,18 +30,17 @@ Sequence:
 sequenceDiagram
     participant API as LUFS API
     participant FF as backend/src/ffmpeg.rs
-    participant BIN as ffmpeg
     participant DB as SQLite
 
     API->>FF: calculate_lufs_for_source(file_path)
     FF->>FF: prepare_input(file_path)
-    FF->>BIN: ffmpeg -filter:a ebur128=framelog=verbose -f null -
-    BIN-->>FF: stderr summary with integrated loudness
+    FF->>FF: decode audio and run ebur128 filter graph
+    FF->>FF: read lavfi.r128.I metadata from filtered frames
     FF-->>API: Option<f64>
     API->>DB: persist LUFS when available
 ```
 
-For non-filesystem sources such as Android `content://` URIs, Kaulan first materializes a temporary local file before launching `ffmpeg`.
+For non-filesystem sources such as Android `content://` URIs, Kaulan first materializes a temporary local file before opening it through the in-process FFmpeg pipeline.
 
 ### YouTube download finalization
 
@@ -81,8 +78,6 @@ Desktop Bilibili downloads already use FFmpeg conversion after fetching the raw 
 
 - system FFmpeg libraries and headers must be installed for `rusty_ffmpeg`
 - `pkg-config` metadata for FFmpeg must be available
-- `ffmpeg` must be available on `PATH` for LUFS calculation
-- `ffprobe` must be available on `PATH` for cover-art probing
 
 On Arch Linux, the desktop build currently relies on:
 
@@ -102,5 +97,5 @@ cargo check
 
 - The backend no longer depends on `lufsgen`, so Symphonia is removed from the backend media-analysis path.
 - Desktop YouTube MP3 conversion now runs in-process through `rusty_ffmpeg`.
-- LUFS and cover-art probing still use the command-line FFmpeg tools today.
+- LUFS calculation and cover-art probing now run in-process through `rusty_ffmpeg`, not by shelling out to `ffmpeg` or `ffprobe`.
 - The next Android step is packaging or bundling FFmpeg in a way that works for the Tauri Android runtime.
