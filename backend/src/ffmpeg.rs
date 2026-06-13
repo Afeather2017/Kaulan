@@ -1421,6 +1421,7 @@ impl LoudnessAnalyzerGraph {
         let source_instance = CString::new("in").unwrap();
         let filter_instance = CString::new("loudness").unwrap();
         let sink_instance = CString::new("out").unwrap();
+        let source_args = loudness_source_filter_args(decoder_ctx)?;
         let filter_args = CString::new("metadata=1:video=0").unwrap();
 
         ffmpeg_call(
@@ -1428,7 +1429,7 @@ impl LoudnessAnalyzerGraph {
                 &mut source,
                 ffi::avfilter_get_by_name(buffer_name.as_ptr()),
                 source_instance.as_ptr(),
-                ptr::null(),
+                source_args.as_ptr(),
                 ptr::null_mut(),
                 graph,
             ),
@@ -1569,6 +1570,45 @@ impl Drop for BufferSrcParameters {
     }
 }
 
+unsafe fn loudness_source_filter_args(
+    decoder_ctx: *const ffi::AVCodecContext,
+) -> Result<CString, String> {
+    let sample_rate = (*decoder_ctx).sample_rate;
+    if sample_rate <= 0 {
+        return Err("decoder did not expose a valid sample rate for loudness analysis".to_string());
+    }
+
+    let sample_fmt_name_ptr = ffi::av_get_sample_fmt_name((*decoder_ctx).sample_fmt);
+    if sample_fmt_name_ptr.is_null() {
+        return Err(
+            "decoder did not expose a valid sample format for loudness analysis".to_string(),
+        );
+    }
+
+    let sample_fmt_name = CStr::from_ptr(sample_fmt_name_ptr).to_str().map_err(|_| {
+        "failed to decode sample format name for loudness source filter".to_string()
+    })?;
+    let channel_layout = describe_channel_layout(&(*decoder_ctx).ch_layout)?;
+
+    CString::new(format!(
+        "time_base=1/{sample_rate}:sample_rate={sample_rate}:sample_fmt={sample_fmt_name}:channel_layout={channel_layout}"
+    ))
+    .map_err(|_| "failed to build loudness source filter args".to_string())
+}
+
+unsafe fn describe_channel_layout(layout: *const ffi::AVChannelLayout) -> Result<String, String> {
+    let mut description = vec![0_i8; 128];
+    ffmpeg_call(
+        ffi::av_channel_layout_describe(layout, description.as_mut_ptr(), description.len()),
+        "failed to describe channel layout for loudness source filter",
+    )?;
+
+    CStr::from_ptr(description.as_ptr())
+        .to_str()
+        .map(|value| value.to_string())
+        .map_err(|_| "failed to decode channel layout description".to_string())
+}
+
 fn cover_mime_type(codec_id: ffi::AVCodecID) -> &'static str {
     match codec_id {
         ffi::AV_CODEC_ID_PNG | ffi::AV_CODEC_ID_APNG => "image/png",
@@ -1605,8 +1645,8 @@ fn is_unsupported_media_error(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        cover_mime_type, detect_primary_audio_codec, export_audio_for_download, path_to_cstring,
-        transcode_audio_to_mp3, InputContext,
+        cover_mime_type, detect_primary_audio_codec, export_audio_for_download,
+        loudness_source_filter_args, path_to_cstring, transcode_audio_to_mp3, InputContext,
     };
     use rusty_ffmpeg::ffi;
     use std::path::{Path, PathBuf};
@@ -1625,6 +1665,26 @@ mod tests {
     fn cover_codec_ids_map_to_expected_mime_types() {
         assert_eq!(cover_mime_type(ffi::AV_CODEC_ID_MJPEG), "image/jpeg");
         assert_eq!(cover_mime_type(ffi::AV_CODEC_ID_PNG), "image/png");
+    }
+
+    #[test]
+    fn loudness_source_filter_args_include_required_audio_fields() {
+        unsafe {
+            let mut codec_ctx = std::mem::zeroed::<ffi::AVCodecContext>();
+            codec_ctx.sample_rate = 44_100;
+            codec_ctx.sample_fmt = ffi::AV_SAMPLE_FMT_FLTP;
+            ffi::av_channel_layout_default(&mut codec_ctx.ch_layout, 2);
+
+            let args = loudness_source_filter_args(&codec_ctx).unwrap();
+            let args = args.to_str().unwrap();
+
+            assert!(args.contains("time_base=1/44100"));
+            assert!(args.contains("sample_rate=44100"));
+            assert!(args.contains("sample_fmt=fltp"));
+            assert!(args.contains("channel_layout=stereo"));
+
+            ffi::av_channel_layout_uninit(&mut codec_ctx.ch_layout);
+        }
     }
 
     #[test]
