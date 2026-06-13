@@ -72,7 +72,7 @@ Related source files:
 - [`backend/src/services/download/bilibili.rs`](../backend/src/services/download/bilibili.rs)
 - [`vendor/ncmdump-rs/bilibili-api/src/download.rs`](../vendor/ncmdump-rs/bilibili-api/src/download.rs)
 
-Desktop Bilibili downloads already use FFmpeg conversion after fetching the raw DASH audio stream. Android still keeps the raw container until FFmpeg is integrated into that runtime path.
+Desktop Bilibili downloads now remux the raw DASH AAC stream into an `.m4a` container with FFmpeg stream copy only (`-c:a copy`). Kaulan sets the output muxer explicitly instead of relying on the temporary file suffix, because the remux is written to a temporary path before being renamed into place. Android still keeps the raw `.m4s` container until FFmpeg is integrated into that runtime path.
 
 ## Runtime Requirements
 
