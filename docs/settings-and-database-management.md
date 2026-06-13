@@ -348,8 +348,6 @@ The update process will:
 - FLAC (`.flac`)
 - M4A (`.m4a`)
 - Opus (`.opus`)
-- Bilibili DASH audio (`.m4s`)
-- WebM audio (`.webm`)
 
 ### Supported Video Formats
 

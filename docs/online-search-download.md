@@ -110,6 +110,7 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 - Temporary preview tracks are not inserted into the main library database.
 - On Android, preview files are stored in the app download root under `.preview-cache`.
 - On desktop, YouTube preview downloads are transcoded to MP3 through Kaulan's backend FFmpeg pipeline.
+- On desktop, Bilibili preview downloads are remuxed to `.m4a` with FFmpeg stream copy only. No audio re-encoding is performed, and the backend selects the M4A/MP4 muxer explicitly while writing the temporary output file. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`.
 - On Android, Bilibili preview downloads keep the provider's raw DASH audio container instead of running FFmpeg conversion. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`.
 
 ### Download behavior
@@ -118,7 +119,8 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 - On Android, Kaulan uses the app external files music directory:
   - `/sdcard/Android/data/afeather.kaulan/files/Music`
 - On desktop, YouTube full downloads are re-encoded to `.mp3` through Kaulan's backend FFmpeg pipeline. Related sources: `backend/src/services/download/youtube.rs`, `backend/src/ffmpeg.rs`.
-- On Android, Bilibili full downloads are saved as raw DASH audio files with the `.m4s` extension because FFmpeg is not integrated in the Android path yet. The standard filesystem scan treats `.m4s` as a supported audio suffix, so these downloads are indexed on the next library refresh. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`, `backend/src/file_ops/mod.rs`.
+- On desktop, Bilibili full downloads are remuxed to `.m4a` with FFmpeg stream copy only, because the provider audio is AAC and does not need transcoding. The backend uses an explicit output muxer so the temporary download filename does not break FFmpeg format detection. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`.
+- On Android, Bilibili full downloads are saved as raw DASH audio files with the `.m4s` extension because FFmpeg is not integrated in the Android path yet. These raw files are not treated as supported library audio formats by the scanner, so they are not indexed until they are remuxed or converted to a supported audio container. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`, `backend/src/file_ops/mod.rs`.
 - If the user selected a lyric candidate, Kaulan tries to save a matching `.lrc` file beside the audio file.
 - After a successful full download, Kaulan refreshes the music database across both library roots:
   - the configured music directory
