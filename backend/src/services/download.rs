@@ -324,6 +324,7 @@ mod tests {
     fn cover_art_embedding_skips_ogg_only() {
         assert!(!should_embed_cover_art(Path::new("/tmp/example.ogg")));
         assert!(!should_embed_cover_art(Path::new("/tmp/example.OGG")));
+        assert!(should_embed_cover_art(Path::new("/tmp/example.mka")));
         assert!(should_embed_cover_art(Path::new("/tmp/example.mp3")));
         assert!(should_embed_cover_art(Path::new("/tmp/example.flac")));
         assert!(should_embed_cover_art(Path::new("/tmp/example.m4a")));

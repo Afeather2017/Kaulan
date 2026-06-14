@@ -357,7 +357,8 @@ pub async fn source_write_stream(path: &str, chunks: Vec<Bytes>) -> Result<(), i
 }
 
 /// Supported audio file extensions scanned into the user library.
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "ogg", "wav", "aac", "flac", "m4a", "opus"];
+pub const SUPPORTED_EXTENSIONS: &[&str] =
+    &["mp3", "ogg", "wav", "aac", "flac", "m4a", "opus", "mka"];
 
 /// Supported video file extensions
 pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "3gp"];
@@ -759,6 +760,7 @@ mod tests {
     fn test_supported_extensions() {
         assert!(SUPPORTED_EXTENSIONS.contains(&"mp3"));
         assert!(SUPPORTED_EXTENSIONS.contains(&"flac"));
+        assert!(SUPPORTED_EXTENSIONS.contains(&"mka"));
         assert!(!SUPPORTED_EXTENSIONS.contains(&"m4s"));
         assert!(!SUPPORTED_EXTENSIONS.contains(&"webm"));
         assert!(!SUPPORTED_EXTENSIONS.contains(&"txt"));
