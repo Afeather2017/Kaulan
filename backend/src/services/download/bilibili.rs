@@ -7,8 +7,7 @@ use crate::types::{
 use async_trait::async_trait;
 use bilibili_api::auth::BiliSession;
 use bilibili_api::{BilibiliClient, BilibiliError};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
 use tokio::task;
 
 const BILIBILI_REMUXED_AUDIO_EXTENSION: &str = "m4a";
@@ -129,6 +128,7 @@ impl MusicProvider for BilibiliProvider {
 
         task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
             let client = BilibiliClient::new().map_err(|e| e.to_string())?;
+            let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
             let filename = if should_skip_bilibili_ffmpeg() {
                 format!(
                     "{}.{}",
@@ -147,7 +147,10 @@ impl MusicProvider for BilibiliProvider {
                 BilibiliError::Ffmpeg(message) => format!("FFmpeg 错误: {message}"),
                 other => other.to_string(),
             })?;
-            Ok(FullDownloadResult { final_path })
+            Ok(FullDownloadResult {
+                final_path,
+                cover_url: Some(normalize_remote_url(&detail.pic)),
+            })
         })
         .await
         .map_err(|e| e.to_string())?
@@ -193,44 +196,7 @@ fn remux_aac_to_m4a(input: &Path, output: &Path) -> Result<(), BilibiliError> {
         std::fs::create_dir_all(parent)?;
     }
 
-    let temp_output = temporary_output_path(output);
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-i",
-            input.to_str().unwrap_or(""),
-            "-vn",
-            "-c:a",
-            "copy",
-            "-movflags",
-            "+faststart",
-            "-f",
-            "ipod",
-            temp_output.to_str().unwrap_or(""),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .status()
-        .map_err(|e| BilibiliError::Ffmpeg(format!("failed to run ffmpeg: {e}")))?;
-
-    if !status.success() {
-        let _ = std::fs::remove_file(&temp_output);
-        return Err(BilibiliError::Ffmpeg(format!(
-            "ffmpeg muxer exited with code {} while copying AAC into m4a",
-            status.code().unwrap_or(-1)
-        )));
-    }
-
-    std::fs::rename(&temp_output, output).map_err(BilibiliError::Io)?;
-    Ok(())
-}
-
-fn temporary_output_path(output: &Path) -> PathBuf {
-    let file_name = output
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("download.m4a");
-    output.with_file_name(format!("{file_name}.tmp"))
+    crate::ffmpeg::remux_audio_stream(input, output).map_err(BilibiliError::Ffmpeg)
 }
 
 fn normalize_remote_url(url: &str) -> String {
@@ -258,10 +224,8 @@ fn strip_html_tags(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        should_skip_bilibili_ffmpeg, temporary_output_path, BILIBILI_RAW_AUDIO_EXTENSION,
-        BILIBILI_REMUXED_AUDIO_EXTENSION,
+        should_skip_bilibili_ffmpeg, BILIBILI_RAW_AUDIO_EXTENSION, BILIBILI_REMUXED_AUDIO_EXTENSION,
     };
-    use std::path::Path;
 
     #[test]
     fn bilibili_downloads_use_expected_extension_for_platform() {
@@ -272,14 +236,5 @@ mod tests {
         };
 
         assert!(!extension.is_empty());
-    }
-
-    #[test]
-    fn temporary_output_path_keeps_m4a_suffix_visible() {
-        let output = Path::new("/tmp/example.m4a");
-        assert_eq!(
-            temporary_output_path(output),
-            Path::new("/tmp/example.m4a.tmp")
-        );
     }
 }

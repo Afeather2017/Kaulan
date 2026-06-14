@@ -6,6 +6,7 @@ use crate::file_ops::{get_file_reader, resolve_path, PathKind};
 use futures::StreamExt;
 use rusty_ffmpeg::ffi;
 use std::ffi::{CStr, CString};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use tokio::io::AsyncWriteExt;
@@ -94,6 +95,28 @@ enum PreferredAudioOutput {
     Remux { extension: &'static str },
     TranscodeFlac,
     TranscodeMp3,
+}
+
+#[derive(Clone, Copy)]
+pub enum CoverImageCodec {
+    Png,
+    Jpeg,
+}
+
+impl CoverImageCodec {
+    fn codec_id(self) -> ffi::AVCodecID {
+        match self {
+            Self::Png => ffi::AV_CODEC_ID_PNG,
+            Self::Jpeg => ffi::AV_CODEC_ID_MJPEG,
+        }
+    }
+}
+
+pub struct NormalizedCoverArt {
+    pub codec: CoverImageCodec,
+    pub bytes: Vec<u8>,
+    pub width: i32,
+    pub height: i32,
 }
 
 pub fn export_audio_for_download(
@@ -340,6 +363,15 @@ pub fn remux_audio_stream(input: &Path, output: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn audio_file_has_cover_art(input: &Path) -> Result<bool, String> {
+    let input = path_to_cstring(input)?;
+
+    unsafe {
+        let input_ctx = InputContext::open(&input)?;
+        Ok(input_ctx.attached_picture_stream().is_some())
+    }
+}
+
 pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, String> {
     let input = path_to_cstring(input)?;
 
@@ -361,6 +393,149 @@ pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, Stri
 
         Ok(Some((cover_mime_type(codec_id).to_string(), bytes)))
     }
+}
+
+pub fn normalize_cover_art_bytes(input: &[u8]) -> Result<NormalizedCoverArt, String> {
+    let image_format = image::guess_format(input)
+        .map_err(|e| format!("failed to detect cover image format: {e}"))?;
+    let image = image::load_from_memory_with_format(input, image_format)
+        .map_err(|e| format!("failed to decode cover image: {e}"))?;
+    let width = i32::try_from(image.width())
+        .map_err(|_| "cover image width is too large for FFmpeg".to_string())?;
+    let height = i32::try_from(image.height())
+        .map_err(|_| "cover image height is too large for FFmpeg".to_string())?;
+
+    match image_format {
+        image::ImageFormat::Jpeg => Ok(NormalizedCoverArt {
+            codec: CoverImageCodec::Jpeg,
+            bytes: input.to_vec(),
+            width,
+            height,
+        }),
+        _ => {
+            let mut encoded = Cursor::new(Vec::new());
+            image
+                .write_to(&mut encoded, image::ImageFormat::Png)
+                .map_err(|e| format!("failed to encode normalized cover image: {e}"))?;
+            Ok(NormalizedCoverArt {
+                codec: CoverImageCodec::Png,
+                bytes: encoded.into_inner(),
+                width,
+                height,
+            })
+        }
+    }
+}
+
+pub fn normalize_cover_art_file(path: &Path) -> Result<NormalizedCoverArt, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("failed to read cover image {}: {e}", path.display()))?;
+    normalize_cover_art_bytes(&bytes)
+}
+
+pub fn replace_cover_art(
+    input: &Path,
+    output: &Path,
+    cover: &NormalizedCoverArt,
+) -> Result<(), String> {
+    let input = path_to_cstring(input)?;
+    let output = path_to_cstring(output)?;
+
+    unsafe {
+        let mut input_ctx = InputContext::open(&input)?;
+        let stream_count = input_ctx.view().nb_streams as usize;
+        let mut stream_map = vec![-1_i32; stream_count];
+        let mut output_ctx = OutputContext::create(&output)?;
+
+        for index in 0..stream_count {
+            let input_stream = input_ctx.stream(index)?;
+            let is_attached_pic =
+                ((*input_stream).disposition & ffi::AV_DISPOSITION_ATTACHED_PIC as i32) != 0;
+            if is_attached_pic {
+                continue;
+            }
+
+            let output_stream = output_ctx.new_stream(ptr::null())?;
+            ffmpeg_call(
+                ffi::avcodec_parameters_copy((*output_stream).codecpar, (*input_stream).codecpar),
+                "failed to copy stream parameters while replacing cover art",
+            )?;
+            (*(*output_stream).codecpar).codec_tag = 0;
+            (*output_stream).time_base = (*input_stream).time_base;
+            ffmpeg_call(
+                ffi::av_dict_copy(&mut (*output_stream).metadata, (*input_stream).metadata, 0),
+                "failed to copy stream metadata while replacing cover art",
+            )?;
+            stream_map[index] = (*output_stream).index;
+        }
+
+        let cover_stream = output_ctx.new_stream(ptr::null())?;
+        (*(*cover_stream).codecpar).codec_type = ffi::AVMEDIA_TYPE_VIDEO;
+        (*(*cover_stream).codecpar).codec_id = cover.codec.codec_id();
+        (*(*cover_stream).codecpar).codec_tag = 0;
+        (*(*cover_stream).codecpar).width = cover.width;
+        (*(*cover_stream).codecpar).height = cover.height;
+        (*cover_stream).time_base = ffi::AVRational { num: 1, den: 90000 };
+        (*cover_stream).disposition |= ffi::AV_DISPOSITION_ATTACHED_PIC as i32;
+        set_ffmpeg_metadata(&mut (*cover_stream).metadata, "title", "Cover")?;
+        set_ffmpeg_metadata(&mut (*cover_stream).metadata, "comment", "Cover (front)")?;
+
+        output_ctx.open_io(&output)?;
+        ffmpeg_call(
+            ffi::avformat_write_header(output_ctx.as_mut_ptr(), ptr::null_mut()),
+            "failed to write cover-art output header",
+        )?;
+
+        write_cover_packet(output_ctx.as_mut_ptr(), cover_stream, cover)?;
+
+        let mut packet = Packet::new()?;
+        while ffi::av_read_frame(input_ctx.as_mut_ptr(), packet.as_mut_ptr()) >= 0 {
+            let input_index = (*packet.as_ptr()).stream_index;
+            let mapped_index = stream_map.get(input_index as usize).copied().unwrap_or(-1);
+            if mapped_index < 0 {
+                ffi::av_packet_unref(packet.as_mut_ptr());
+                continue;
+            }
+
+            let input_stream = input_ctx.stream(input_index as usize)?;
+            let output_stream = *output_ctx.view().streams.add(mapped_index as usize);
+            ffi::av_packet_rescale_ts(
+                packet.as_mut_ptr(),
+                (*input_stream).time_base,
+                (*output_stream).time_base,
+            );
+            (*packet.as_mut_ptr()).stream_index = mapped_index;
+            (*packet.as_mut_ptr()).pos = -1;
+            ffmpeg_call(
+                ffi::av_interleaved_write_frame(output_ctx.as_mut_ptr(), packet.as_mut_ptr()),
+                "failed to write packet while replacing cover art",
+            )?;
+            ffi::av_packet_unref(packet.as_mut_ptr());
+        }
+
+        ffmpeg_call(
+            ffi::av_write_trailer(output_ctx.as_mut_ptr()),
+            "failed to finalize cover-art output file",
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn replace_cover_art_in_place(
+    audio_path: &Path,
+    cover: &NormalizedCoverArt,
+) -> Result<(), String> {
+    let temp_output = temporary_output_path(audio_path);
+    replace_cover_art(audio_path, &temp_output, cover)?;
+    std::fs::rename(&temp_output, audio_path).map_err(|e| {
+        format!(
+            "failed to replace {} with cover-art output {}: {e}",
+            audio_path.display(),
+            temp_output.display()
+        )
+    })?;
+    Ok(())
 }
 
 pub fn calculate_lufs(input: &Path) -> Result<Option<f64>, String> {
@@ -427,6 +602,21 @@ fn path_to_cstring(path: &Path) -> Result<CString, String> {
     .map_err(|e| format!("path contains interior NUL byte: {e}"))
 }
 
+fn temporary_output_path(output: &Path) -> PathBuf {
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let stem = output
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
+
+    match output.extension().and_then(|value| value.to_str()) {
+        Some(extension) if !extension.is_empty() => {
+            parent.join(format!("{stem}.cover.tmp.{extension}"))
+        }
+        _ => parent.join(format!("{stem}.cover.tmp")),
+    }
+}
+
 fn ffmpeg_call(code: i32, context: &str) -> Result<(), String> {
     if code < 0 {
         Err(format!("{context}: {}", ffmpeg_error_string(code)))
@@ -442,6 +632,48 @@ fn ffmpeg_error_string(code: i32) -> String {
         CStr::from_ptr(buffer.as_ptr())
             .to_string_lossy()
             .into_owned()
+    }
+}
+
+fn set_ffmpeg_metadata(
+    dictionary: &mut *mut ffi::AVDictionary,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    let key = CString::new(key).map_err(|e| format!("invalid metadata key: {e}"))?;
+    let value = CString::new(value).map_err(|e| format!("invalid metadata value: {e}"))?;
+    ffmpeg_call(
+        unsafe { ffi::av_dict_set(dictionary, key.as_ptr(), value.as_ptr(), 0) },
+        "failed to set FFmpeg metadata",
+    )
+}
+
+fn write_cover_packet(
+    output_ctx: *mut ffi::AVFormatContext,
+    cover_stream: *mut ffi::AVStream,
+    cover: &NormalizedCoverArt,
+) -> Result<(), String> {
+    unsafe {
+        let mut packet = Packet::new()?;
+        ffmpeg_call(
+            ffi::av_new_packet(packet.as_mut_ptr(), cover.bytes.len() as i32),
+            "failed to allocate cover art packet",
+        )?;
+        ptr::copy_nonoverlapping(
+            cover.bytes.as_ptr(),
+            (*packet.as_mut_ptr()).data,
+            cover.bytes.len(),
+        );
+        (*packet.as_mut_ptr()).stream_index = (*cover_stream).index;
+        (*packet.as_mut_ptr()).flags |= ffi::AV_PKT_FLAG_KEY as i32;
+        (*packet.as_mut_ptr()).pts = 0;
+        (*packet.as_mut_ptr()).dts = 0;
+        (*packet.as_mut_ptr()).duration = 0;
+        (*packet.as_mut_ptr()).pos = -1;
+        ffmpeg_call(
+            ffi::av_interleaved_write_frame(output_ctx, packet.as_mut_ptr()),
+            "failed to write cover art packet",
+        )
     }
 }
 
@@ -1645,10 +1877,14 @@ fn is_unsupported_media_error(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        cover_mime_type, detect_primary_audio_codec, export_audio_for_download,
-        loudness_source_filter_args, path_to_cstring, transcode_audio_to_mp3, InputContext,
+        audio_file_has_cover_art, cover_mime_type, detect_primary_audio_codec,
+        export_audio_for_download, extract_cover_art, loudness_source_filter_args,
+        normalize_cover_art_bytes, path_to_cstring, replace_cover_art, temporary_output_path,
+        transcode_audio_to_mp3, InputContext,
     };
+    use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
     use rusty_ffmpeg::ffi;
+    use std::io::Cursor;
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -1717,6 +1953,54 @@ mod tests {
             temp_dir.path(),
             "exported.flac",
             ffi::AV_CODEC_ID_FLAC,
+        );
+    }
+
+    #[test]
+    fn replace_cover_art_embeds_png_cover_into_mp3() {
+        let input = repo_root().join("music/1.m4s");
+        if !input.exists() {
+            eprintln!("skipping cover-art test, missing {}", input.display());
+            return;
+        }
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let (_file_name, exported_audio) =
+            export_audio_for_download(&input, temp_dir.path(), "cover-source").unwrap();
+        let output = temp_dir.path().join(format!(
+            "output.{}",
+            exported_audio
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("bin")
+        ));
+
+        let cover = normalize_cover_art_bytes(&tiny_png_bytes()).unwrap();
+        replace_cover_art(&exported_audio, &output, &cover).unwrap();
+
+        assert!(audio_file_has_cover_art(&output).unwrap());
+        let extracted = extract_cover_art(&output).unwrap().unwrap();
+        assert_eq!(extracted.0, "image/png");
+        assert!(!extracted.1.is_empty());
+    }
+
+    #[test]
+    fn temporary_output_path_keeps_container_extension_last() {
+        let ogg = Path::new("/tmp/example.ogg");
+        let mp3 = Path::new("/tmp/example.mp3");
+        let no_extension = Path::new("/tmp/example");
+
+        assert_eq!(
+            temporary_output_path(ogg),
+            Path::new("/tmp/example.cover.tmp.ogg")
+        );
+        assert_eq!(
+            temporary_output_path(mp3),
+            Path::new("/tmp/example.cover.tmp.mp3")
+        );
+        assert_eq!(
+            temporary_output_path(no_extension),
+            Path::new("/tmp/example.cover.tmp")
         );
     }
 
@@ -1829,5 +2113,12 @@ mod tests {
             .parent()
             .unwrap()
             .to_path_buf()
+    }
+
+    fn tiny_png_bytes() -> Vec<u8> {
+        let mut encoded = Cursor::new(Vec::new());
+        let image = DynamicImage::ImageRgba8(RgbaImage::from_pixel(2, 2, Rgba([0, 128, 255, 255])));
+        image.write_to(&mut encoded, ImageFormat::Png).unwrap();
+        encoded.into_inner()
     }
 }

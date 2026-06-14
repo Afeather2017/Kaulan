@@ -134,10 +134,14 @@ impl MusicProvider for NeteaseProvider {
 
         task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
             let client = NeteaseClient::new().map_err(|e| e.to_string())?;
+            let track = client.track_detail(track_id).map_err(|e| e.to_string())?;
             let filename = format!("{}.mp3", sanitize_filename(&title));
             let final_path = target_dir.join(filename);
             download_netease_with_fallback(&client, track_id, &final_path, "full", title.as_str())?;
-            Ok(FullDownloadResult { final_path })
+            Ok(FullDownloadResult {
+                final_path,
+                cover_url: track.album.pic_url,
+            })
         })
         .await
         .map_err(|e| e.to_string())?

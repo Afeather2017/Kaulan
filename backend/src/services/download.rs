@@ -5,8 +5,11 @@ mod netease;
 mod youtube;
 
 use async_trait::async_trait;
+use reqwest::StatusCode;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Once, OnceLock};
+use tokio::task;
+use tracing::warn;
 
 use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineProviderStatus,
@@ -32,6 +35,7 @@ pub struct PreviewBuildResult {
 #[derive(Debug, Clone)]
 pub struct FullDownloadResult {
     pub final_path: PathBuf,
+    pub cover_url: Option<String>,
 }
 
 #[async_trait(?Send)]
@@ -131,6 +135,48 @@ pub(crate) fn simple_hash(value: &str) -> u64 {
 
 pub fn configure_ffmpeg_path_for_process() {
     FFMPEG_PATH_INIT.call_once(configure_ffmpeg_path_once);
+}
+
+pub async fn attach_cover_art_from_url(audio_path: &Path, cover_url: &str) -> Result<(), String> {
+    let response = reqwest::get(cover_url)
+        .await
+        .map_err(|e| format!("failed to download cover art {cover_url}: {e}"))?;
+    if response.status() != StatusCode::OK {
+        return Err(format!(
+            "cover art download failed with status {} from {}",
+            response.status(),
+            cover_url
+        ));
+    }
+
+    let cover_bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("failed to read cover art response {cover_url}: {e}"))?
+        .to_vec();
+    let audio_path = audio_path.to_path_buf();
+
+    task::spawn_blocking(move || -> Result<(), String> {
+        let cover = crate::ffmpeg::normalize_cover_art_bytes(&cover_bytes)?;
+        crate::ffmpeg::replace_cover_art_in_place(&audio_path, &cover)
+    })
+    .await
+    .map_err(|e| format!("cover-art attachment task failed: {e}"))?
+}
+
+pub async fn try_attach_cover_art_from_url(audio_path: &Path, cover_url: Option<&str>) {
+    let Some(cover_url) = cover_url else {
+        return;
+    };
+
+    if let Err(err) = attach_cover_art_from_url(audio_path, cover_url).await {
+        warn!(
+            "[DOWNLOAD] Failed to attach cover art to {} from {}: {}",
+            audio_path.display(),
+            cover_url,
+            err
+        );
+    }
 }
 
 fn ensure_ytdl_solver_dependencies_in_dir(solver_dir: &Path) -> Result<(), String> {

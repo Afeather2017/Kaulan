@@ -107,4 +107,6 @@ cargo check
 - The backend no longer depends on `lufsgen`, so Symphonia is removed from the backend media-analysis path.
 - Desktop YouTube MP3 conversion now runs in-process through `rusty_ffmpeg`.
 - LUFS calculation and cover-art probing now run in-process through `rusty_ffmpeg`, not by shelling out to `ffmpeg` or `ffprobe`.
+- Online download cover-art embedding now also runs through the same in-process FFmpeg path, so YouTube, Netease, and Bilibili share one artwork muxer.
+- OGG outputs are currently a documented exception: Kaulan still exports Opus/Vorbis downloads as `.ogg`, but the current attached-picture muxing path does not work for that container, so those files are expected to remain without embedded artwork.
 - The next Android step is packaging or bundling FFmpeg in a way that works for the Tauri Android runtime.

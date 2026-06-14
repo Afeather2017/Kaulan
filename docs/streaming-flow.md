@@ -186,19 +186,16 @@ sequenceDiagram
     participant UI as Frontend UI
     participant API as Backend API
     participant DB as SQLite
-    participant Resolver as Source Resolver
-    participant Source as Seekable Reader
-    participant Tag as Metadata Extractor
+    participant Prep as FFmpeg Input Prep
+    participant FF as FFmpeg Metadata
 
     UI->>API: GET /api/music/id/{id}/cover
     API->>DB: Find music by id
     DB-->>API: file_path
-    API->>Resolver: Resolve file_path
-    Resolver-->>API: Seekable reader source
-    API->>Source: open_seekable_reader(file_path)
-    Source-->>API: reader
-    API->>Tag: Extract embedded cover art
-    Tag-->>API: image bytes + mime type
+    API->>Prep: prepare_input(file_path)
+    Prep-->>API: local path or temp local copy
+    API->>FF: extract_cover_art(local_path)
+    FF-->>API: image bytes + mime type
     API-->>UI: 200 image or 404
 ```
 
@@ -206,6 +203,7 @@ Behavior:
 
 - works for filesystem paths and Android `content://` URIs
 - returns `404` when the song has no embedded artwork
+- current `.ogg` downloads are expected to hit that `404`, because Kaulan does not embed artwork into OGG containers yet
 - Android playback notifications reuse this endpoint when a cover URL is available
 
 ## Lyric Flow
