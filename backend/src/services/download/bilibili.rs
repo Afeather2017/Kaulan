@@ -207,6 +207,17 @@ fn normalize_remote_url(url: &str) -> String {
     }
 }
 
+pub async fn resolve_cover_url(bvid: &str) -> Result<String, String> {
+    let bvid = bvid.to_string();
+    task::spawn_blocking(move || -> Result<String, String> {
+        let client = BilibiliClient::new().map_err(|e| e.to_string())?;
+        let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
+        Ok(normalize_remote_url(&detail.pic))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn strip_html_tags(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
     let mut in_tag = false;
