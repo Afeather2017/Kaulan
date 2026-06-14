@@ -367,8 +367,8 @@ pub fn audio_file_has_cover_art(input: &Path) -> Result<bool, String> {
     let input = path_to_cstring(input)?;
 
     unsafe {
-        let input_ctx = InputContext::open(&input)?;
-        Ok(input_ctx.attached_picture_stream().is_some())
+        let mut input_ctx = InputContext::open(&input)?;
+        Ok(input_ctx.find_cover_art_stream().is_some())
     }
 }
 
@@ -376,22 +376,50 @@ pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, Stri
     let input = path_to_cstring(input)?;
 
     unsafe {
-        let input_ctx = InputContext::open(&input)?;
-        let Some((stream, codec_id)) = input_ctx.attached_picture_stream() else {
+        let mut input_ctx = InputContext::open(&input)?;
+        let Some(cover_stream) = input_ctx.find_cover_art_stream() else {
             return Ok(None);
         };
 
-        let packet = &(*stream).attached_pic;
-        if packet.data.is_null() || packet.size <= 0 {
-            return Ok(None);
-        }
+        match cover_stream {
+            CoverArtStream::AttachedPicture { stream, codec_id } => {
+                let packet = &(*stream).attached_pic;
+                if packet.data.is_null() || packet.size <= 0 {
+                    return Ok(None);
+                }
 
-        let bytes = std::slice::from_raw_parts(packet.data, packet.size as usize).to_vec();
-        if bytes.is_empty() {
-            return Ok(None);
-        }
+                let bytes = std::slice::from_raw_parts(packet.data, packet.size as usize).to_vec();
+                if bytes.is_empty() {
+                    return Ok(None);
+                }
 
-        Ok(Some((cover_mime_type(codec_id).to_string(), bytes)))
+                Ok(Some((cover_mime_type(codec_id).to_string(), bytes)))
+            }
+            CoverArtStream::VideoStream {
+                stream_index,
+                codec_id,
+            } => {
+                let mut packet = Packet::new()?;
+                while ffi::av_read_frame(input_ctx.as_mut_ptr(), packet.as_mut_ptr()) >= 0 {
+                    let is_cover_packet = (*packet.as_ptr()).stream_index == stream_index;
+                    if is_cover_packet {
+                        let data = (*packet.as_ptr()).data;
+                        let size = (*packet.as_ptr()).size;
+                        if !data.is_null() && size > 0 {
+                            let bytes = std::slice::from_raw_parts(data, size as usize).to_vec();
+                            ffi::av_packet_unref(packet.as_mut_ptr());
+                            if !bytes.is_empty() {
+                                return Ok(Some((cover_mime_type(codec_id).to_string(), bytes)));
+                            }
+                        }
+                    }
+
+                    ffi::av_packet_unref(packet.as_mut_ptr());
+                }
+
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -680,9 +708,8 @@ fn write_cover_packet(
 fn preferred_output_for_codec(codec_id: ffi::AVCodecID) -> PreferredAudioOutput {
     match codec_id {
         ffi::AV_CODEC_ID_AAC => PreferredAudioOutput::Remux { extension: "m4a" },
-        ffi::AV_CODEC_ID_OPUS | ffi::AV_CODEC_ID_VORBIS => {
-            PreferredAudioOutput::Remux { extension: "ogg" }
-        }
+        ffi::AV_CODEC_ID_OPUS => PreferredAudioOutput::Remux { extension: "mka" },
+        ffi::AV_CODEC_ID_VORBIS => PreferredAudioOutput::Remux { extension: "ogg" },
         ffi::AV_CODEC_ID_MP3 => PreferredAudioOutput::Remux { extension: "mp3" },
         ffi::AV_CODEC_ID_FLAC => PreferredAudioOutput::Remux { extension: "flac" },
         codec_id if is_pcm_codec(codec_id) => PreferredAudioOutput::TranscodeFlac,
@@ -755,6 +782,17 @@ unsafe fn find_encoder(target: AudioTranscodeTarget) -> Result<*const ffi::AVCod
             }
         }
     }
+}
+
+enum CoverArtStream {
+    AttachedPicture {
+        stream: *mut ffi::AVStream,
+        codec_id: ffi::AVCodecID,
+    },
+    VideoStream {
+        stream_index: i32,
+        codec_id: ffi::AVCodecID,
+    },
 }
 
 unsafe fn normalize_channel_layout(
@@ -1235,25 +1273,52 @@ impl InputContext {
         Ok((index, decoder))
     }
 
-    unsafe fn attached_picture_stream(&self) -> Option<(*mut ffi::AVStream, ffi::AVCodecID)> {
+    unsafe fn find_cover_art_stream(&mut self) -> Option<CoverArtStream> {
         let view = self.view();
+        let mut fallback_video_stream = None;
+
         for index in 0..view.nb_streams as usize {
             let stream = *view.streams.add(index);
             if stream.is_null() {
                 continue;
             }
 
-            let has_attached_pic =
-                ((*stream).disposition & ffi::AV_DISPOSITION_ATTACHED_PIC as i32) != 0;
-            let packet = &(*stream).attached_pic;
-            if !has_attached_pic || packet.data.is_null() || packet.size <= 0 {
+            let codecpar = (*stream).codecpar;
+            if codecpar.is_null() {
                 continue;
             }
 
-            return Some((stream, (*(*stream).codecpar).codec_id));
+            let has_attached_pic =
+                ((*stream).disposition & ffi::AV_DISPOSITION_ATTACHED_PIC as i32) != 0;
+            let packet = &(*stream).attached_pic;
+            if has_attached_pic && !packet.data.is_null() && packet.size > 0 {
+                return Some(CoverArtStream::AttachedPicture {
+                    stream,
+                    codec_id: (*codecpar).codec_id,
+                });
+            }
+
+            let is_video = (*codecpar).codec_type == ffi::AVMEDIA_TYPE_VIDEO;
+            if !is_video {
+                continue;
+            }
+
+            let codec_id = (*codecpar).codec_id;
+            let has_supported_cover_codec =
+                matches!(codec_id, ffi::AV_CODEC_ID_MJPEG | ffi::AV_CODEC_ID_PNG);
+            if !has_supported_cover_codec {
+                continue;
+            }
+
+            if fallback_video_stream.is_none() {
+                fallback_video_stream = Some(CoverArtStream::VideoStream {
+                    stream_index: index as i32,
+                    codec_id,
+                });
+            }
         }
 
-        None
+        fallback_video_stream
     }
 }
 
@@ -1934,8 +1999,8 @@ mod tests {
     }
 
     #[test]
-    fn export_sample_webm_to_ogg_without_transcoding() {
-        assert_sample_exports_with_codec("music/1.webm", "exported.ogg", ffi::AV_CODEC_ID_OPUS);
+    fn export_sample_webm_to_mka_without_transcoding() {
+        assert_sample_exports_with_codec("music/1.webm", "exported.mka", ffi::AV_CODEC_ID_OPUS);
     }
 
     #[test]
@@ -1974,6 +2039,32 @@ mod tests {
                 .and_then(|value| value.to_str())
                 .unwrap_or("bin")
         ));
+
+        let cover = normalize_cover_art_bytes(&tiny_png_bytes()).unwrap();
+        replace_cover_art(&exported_audio, &output, &cover).unwrap();
+
+        assert!(audio_file_has_cover_art(&output).unwrap());
+        let extracted = extract_cover_art(&output).unwrap().unwrap();
+        assert_eq!(extracted.0, "image/png");
+        assert!(!extracted.1.is_empty());
+    }
+
+    #[test]
+    fn replace_cover_art_embeds_png_cover_into_mka() {
+        let input = repo_root().join("music/1.webm");
+        if !input.exists() {
+            eprintln!("skipping cover-art test, missing {}", input.display());
+            return;
+        }
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let (_file_name, exported_audio) =
+            export_audio_for_download(&input, temp_dir.path(), "cover-source").unwrap();
+        assert_eq!(
+            exported_audio.extension().and_then(|value| value.to_str()),
+            Some("mka")
+        );
+        let output = temp_dir.path().join("output.mka");
 
         let cover = normalize_cover_art_bytes(&tiny_png_bytes()).unwrap();
         replace_cover_art(&exported_audio, &output, &cover).unwrap();

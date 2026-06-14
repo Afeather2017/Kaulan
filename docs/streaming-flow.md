@@ -203,7 +203,7 @@ Behavior:
 
 - works for filesystem paths and Android `content://` URIs
 - returns `404` when the song has no embedded artwork
-- current `.ogg` downloads are expected to hit that `404`, because Kaulan does not embed artwork into OGG containers yet
+- current Vorbis `.ogg` downloads are expected to hit that `404`, because Kaulan does not embed artwork into OGG containers yet
 - Android playback notifications reuse this endpoint when a cover URL is available
 
 ## Lyric Flow

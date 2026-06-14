@@ -8,7 +8,7 @@ Kaulan currently uses an in-process FFmpeg backend through vendored
 This pipeline currently covers:
 
 - LUFS calculation through the `ebur128` filter
-- YouTube preview/full-download audio transcoding to MP3
+- YouTube preview/full-download audio finalization
 - Cover-art extraction for downloaded or scanned files
 - Bilibili audio conversion through the vendored `bilibili-api` crate
 
@@ -59,11 +59,16 @@ sequenceDiagram
     participant RFF as rusty_ffmpeg
 
     YT-->>BE: raw downloaded audio path
-    BE->>RFF: decode -> resample -> encode MP3
-    RFF-->>BE: finalized MP3
+    BE->>RFF: inspect primary audio codec
+    alt Opus source
+        RFF->>RFF: remux audio stream only
+        RFF-->>BE: finalized MKA
+    else other codecs
+        RFF->>RFF: remux or transcode as needed
+        RFF-->>BE: finalized download audio
 ```
 
-Kaulan now requires a successful FFmpeg transcode for the YouTube path on desktop. It no longer preserves a provider container like `.webm` as a silent fallback when re-encoding fails.
+Kaulan now finalizes YouTube downloads through the shared FFmpeg export path on desktop. Opus source audio is remuxed into `.mka` with stream copy only, which preserves the original audio while allowing Kaulan to embed cover art. The backend does not preserve the raw provider container like `.webm` as a silent fallback.
 
 ### Bilibili download finalization
 
@@ -105,8 +110,8 @@ cargo check
 ## Notes
 
 - The backend no longer depends on `lufsgen`, so Symphonia is removed from the backend media-analysis path.
-- Desktop YouTube MP3 conversion now runs in-process through `rusty_ffmpeg`.
+- Desktop YouTube download finalization now runs in-process through `rusty_ffmpeg`.
 - LUFS calculation and cover-art probing now run in-process through `rusty_ffmpeg`, not by shelling out to `ffmpeg` or `ffprobe`.
 - Online download cover-art embedding now also runs through the same in-process FFmpeg path, so YouTube, Netease, and Bilibili share one artwork muxer.
-- OGG outputs are currently a documented exception: Kaulan still exports Opus/Vorbis downloads as `.ogg`, but the current attached-picture muxing path does not work for that container, so those files are expected to remain without embedded artwork.
+- Vorbis outputs remain a documented exception: Kaulan still exports Vorbis downloads as `.ogg`, but the current attached-picture muxing path does not work for that container, so those files are expected to remain without embedded artwork.
 - The next Android step is packaging or bundling FFmpeg in a way that works for the Tauri Android runtime.
