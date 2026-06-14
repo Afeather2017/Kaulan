@@ -79,6 +79,15 @@ Desktop Bilibili downloads now remux the raw DASH AAC stream into an `.m4a` cont
 - system FFmpeg libraries and headers must be installed for `rusty_ffmpeg`
 - `pkg-config` metadata for FFmpeg must be available
 
+Android builds use the staged FFmpeg bundle under
+[`build/android-ffmpeg/android/<target>`](../build/android-ffmpeg/android)
+instead of host `pkg-config`. The vendored `rusty_ffmpeg` build script
+automatically picks that bundle when Cargo targets Android, using:
+
+- `build/android-ffmpeg/android/<target>/lib` for linker search paths
+- `build/android-ffmpeg/android/<target>/prefix/include` for FFmpeg headers
+- `build/android-ffmpeg/android/binding.rs` as the prebuilt Rust bindings
+
 On Arch Linux, the desktop build currently relies on:
 
 ```bash
