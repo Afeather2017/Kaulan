@@ -1597,7 +1597,7 @@ unsafe fn loudness_source_filter_args(
 }
 
 unsafe fn describe_channel_layout(layout: *const ffi::AVChannelLayout) -> Result<String, String> {
-    let mut description = vec![0_i8; 128];
+    let mut description = vec![0 as std::ffi::c_char; 128];
     ffmpeg_call(
         ffi::av_channel_layout_describe(layout, description.as_mut_ptr(), description.len()),
         "failed to describe channel layout for loudness source filter",
