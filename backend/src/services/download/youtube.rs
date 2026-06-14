@@ -128,7 +128,13 @@ impl MusicProvider for YoutubeProvider {
         let (_final_filename, final_path) =
             finalize_youtube_audio(&result.audio_path, target_dir, &title)?;
 
-        Ok(FullDownloadResult { final_path })
+        Ok(FullDownloadResult {
+            final_path,
+            cover_url: Some(format!(
+                "https://i.ytimg.com/vi/{}/hqdefault.jpg",
+                request.id
+            )),
+        })
     }
 }
 

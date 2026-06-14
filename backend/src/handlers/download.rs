@@ -363,6 +363,12 @@ pub async fn download_track(
         }
     };
 
+    download_service::try_attach_cover_art_from_url(
+        &output.final_path,
+        output.cover_url.as_deref(),
+    )
+    .await;
+
     let mut warning = None;
     let lyric_filename = if let Some(lyric_id) = body.lyric_selection.as_deref() {
         match write_selected_lyric(lyric_id, &output.final_path).await {
