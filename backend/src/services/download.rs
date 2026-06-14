@@ -16,6 +16,7 @@ use crate::types::{
     OnlineSearchResult,
 };
 
+pub use bilibili::resolve_cover_url as resolve_bilibili_cover_url;
 pub use bilibili::BilibiliProvider;
 pub use netease::NeteaseProvider;
 pub use youtube::YoutubeProvider;
