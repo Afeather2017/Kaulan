@@ -137,7 +137,18 @@ pub fn configure_ffmpeg_path_for_process() {
     FFMPEG_PATH_INIT.call_once(configure_ffmpeg_path_once);
 }
 
+fn should_embed_cover_art(audio_path: &Path) -> bool {
+    !audio_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ogg"))
+}
+
 pub async fn attach_cover_art_from_url(audio_path: &Path, cover_url: &str) -> Result<(), String> {
+    if !should_embed_cover_art(audio_path) {
+        return Ok(());
+    }
+
     let response = reqwest::get(cover_url)
         .await
         .map_err(|e| format!("failed to download cover art {cover_url}: {e}"))?;
@@ -252,9 +263,10 @@ impl DownloadSource {
 mod tests {
     use super::{
         build_online_provider_statuses, create_download_staging_dir,
-        ensure_ytdl_solver_dependencies_in_dir, sanitize_filename,
+        ensure_ytdl_solver_dependencies_in_dir, sanitize_filename, should_embed_cover_art,
     };
     use std::fs;
+    use std::path::Path;
 
     const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
 
@@ -305,5 +317,14 @@ mod tests {
 
         assert!(!youtube.enabled);
         assert!(youtube.summary.contains("not configured"));
+    }
+
+    #[test]
+    fn cover_art_embedding_skips_ogg_only() {
+        assert!(!should_embed_cover_art(Path::new("/tmp/example.ogg")));
+        assert!(!should_embed_cover_art(Path::new("/tmp/example.OGG")));
+        assert!(should_embed_cover_art(Path::new("/tmp/example.mp3")));
+        assert!(should_embed_cover_art(Path::new("/tmp/example.flac")));
+        assert!(should_embed_cover_art(Path::new("/tmp/example.m4a")));
     }
 }
