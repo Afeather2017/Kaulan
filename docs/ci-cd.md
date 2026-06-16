@@ -36,7 +36,7 @@ Android APK/AAB publishing is intentionally disabled on the `migrate-ffmpeg` bra
 The workflow installs FFmpeg 8.1.1 development dependencies before Rust builds:
 
 - Linux runs on `ubuntu-24.04`, builds FFmpeg 8.1.1 from the official source tarball, caches the installed output, and exposes it through `PKG_CONFIG_PATH`.
-- Windows downloads the Gyan FFmpeg 8.1.1 shared development package and exposes it through `FFMPEG_INCLUDE_DIR`, `FFMPEG_LIBS_DIR`, `FFMPEG_DLL_PATH`, and `FFMPEG_LINK_MODE=dynamic`.
+- Windows downloads the Gyan FFmpeg 8.1.1 shared development package and exposes it through `FFMPEG_INCLUDE_DIR`, `FFMPEG_LIBS_DIR`, `FFMPEG_DLL_PATH`, and `FFMPEG_LINK_MODE=dynamic`. The workflow also copies the package `.lib` import libraries into the DLL directory because `rusty_ffmpeg` links from `FFMPEG_DLL_PATH` in dynamic mode.
 
 These match the backend dependency setup in `backend/Cargo.toml`:
 

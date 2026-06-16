@@ -135,6 +135,7 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $archive
           7z x $archive "-o$installRoot" -y
           $ffmpegRoot = Get-ChildItem $installRoot -Directory | Select-Object -First 1
+          Copy-Item "$($ffmpegRoot.FullName)\lib\*.lib" "$($ffmpegRoot.FullName)\bin\"
           echo "FFMPEG_INCLUDE_DIR=$($ffmpegRoot.FullName)\include" >> $env:GITHUB_ENV
           echo "FFMPEG_LIBS_DIR=$($ffmpegRoot.FullName)\lib" >> $env:GITHUB_ENV
           echo "FFMPEG_DLL_PATH=$($ffmpegRoot.FullName)\bin" >> $env:GITHUB_ENV
