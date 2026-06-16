@@ -28,8 +28,9 @@ The workflow uploads these packages to the GitHub Release:
 
 - Windows desktop bundles
 - Linux desktop bundles
+- Android APK/AAB bundles when the staged Android FFmpeg bundle is present
 
-Android APK/AAB publishing is intentionally disabled on the `migrate-ffmpeg` branch. The Android Rust build needs the staged FFmpeg bundle described in [`ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md), but that bundle generation step is not present in this branch yet.
+The Android release job is present on the `migrate-ffmpeg` branch, but it checks for the staged FFmpeg bundle described in [`ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md) before setting up the Android toolchain. If the bundle is missing, the job exits successfully with a step-summary notice instead of failing desktop publishing.
 
 ## FFmpeg build dependencies
 
@@ -37,6 +38,7 @@ The workflow installs FFmpeg 8.1.1 development dependencies before Rust builds:
 
 - Linux runs on `ubuntu-24.04`, builds FFmpeg 8.1.1 from the official source tarball, caches the installed output, and exposes it through `PKG_CONFIG_PATH`.
 - Windows downloads the Gyan FFmpeg 8.1.1 shared development package and exposes it through `FFMPEG_INCLUDE_DIR`, `FFMPEG_LIBS_DIR`, `FFMPEG_DLL_PATH`, and `FFMPEG_LINK_MODE=dynamic`. The workflow also copies the package `.lib` import libraries into the DLL directory because `rusty_ffmpeg` links from `FFMPEG_DLL_PATH` in dynamic mode.
+- Android uses the staged FFmpeg bundle under `build/android-ffmpeg/android/<target>`. The release job requires `binding.rs`, each target `lib` directory, and each target `prefix/include` directory before running `build-android.sh`.
 
 These match the backend dependency setup in `backend/Cargo.toml`:
 
