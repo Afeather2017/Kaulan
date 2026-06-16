@@ -193,3 +193,119 @@ jobs:
           projectPath: frontend
           releaseId: ${{ github.event.release.id }}
           tagName: ${{ github.event.release.tag_name }}
+
+  release-android:
+    if: github.event_name == 'release'
+    name: Release Android
+    needs: test
+    runs-on: ubuntu-24.04
+    environment: android
+    permissions:
+      contents: write
+    env:
+      CI: 'true'
+      JAVA_VERSION: '17'
+      ANDROID_API_LEVEL: '35'
+      ANDROID_BUILD_TOOLS: '35.0.0'
+      ANDROID_NDK_VERSION: '27.0.12077973'
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check Android FFmpeg bundle
+        id: ffmpeg
+        shell: bash
+        run: |
+          required_targets=(
+            aarch64-linux-android
+            armv7-linux-androideabi
+            i686-linux-android
+            x86_64-linux-android
+          )
+
+          missing=()
+          if [ ! -f build/android-ffmpeg/android/binding.rs ]; then
+            missing+=("build/android-ffmpeg/android/binding.rs")
+          fi
+
+          for target in "${required_targets[@]}"; do
+            if [ ! -d "build/android-ffmpeg/android/${target}/lib" ]; then
+              missing+=("build/android-ffmpeg/android/${target}/lib")
+            fi
+            if [ ! -d "build/android-ffmpeg/android/${target}/prefix/include" ]; then
+              missing+=("build/android-ffmpeg/android/${target}/prefix/include")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            {
+              echo "Android release build skipped because staged FFmpeg files are missing:"
+              printf -- "- %s\n" "${missing[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        if: steps.ffmpeg.outputs.available == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        if: steps.ffmpeg.outputs.available == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Setup Rust
+        if: steps.ffmpeg.outputs.available == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Android SDK
+        if: steps.ffmpeg.outputs.available == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        if: steps.ffmpeg.outputs.available == 'true'
+        run: sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Install local music notification package dependencies
+        if: steps.ffmpeg.outputs.available == 'true'
+        working-directory: vendor/tauri-plugin-music-notification
+        run: npm ci
+
+      - name: Build local music notification package
+        if: steps.ffmpeg.outputs.available == 'true'
+        working-directory: vendor/tauri-plugin-music-notification
+        run: npm run build
+
+      - name: Install frontend dependencies
+        if: steps.ffmpeg.outputs.available == 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Android release packages
+        if: steps.ffmpeg.outputs.available == 'true'
+        run: bash ./build-android.sh
+
+      - name: Upload Android bundles to release
+        if: steps.ffmpeg.outputs.available == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            frontend/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            frontend/src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
