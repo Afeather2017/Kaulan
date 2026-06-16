@@ -1,13 +1,20 @@
 name: Publish
 
 on:
+  workflow_dispatch:
   release:
     types:
       - published
   push:
-    branches: [ "master" ]
+    branches: [ "master", "migrate-ffmpeg" ]
   pull_request:
     branches: [ "master" ]
+
+permissions:
+  contents: read
+
+env:
+  FFMPEG_VERSION: 8.1.1
 
 concurrency:
   group: publish-${{ github.event_name }}-${{ github.ref }}
@@ -16,7 +23,7 @@ concurrency:
 jobs:
   test:
     name: Test release inputs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,6 +39,30 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux FFmpeg source build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ca-certificates \
+            clang \
+            curl \
+            nasm \
+            pkg-config \
+            libmp3lame-dev \
+            zlib1g-dev \
+            xz-utils \
+            yasm
+
+      - name: Cache Linux FFmpeg build
+        uses: actions/cache@v4
+        with:
+          path: .cache/ffmpeg-${{ env.FFMPEG_VERSION }}
+          key: linux-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('scripts/ci-install-ffmpeg-linux.sh') }}
+
+      - name: Build Linux FFmpeg ${{ env.FFMPEG_VERSION }}
+        run: bash ./scripts/ci-install-ffmpeg-linux.sh
 
       - name: Install local music notification package dependencies
         working-directory: vendor/tauri-plugin-music-notification
@@ -75,7 +106,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-latest
+          - platform: ubuntu-24.04
           - platform: windows-latest
     runs-on: ${{ matrix.platform }}
     steps:
@@ -94,11 +125,52 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Windows FFmpeg ${{ env.FFMPEG_VERSION }} build dependencies
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $installRoot = Join-Path $env:RUNNER_TEMP "ffmpeg"
+          $archive = Join-Path $env:RUNNER_TEMP "ffmpeg.7z"
+          $url = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-$env:FFMPEG_VERSION-full_build-shared.7z"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          7z x $archive "-o$installRoot" -y
+          $ffmpegRoot = Get-ChildItem $installRoot -Directory | Select-Object -First 1
+          echo "FFMPEG_INCLUDE_DIR=$($ffmpegRoot.FullName)\include" >> $env:GITHUB_ENV
+          echo "FFMPEG_LIBS_DIR=$($ffmpegRoot.FullName)\lib" >> $env:GITHUB_ENV
+          echo "FFMPEG_DLL_PATH=$($ffmpegRoot.FullName)\bin" >> $env:GITHUB_ENV
+          echo "FFMPEG_LINK_MODE=dynamic" >> $env:GITHUB_ENV
+          echo "$($ffmpegRoot.FullName)\bin" >> $env:GITHUB_PATH
+
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            build-essential \
+            ca-certificates \
+            clang \
+            curl \
+            nasm \
+            pkg-config \
+            libmp3lame-dev \
+            zlib1g-dev \
+            xz-utils \
+            yasm \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Cache Linux FFmpeg build
+        if: matrix.platform == 'ubuntu-24.04'
+        uses: actions/cache@v4
+        with:
+          path: .cache/ffmpeg-${{ env.FFMPEG_VERSION }}
+          key: linux-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('scripts/ci-install-ffmpeg-linux.sh') }}
+
+      - name: Build Linux FFmpeg ${{ env.FFMPEG_VERSION }}
+        if: matrix.platform == 'ubuntu-24.04'
+        run: bash ./scripts/ci-install-ffmpeg-linux.sh
 
       - name: Install local music notification package dependencies
         working-directory: vendor/tauri-plugin-music-notification
@@ -120,73 +192,3 @@ jobs:
           projectPath: frontend
           releaseId: ${{ github.event.release.id }}
           tagName: ${{ github.event.release.tag_name }}
-
-  release-android:
-    if: github.event_name == 'release'
-    name: Release Android
-    needs: test
-    runs-on: ubuntu-latest
-    environment: android
-    permissions:
-      contents: write
-    env:
-      CI: 'true'
-      JAVA_VERSION: '17'
-      ANDROID_API_LEVEL: '35'
-      ANDROID_BUILD_TOOLS: '35.0.0'
-      ANDROID_NDK_VERSION: '27.0.12077973'
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK_VERSION}"
-
-      - name: Install local music notification package dependencies
-        working-directory: vendor/tauri-plugin-music-notification
-        run: npm ci
-
-      - name: Build local music notification package
-        working-directory: vendor/tauri-plugin-music-notification
-        run: npm run build
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build Android release packages
-        run: bash ./build-android.sh
-
-      - name: Upload Android bundles to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.release.tag_name }}
-          files: |
-            frontend/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-            frontend/src-tauri/gen/android/app/build/outputs/bundle/**/*.aab

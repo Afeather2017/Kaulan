@@ -35,7 +35,12 @@ gethostname = "1.1.0"
 tempfile = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-rusty_ffmpeg = { path = "../vendor/rusty_ffmpeg", features = ["link_system_ffmpeg", "ffmpeg8_1"] }
 ytdl-audio = { path = "../vendor/ytdl-audio" }
 netease-api = { path = "../vendor/ncmdump-rs/netease-api" }
 bilibili-api = { path = "../vendor/ncmdump-rs/bilibili-api" }
+
+[target.'cfg(windows)'.dependencies]
+rusty_ffmpeg = { path = "../vendor/rusty_ffmpeg", features = ["link_vcpkg_ffmpeg", "ffmpeg8_1"] }
+
+[target.'cfg(not(windows))'.dependencies]
+rusty_ffmpeg = { path = "../vendor/rusty_ffmpeg", features = ["link_system_ffmpeg", "ffmpeg8_1"] }
