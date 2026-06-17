@@ -2,6 +2,8 @@
 //!
 //! Documentation: [docs/ffmpeg-audio-pipeline.md](../../docs/ffmpeg-audio-pipeline.md)
 
+#![allow(clippy::arithmetic_side_effects, clippy::as_conversions)]
+
 use crate::file_ops::{get_file_reader, resolve_path, PathKind};
 use futures::StreamExt;
 use rusty_ffmpeg::ffi;

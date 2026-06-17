@@ -36,7 +36,9 @@ pub async fn start_discovery_listener(socket: Arc<UdpSocket>, state: Arc<Discove
             Ok((len, addr)) => {
                 // Process packet in background to avoid blocking receive loop
                 let state_clone = state.clone();
-                let data = buf[..len].to_vec();
+                let Some(data) = buf.get(..len).map(<[u8]>::to_vec) else {
+                    continue;
+                };
                 tokio::spawn(async move {
                     if let Err(e) = handle_discovery_packet(&data, addr, &state_clone).await {
                         debug!("Invalid discovery packet from {}: {}", addr, e);

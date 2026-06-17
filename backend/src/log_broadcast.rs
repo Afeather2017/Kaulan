@@ -83,7 +83,7 @@ impl io::Write for BroadcastWriter {
 /// This creates a fmt::Layer that writes to our broadcast writer,
 /// sending formatted log lines to all connected TCP clients.
 pub fn create_broadcast_layer<S>(
-    broadcaster: Arc<LogBroadcaster>,
+    broadcaster: &Arc<LogBroadcaster>,
 ) -> Box<dyn Layer<S> + Send + Sync>
 where
     S: Subscriber + for<'a> registry::LookupSpan<'a>,

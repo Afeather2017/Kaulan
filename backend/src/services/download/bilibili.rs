@@ -1,5 +1,5 @@
 use super::{
-    sanitize_filename, simple_hash, FullDownloadResult, MusicProvider, PreviewBuildResult,
+    sanitize_filename, synthetic_preview_id, FullDownloadResult, MusicProvider, PreviewBuildResult,
 };
 use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineSearchResult,
@@ -58,8 +58,9 @@ impl MusicProvider for BilibiliProvider {
                 .map_err(|e| e.to_string())?
                 .is_logged_in();
             let client = BilibiliClient::new().map_err(|e| e.to_string())?;
+            let limit = u64::try_from(max_results).unwrap_or(u64::MAX);
             let result = client
-                .search_video(&query, 1, max_results as u64)
+                .search_video(&query, 1, limit)
                 .map_err(|e| e.to_string())?;
 
             Ok(result
@@ -93,7 +94,7 @@ impl MusicProvider for BilibiliProvider {
     ) -> Result<PreviewBuildResult, String> {
         let bvid = request.id.clone();
         let preview_root = preview_root.to_path_buf();
-        let synthetic_id = -((simple_hash(&request.id) as i32).abs());
+        let synthetic_id = synthetic_preview_id(&request.id);
         let token = format!(
             "preview-{}-{}",
             self.source().as_str(),

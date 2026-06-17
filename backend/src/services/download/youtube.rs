@@ -1,6 +1,6 @@
 use super::{
-    create_download_staging_dir, sanitize_filename, simple_hash, FullDownloadResult, MusicProvider,
-    PreviewBuildResult,
+    create_download_staging_dir, sanitize_filename, synthetic_preview_id, FullDownloadResult,
+    MusicProvider, PreviewBuildResult,
 };
 use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineSearchResult,
@@ -78,7 +78,7 @@ impl MusicProvider for YoutubeProvider {
         request: &DownloadPreviewRequest,
         preview_root: &Path,
     ) -> Result<PreviewBuildResult, String> {
-        let synthetic_id = -((simple_hash(&request.id) as i32).abs());
+        let synthetic_id = synthetic_preview_id(&request.id);
         let token = format!(
             "preview-{}-{}",
             self.source().as_str(),

@@ -134,6 +134,13 @@ pub(crate) fn simple_hash(value: &str) -> u64 {
     })
 }
 
+pub(crate) fn synthetic_preview_id(value: &str) -> i32 {
+    let max = u64::try_from(i32::MAX).unwrap_or(u64::MAX);
+    let bounded = simple_hash(value).checked_rem(max).unwrap_or(0);
+    let positive = i32::try_from(bounded).unwrap_or(i32::MAX);
+    positive.saturating_neg()
+}
+
 pub fn configure_ffmpeg_path_for_process() {
     FFMPEG_PATH_INIT.call_once(configure_ffmpeg_path_once);
 }

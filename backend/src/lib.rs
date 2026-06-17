@@ -84,7 +84,7 @@ pub fn init_tracing() -> Arc<LogBroadcaster> {
             let broadcaster = Arc::new(LogBroadcaster::new(256));
 
             // Create the broadcast layer
-            let broadcast_layer = create_broadcast_layer(broadcaster.clone());
+            let broadcast_layer = create_broadcast_layer(&broadcaster);
 
             // Build the subscriber with both console and broadcast layers
             tracing_subscriber::registry()

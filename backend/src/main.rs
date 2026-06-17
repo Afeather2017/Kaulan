@@ -12,33 +12,43 @@ async fn main() -> std::io::Result<()> {
     let broadcaster = init_tracing();
 
     let args: Vec<String> = env::args().collect();
+    let program = args.first().map(String::as_str).unwrap_or("kaulan");
 
     if args.len() < 2 {
-        eprintln!("{}", CliOptions::usage(&args[0]));
+        eprintln!("{}", CliOptions::usage(program));
         eprintln!("Music Directory Priority:");
         eprintln!("  1. CLI argument [music_path] (if provided)");
         eprintln!("  2. Config file: ~/.config/kaulan/config.json");
         eprintln!("  3. Environment variable: KAULAN_MUSIC_DIR");
         eprintln!();
         eprintln!("If no music directory is configured, the application will abort.");
-        std::process::exit(1);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "missing command",
+        ));
     }
 
-    let command = &args[1];
-    let cli_options = match parse_cli_options(&args[2..]) {
+    let Some(command) = args.get(1) else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "missing command",
+        ));
+    };
+    let cli_args = args.get(2..).unwrap_or(&[]);
+    let cli_options = match parse_cli_options(cli_args) {
         Ok(options) => options,
         Err(err) => {
             eprintln!("{err}");
             eprintln!();
-            eprintln!("{}", CliOptions::usage(&args[0]));
-            std::process::exit(1);
+            eprintln!("{}", CliOptions::usage(program));
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, err));
         }
     };
 
     if let Err(err) = apply_standalone_auth(&cli_options) {
         tracing::error!("Failed to apply standalone provider auth: {}", err);
         eprintln!("Failed to apply standalone provider auth: {}", err);
-        std::process::exit(1);
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, err));
     };
 
     match command.as_str() {
@@ -75,10 +85,13 @@ async fn main() -> std::io::Result<()> {
             } else {
                 eprintln!("Error: No music directory configured!");
                 eprintln!("Please provide music directory via:");
-                eprintln!("  1. CLI argument: {} update <music_path>", args[0]);
+                eprintln!("  1. CLI argument: {} update <music_path>", program);
                 eprintln!("  2. Config file: ~/.config/kaulan/config.json");
                 eprintln!("  3. Environment variable: KAULAN_MUSIC_DIR");
-                std::process::exit(1);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "no music directory configured",
+                ));
             };
 
             tracing::info!("Starting database update with music path: {}", music_path);
@@ -107,8 +120,11 @@ async fn main() -> std::io::Result<()> {
         _ => {
             tracing::error!("Unknown command: {}", command);
             eprintln!("Unknown command: {}", command);
-            eprintln!("{}", CliOptions::usage(&args[0]));
-            std::process::exit(1);
+            eprintln!("{}", CliOptions::usage(program));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("unknown command: {command}"),
+            ));
         }
     }
 

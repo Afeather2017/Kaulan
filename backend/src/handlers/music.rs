@@ -211,9 +211,9 @@ pub async fn get_music_by_id(
                         return None;
                     }
 
-                    let mut start_byte = (pos * size as f64).floor() as u64;
+                    let mut start_byte = proportional_byte_offset(pos, size);
                     if start_byte >= size {
-                        start_byte = size - 1;
+                        start_byte = size.saturating_sub(1);
                     }
 
                     debug!(
@@ -233,9 +233,9 @@ pub async fn get_music_by_id(
                         return None;
                     }
 
-                    let mut start_byte = ((timestamp / duration) * size as f64).floor() as u64;
+                    let mut start_byte = proportional_byte_offset(timestamp / duration, size);
                     if start_byte >= size {
-                        start_byte = size - 1;
+                        start_byte = size.saturating_sub(1);
                     }
 
                     debug!(
@@ -264,8 +264,8 @@ pub async fn get_music_by_id(
                             return HttpResponse::InternalServerError()
                                 .body("File size unavailable for seek request");
                         };
-                        let content_length = size - start;
-                        let end = size - 1;
+                        let content_length = size.saturating_sub(start);
+                        let end = size.saturating_sub(1);
                         info!(
                             "[ACCESS] GET /api/music/id/{} - Status: 206, bytes={}-{}",
                             id, start, end
@@ -308,7 +308,7 @@ pub async fn get_music_by_id(
                             .await
                         {
                             Ok(stream) => {
-                                let content_length = end - start + 1;
+                                let content_length = end.saturating_sub(start).saturating_add(1);
                                 info!("[ACCESS] GET /api/music/id/{} - Status: 206, Range: bytes={}-{}", id, start, end);
 
                                 return HttpResponse::PartialContent()
@@ -378,25 +378,22 @@ pub async fn get_music_by_id(
 
 /// Parse HTTP Range header (format: "bytes=start-end")
 /// Returns (start, end) tuple or None if invalid
+#[allow(clippy::as_conversions)]
+fn proportional_byte_offset(ratio: f64, size: u64) -> u64 {
+    (ratio * size as f64).floor() as u64
+}
+
 fn parse_range_header(range: &str, file_size: u64) -> Option<(u64, u64)> {
     // Expected format: "bytes=start-end" or "bytes=start-"
-    if !range.starts_with("bytes=") {
-        return None;
-    }
+    let range_spec = range.strip_prefix("bytes=")?;
+    let (start_text, end_text) = range_spec.split_once('-')?;
 
-    let range_spec = &range[6..]; // Skip "bytes="
-    let parts: Vec<&str> = range_spec.split('-').collect();
-
-    if parts.len() != 2 {
-        return None;
-    }
-
-    let start: u64 = parts[0].parse().ok()?;
-    let end = if parts[1].is_empty() {
+    let start: u64 = start_text.parse().ok()?;
+    let end = if end_text.is_empty() {
         // "bytes=start-" means from start to end of file
-        file_size - 1
+        file_size.checked_sub(1)?
     } else {
-        parts[1].parse().ok()?
+        end_text.parse().ok()?
     };
 
     // Validate range

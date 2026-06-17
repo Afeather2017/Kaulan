@@ -47,7 +47,7 @@ pub fn is_audio_file(filename: &str) -> bool {
 pub fn scan_and_generate_lufs(root_dir: &str) -> Vec<LufsResult> {
     info!("Scanning directory for LUFS generation: {}", root_dir);
     let mut results = Vec::new();
-    let mut file_count = 0;
+    let mut file_count: usize = 0;
 
     if let Ok(entries) = std::fs::read_dir(root_dir) {
         for entry in entries.flatten() {
@@ -56,7 +56,7 @@ pub fn scan_and_generate_lufs(root_dir: &str) -> Vec<LufsResult> {
                     let filename = entry.file_name().to_string_lossy().to_string();
 
                     if is_audio_file(&filename) {
-                        file_count += 1;
+                        file_count = file_count.saturating_add(1);
                         let file_path = entry.path();
                         let path_str = file_path.to_string_lossy().to_string();
 
@@ -111,7 +111,7 @@ pub fn generate_lufs_for_files(file_paths: Vec<String>) -> Vec<LufsResult> {
 pub fn write_lufs_data(results: &[LufsResult], output_path: &str) -> std::io::Result<()> {
     info!("Writing LUFS data to: {}", output_path);
     let mut content = String::new();
-    let mut written_count = 0;
+    let mut written_count: usize = 0;
 
     for result in results {
         if let Some(lufs) = result.lufs {
@@ -120,7 +120,7 @@ pub fn write_lufs_data(results: &[LufsResult], output_path: &str) -> std::io::Re
             content.push_str(&format!("path: {}\n", result.path));
             content.push_str(&format!("lufs: {}\n", lufs));
             content.push('\n');
-            written_count += 1;
+            written_count = written_count.saturating_add(1);
         }
     }
 

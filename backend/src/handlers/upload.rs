@@ -295,7 +295,8 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
                 let mut file_size = 0u64;
                 let mut chunks = Vec::<Bytes>::new();
                 while let Ok(Some(chunk)) = field.try_next().await {
-                    file_size += chunk.len() as u64;
+                    let chunk_len = u64::try_from(chunk.len()).unwrap_or(u64::MAX);
+                    file_size = file_size.saturating_add(chunk_len);
                     chunks.push(chunk);
                 }
 

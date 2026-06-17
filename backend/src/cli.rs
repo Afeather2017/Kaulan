@@ -36,22 +36,18 @@ impl CliOptions {
 /// Parse trailing CLI arguments after the command name.
 pub fn parse_cli_options(args: &[String]) -> Result<CliOptions, String> {
     let mut options = CliOptions::default();
-    let mut index = 0;
+    let mut args = args.iter();
 
-    while index < args.len() {
-        let current = &args[index];
+    while let Some(current) = args.next() {
         match current.as_str() {
             "--youtube-cookie-file" => {
-                index += 1;
-                options.youtube_cookie_file = Some(required_path_arg(args, index, current)?);
+                options.youtube_cookie_file = Some(required_path_arg(args.next(), current)?);
             }
             "--netease-session-file" => {
-                index += 1;
-                options.netease_session_file = Some(required_path_arg(args, index, current)?);
+                options.netease_session_file = Some(required_path_arg(args.next(), current)?);
             }
             "--bilibili-session-file" => {
-                index += 1;
-                options.bilibili_session_file = Some(required_path_arg(args, index, current)?);
+                options.bilibili_session_file = Some(required_path_arg(args.next(), current)?);
             }
             value if value.starts_with("--") => {
                 return Err(format!("Unknown option: {value}"));
@@ -65,15 +61,13 @@ pub fn parse_cli_options(args: &[String]) -> Result<CliOptions, String> {
                 options.music_path = Some(value.to_string());
             }
         }
-
-        index += 1;
     }
 
     Ok(options)
 }
 
-fn required_path_arg(args: &[String], index: usize, flag: &str) -> Result<PathBuf, String> {
-    let Some(value) = args.get(index) else {
+fn required_path_arg(value: Option<&String>, flag: &str) -> Result<PathBuf, String> {
+    let Some(value) = value else {
         return Err(format!("Missing value for {flag}"));
     };
     if value.starts_with("--") {

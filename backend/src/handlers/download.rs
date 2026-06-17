@@ -569,8 +569,8 @@ fn merge_lyric_content(original: Option<String>, translated: Option<String>) -> 
 
 fn split_lrc_line(line: &str) -> Option<(&str, &str)> {
     let end_index = line.find(']')?;
-    let stamp = &line[..=end_index];
-    let text = &line[end_index + 1..];
+    let stamp = line.get(..=end_index)?;
+    let text = line.get(end_index.checked_add(1)?..)?;
     Some((stamp, text))
 }
 
@@ -632,7 +632,7 @@ fn resolve_target_dir(base_dir: &Path, target_subdir: Option<&str>) -> Result<Pa
 
     let base_canonical = fs::canonicalize(base_dir).unwrap_or_else(|_| base_dir.to_path_buf());
     let requested_canonical =
-        fs::canonicalize(&requested_path).unwrap_or_else(|_| requested_path.to_path_buf());
+        fs::canonicalize(&requested_path).unwrap_or_else(|_| requested_path.clone());
     if !requested_canonical.starts_with(&base_canonical) {
         return Err("目标目录必须位于下载目录内".to_string());
     }

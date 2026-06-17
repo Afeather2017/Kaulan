@@ -1,4 +1,6 @@
-use super::{sanitize_filename, FullDownloadResult, MusicProvider, PreviewBuildResult};
+use super::{
+    sanitize_filename, synthetic_preview_id, FullDownloadResult, MusicProvider, PreviewBuildResult,
+};
 use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineSearchResult,
 };
@@ -58,8 +60,9 @@ impl MusicProvider for NeteaseProvider {
                 .map_err(|e| e.to_string())?
                 .is_logged_in();
             let client = NeteaseClient::new().map_err(|e| e.to_string())?;
+            let limit = u64::try_from(max_results).unwrap_or(u64::MAX);
             let result = client
-                .search(&query, SearchType::Track, max_results as u64, 0)
+                .search(&query, SearchType::Track, limit, 0)
                 .map_err(|e| e.to_string())?;
 
             Ok(result
@@ -119,7 +122,7 @@ impl MusicProvider for NeteaseProvider {
                 file_name: final_name,
                 absolute_path: final_path,
                 cover_url: track.album.pic_url,
-                synthetic_id: -((super::simple_hash(&request_id) as i32).abs()),
+                synthetic_id: synthetic_preview_id(&request_id),
             })
         })
         .await
@@ -208,10 +211,10 @@ fn download_netease_with_fallback(
         }
     }
 
-    Err(explain_netease_failure(logged_in, failures))
+    Err(explain_netease_failure(logged_in, &failures))
 }
 
-fn explain_netease_failure(logged_in: bool, failures: Vec<String>) -> String {
+fn explain_netease_failure(logged_in: bool, failures: &[String]) -> String {
     let details = failures.join(" | ");
 
     if failures

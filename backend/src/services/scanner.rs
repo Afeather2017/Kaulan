@@ -116,8 +116,8 @@ pub async fn initialize_database_with_roots(
     let audio_files = scan_library_roots(library_roots, &media_types).await?;
     info!("Found {} audio files in library roots", audio_files.len());
 
-    let mut new_files = 0;
-    let mut existing_files = 0;
+    let mut new_files: usize = 0;
+    let mut existing_files: usize = 0;
 
     for (idx, file_info) in audio_files.iter().enumerate() {
         let filename = &file_info.filename;
@@ -125,7 +125,7 @@ pub async fn initialize_database_with_roots(
 
         debug!(
             "Processing file {}/{}: {}",
-            idx + 1,
+            idx.saturating_add(1),
             audio_files.len(),
             filename
         );
@@ -148,14 +148,14 @@ pub async fn initialize_database_with_roots(
                 match music.insert(db_conn).await {
                     Ok(_) => {
                         debug!("Successfully inserted file into database");
-                        new_files += 1;
+                        new_files = new_files.saturating_add(1);
                     }
                     Err(e) => error!("Failed to insert music {}: {}", normalized_path, e),
                 }
             }
             Ok(Some(_)) => {
                 debug!("File already exists in database: {}", normalized_path);
-                existing_files += 1;
+                existing_files = existing_files.saturating_add(1);
             }
             Err(e) => {
                 error!(
@@ -254,8 +254,8 @@ pub async fn update_database_with_roots(
         audio_files.len()
     );
 
-    let mut new_files = 0;
-    let mut skipped_files = 0;
+    let mut new_files: usize = 0;
+    let mut skipped_files: usize = 0;
 
     for (idx, file_info) in audio_files.iter().enumerate() {
         let filename = &file_info.filename;
@@ -263,7 +263,7 @@ pub async fn update_database_with_roots(
 
         info!(
             "[DB_UPDATE] [{}/{}] Checking file: {}",
-            idx + 1,
+            idx.saturating_add(1),
             audio_files.len(),
             filename
         );
@@ -290,7 +290,7 @@ pub async fn update_database_with_roots(
                             "[DB_UPDATE]   INSERTED: {} (LUFS: null, will be calculated on-demand)",
                             filename
                         );
-                        new_files += 1;
+                        new_files = new_files.saturating_add(1);
                     }
                     Err(e) => {
                         error!("[DB_UPDATE]   FAILED to insert {}: {}", filename, e);
@@ -302,7 +302,7 @@ pub async fn update_database_with_roots(
                     "[DB_UPDATE]   SKIPPED: File already in database: {}",
                     filename
                 );
-                skipped_files += 1;
+                skipped_files = skipped_files.saturating_add(1);
             }
             Err(e) => {
                 error!(
@@ -314,7 +314,7 @@ pub async fn update_database_with_roots(
     }
 
     info!("[DB_UPDATE] Checking for deleted files...");
-    let mut deleted_files = 0;
+    let mut deleted_files: usize = 0;
 
     // Only check for deleted files on non-Android platforms (when we have real file paths)
     // On Android with content URIs, we can't reliably check if files still exist
@@ -331,7 +331,7 @@ pub async fn update_database_with_roots(
                         );
                         match music.delete(db_conn).await {
                             Ok(_) => {
-                                deleted_files += 1;
+                                deleted_files = deleted_files.saturating_add(1);
                             }
                             Err(e) => {
                                 error!("[DB_UPDATE] Failed to delete {}: {}", filename, e);
