@@ -3,13 +3,12 @@ use std::env;
 // Import from the library (init_tracing is now in the library)
 use kaulan::{
     cli::{apply_standalone_auth, parse_cli_options, CliOptions},
-    establish_connection, init_tracing, start_log_server, start_server, update_database_with_roots,
+    establish_connection, init_tracing, start_server, update_database_with_roots,
 };
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Initialize tracing with broadcast support
-    let broadcaster = init_tracing();
+    init_tracing();
 
     let args: Vec<String> = env::args().collect();
     let program = args.first().map(String::as_str).unwrap_or("kaulan");
@@ -53,9 +52,6 @@ async fn main() -> std::io::Result<()> {
 
     match command.as_str() {
         "run" => {
-            // Start the log streaming server on port 2081
-            tokio::spawn(start_log_server(broadcaster));
-
             // Start the server (spawns in background)
             match start_server(cli_options.music_path.clone()).await {
                 Ok(server_info) => {

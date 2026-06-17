@@ -28,6 +28,7 @@ use actix_web::{delete, get, web, HttpRequest, HttpResponse, Responder};
 use futures::TryStreamExt;
 use sea_orm::{ColumnTrait, EntityTrait, ModelTrait, QueryFilter};
 use serde::Deserialize;
+use std::path::Path;
 use tracing::{debug, error, info, warn};
 
 /// Query parameters for position-based seeking
@@ -53,7 +54,7 @@ struct MusicQueryParams {
 /// * `filename` - The filename to look up in the database
 ///
 /// # Returns
-/// - Audio file stream with `audio/mpeg` content type if found
+/// - Audio file stream with an extension-aware audio content type if found
 /// - `404 Not Found` if music not in database or file missing
 /// - `500 Internal Server Error` for database errors
 #[get("/api/music/{filename}")]
@@ -88,7 +89,7 @@ pub async fn get_music(path: web::Path<String>, data: web::Data<AppState>) -> im
 
                     info!("[ACCESS] GET /api/music/{} - Status: 200", filename);
                     let mut response = HttpResponse::Ok();
-                    response.insert_header(("Content-Type", "audio/mpeg"));
+                    response.insert_header(("Content-Type", audio_content_type(&music.filename)));
                     response
                         .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
                     response.insert_header(("Accept-Ranges", "bytes"));
@@ -138,7 +139,7 @@ pub async fn get_music(path: web::Path<String>, data: web::Data<AppState>) -> im
 ///   - `1.0` = end of file
 ///
 /// # Returns
-/// - Audio file stream with `audio/mpeg` content type if found
+/// - Audio file stream with an extension-aware audio content type if found
 /// - HTTP 206 (Partial Content) if `position` parameter is provided
 /// - HTTP 206 (Partial Content) if Range header is present
 /// - HTTP 200 OK for normal full file streaming
@@ -272,7 +273,8 @@ pub async fn get_music_by_id(
                         );
 
                         let mut response = HttpResponse::PartialContent();
-                        response.insert_header(("Content-Type", "audio/mpeg"));
+                        response
+                            .insert_header(("Content-Type", audio_content_type(&music.filename)));
                         response.insert_header(("Content-Length", content_length.to_string()));
                         response.insert_header((
                             "Content-Range",
@@ -312,7 +314,10 @@ pub async fn get_music_by_id(
                                 info!("[ACCESS] GET /api/music/id/{} - Status: 206, Range: bytes={}-{}", id, start, end);
 
                                 return HttpResponse::PartialContent()
-                                    .insert_header(("Content-Type", "audio/mpeg"))
+                                    .insert_header((
+                                        "Content-Type",
+                                        audio_content_type(&music.filename),
+                                    ))
                                     .insert_header(("Content-Length", content_length.to_string()))
                                     .insert_header((
                                         "Content-Range",
@@ -342,7 +347,7 @@ pub async fn get_music_by_id(
 
                     info!("[ACCESS] GET /api/music/id/{} - Status: 200", id);
                     let mut response = HttpResponse::Ok();
-                    response.insert_header(("Content-Type", "audio/mpeg"));
+                    response.insert_header(("Content-Type", audio_content_type(&music.filename)));
                     response.insert_header(("Accept-Ranges", "bytes"));
                     response
                         .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
@@ -402,6 +407,25 @@ fn parse_range_header(range: &str, file_size: u64) -> Option<(u64, u64)> {
     }
 
     Some((start, end))
+}
+
+fn audio_content_type(filename: &str) -> &'static str {
+    let extension = Path::new(filename)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase());
+
+    match extension.as_deref() {
+        Some("flac") => "audio/flac",
+        Some("ogg") | Some("oga") => "audio/ogg",
+        Some("wav") => "audio/wav",
+        Some("m4a") | Some("mp4") => "audio/mp4",
+        Some("aac") => "audio/aac",
+        Some("opus") => "audio/opus",
+        Some("webm") => "audio/webm",
+        Some("mp3") => "audio/mpeg",
+        _ => "application/octet-stream",
+    }
 }
 
 /// Get all music from the database

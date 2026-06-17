@@ -14,7 +14,7 @@ sequenceDiagram
     participant Middleware as Access Logging Middleware
     participant Handler as API Handler
     participant DB as Database
-    participant Logger as Log System
+    participant Logger as Tracing Logger
 
     Client->>Middleware: HTTP Request
     Middleware->>Middleware: Log request details
@@ -23,7 +23,7 @@ sequenceDiagram
     Handler->>Handler: Process request
     Handler->>Client: HTTP Response
     Middleware->>Logger: Log response details
-    Logger->>Log System: Stream via broadcast layer
+    Logger->>Logger: Emit structured log line
 ```
 
 ### Data Flow
@@ -67,24 +67,14 @@ sequenceDiagram
 
 ```bash
 # Watch access logs in real-time
-nc localhost 2081 | grep "\[ACCESS\]"
-
-# Count requests per endpoint
-nc localhost 2081 | grep "\[ACCESS\]" | cut -d' ' -f4 | sort | uniq -c
+RUST_LOG=info cargo run -- run /path/to/music | grep "\[ACCESS\]"
 ```
 
 ### Error Analysis
 
 ```bash
 # Find all 4xx and 5xx errors
-nc localhost 2081 | grep "Status: 4" || nc localhost 2081 | grep "Status: 5"
-```
-
-### Error Analysis
-
-```bash
-# Find all 4xx and 5xx errors
-nc localhost 2081 | grep "Status: 4\|Status: 5"
+RUST_LOG=info cargo run -- run /path/to/music | grep "Status: [45]"
 ```
 
 ## Configuration
@@ -94,7 +84,6 @@ nc localhost 2081 | grep "Status: 4\|Status: 5"
 | Port | Purpose | Protocol |
 |------|---------|----------|
 | 2080 | HTTP API | HTTP |
-| 2081 | Log Streaming | TCP (plain text) |
 
 ### Log Level
 
@@ -152,7 +141,7 @@ App::new()
 
 ### Log Analysis Tips
 
-1. **Combine with Context**: Use log streaming to correlate access logs with application logs
+1. **Combine with Context**: Use the same tracing output stream to correlate access logs with application logs
 2. **Monitor for Patterns**: Look for unusual request frequencies or patterns
 3. **Track Errors**: Pay special attention to 4xx and 5xx status codes
 4. **Performance Tuning**: Use timing data to identify bottlenecks
@@ -168,7 +157,7 @@ App::new()
 ### Access Logs Not Appearing
 
 1. Verify the server is running and generating logs
-2. Check that you're connected to the correct log stream (port 2081)
+2. Ensure the backend process is running with an appropriate `RUST_LOG` level
 3. Ensure no other log filtering is blocking INFO level messages
 
 ### Missing Request Information

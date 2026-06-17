@@ -242,15 +242,18 @@ pub async fn update_database_with_roots(
     library_roots: &[&str],
     db_conn: &DatabaseConnection,
 ) -> Result<(), std::io::Error> {
-    info!("[DB_UPDATE] ========== STARTING DATABASE UPDATE ==========");
-    info!("[DB_UPDATE] Library roots: {}", library_roots.join(", "));
+    info!("Starting database update");
+    debug!(
+        "Database update library roots: {}",
+        library_roots.join(", ")
+    );
 
     let media_types = crate::config::load_media_types();
     let audio_files = scan_library_roots(library_roots, &media_types)
         .await
         .map_err(|e| io::Error::other(e.to_string()))?;
     info!(
-        "[DB_UPDATE] Found {} media files in directory",
+        "Found {} media files during database update",
         audio_files.len()
     );
 
@@ -261,7 +264,7 @@ pub async fn update_database_with_roots(
         let filename = &file_info.filename;
         let normalized_path = normalize_path(&file_info.path);
 
-        info!(
+        debug!(
             "[DB_UPDATE] [{}/{}] Checking file: {}",
             idx.saturating_add(1),
             audio_files.len(),
@@ -275,7 +278,7 @@ pub async fn update_database_with_roots(
             .await
         {
             Ok(None) => {
-                info!("[DB_UPDATE]   NEW FILE detected - inserting with null LUFS...");
+                debug!("[DB_UPDATE]   NEW FILE detected - inserting with null LUFS...");
                 let music = MusicActiveModel {
                     filename: Set(filename.clone()),
                     file_path: Set(normalized_path.clone()),
@@ -286,7 +289,7 @@ pub async fn update_database_with_roots(
                 };
                 match music.insert(db_conn).await {
                     Ok(_) => {
-                        info!(
+                        debug!(
                             "[DB_UPDATE]   INSERTED: {} (LUFS: null, will be calculated on-demand)",
                             filename
                         );
@@ -313,7 +316,7 @@ pub async fn update_database_with_roots(
         }
     }
 
-    info!("[DB_UPDATE] Checking for deleted files...");
+    debug!("[DB_UPDATE] Checking for deleted files...");
     let mut deleted_files: usize = 0;
 
     // Only check for deleted files on non-Android platforms (when we have real file paths)
@@ -325,7 +328,7 @@ pub async fn update_database_with_roots(
                     Ok(true) => {}
                     Ok(false) => {
                         let filename = music.filename.clone();
-                        info!(
+                        debug!(
                             "[DB_UPDATE] Deleting non-existent file from database: {}",
                             filename
                         );
@@ -355,9 +358,8 @@ pub async fn update_database_with_roots(
         }
     }
 
-    info!("[DB_UPDATE] ========== DATABASE UPDATE COMPLETE ==========");
     info!(
-        "[DB_UPDATE] Summary: {} new, {} skipped, {} deleted",
+        "Database update complete: {} new, {} skipped, {} deleted",
         new_files, skipped_files, deleted_files
     );
     Ok(())

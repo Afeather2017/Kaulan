@@ -3,7 +3,6 @@
 //! This is the main library for the Kaulan music player backend.
 //! It provides HTTP API endpoints, database operations, and file management.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use ytdl_audio::JsRunner;
@@ -27,9 +26,6 @@ pub use file_ops::{
     MusicFileInfo, MusicFileLister, ReadSeekSendSync, SUPPORTED_EXTENSIONS,
 };
 
-// Re-export log broadcast types
-pub use log_broadcast::{create_broadcast_layer, start_log_server, LogBroadcaster};
-
 // Re-export all handlers for integration tests
 pub use server::{
     delete_music_batch, get_all_music, get_all_playlists, get_directory_tree, get_lyrics,
@@ -37,68 +33,17 @@ pub use server::{
     update_database_endpoint, upload_files,
 };
 
-/// Global broadcaster for log streaming (initialized once)
-static GLOBAL_BROADCASTER: OnceLock<Arc<LogBroadcaster>> = OnceLock::new();
 type YoutubeJsRunnerFactory = dyn Fn() -> Result<Box<dyn JsRunner>, String> + Send + Sync + 'static;
 static YOUTUBE_JS_RUNNER_FACTORY: OnceLock<Arc<YoutubeJsRunnerFactory>> = OnceLock::new();
 
-/// Static flag to ensure tracing is initialized only once
-static TRACING_INITIALIZED: AtomicBool = AtomicBool::new(false);
+/// Initialize the tracing subscriber once for console logging.
+pub fn init_tracing() {
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"));
 
-/// Initialize tracing subscriber for logging with broadcast support
-///
-/// This function uses lazy initialization - it will only initialize the tracing
-/// subscriber once, regardless of how many times it's called. Subsequent calls
-/// will return the existing broadcaster.
-///
-/// # Returns
-/// The log broadcaster that can be used to start the TCP streaming server
-///
-/// # Example
-/// ```rust,no_run
-/// use kaulan::init_tracing;
-///
-/// let broadcaster = init_tracing();
-/// // Start the log streaming server
-/// tokio::spawn(kaulan::start_log_server(broadcaster));
-/// ```
-pub fn init_tracing() -> Arc<LogBroadcaster> {
-    // Use a OnceLock to ensure we only initialize once
-    GLOBAL_BROADCASTER
-        .get_or_init(|| {
-            // Double-check the atomic flag for extra safety
-            if TRACING_INITIALIZED.load(Ordering::SeqCst) {
-                // This shouldn't happen, but if it does, create a new broadcaster
-                return Arc::new(LogBroadcaster::new(256));
-            }
-
-            // Import needed for tracing setup
-            use tracing_subscriber::prelude::*;
-            use tracing_subscriber::util::SubscriberInitExt;
-
-            // Set default log level from RUST_LOG env var, or default to debug
-            let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"));
-
-            // Create the log broadcaster
-            let broadcaster = Arc::new(LogBroadcaster::new(256));
-
-            // Create the broadcast layer
-            let broadcast_layer = create_broadcast_layer(&broadcaster);
-
-            // Build the subscriber with both console and broadcast layers
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(tracing_subscriber::fmt::layer())
-                .with(broadcast_layer)
-                .init();
-
-            // Mark as initialized
-            TRACING_INITIALIZED.store(true, Ordering::SeqCst);
-
-            broadcaster
-        })
-        .clone()
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .try_init();
 }
 
 /// Register a factory that creates the YouTube JavaScript runner used by downloads.
@@ -133,7 +78,6 @@ pub mod database;
 pub mod discovery;
 pub mod entities;
 pub mod ffmpeg;
-pub mod log_broadcast;
 pub mod lufsgen;
 
 #[cfg(test)]

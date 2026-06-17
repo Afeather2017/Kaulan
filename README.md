@@ -14,7 +14,6 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Collection Management** - User-defined playlists/collections stored locally in the browser
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Real-time Search** - Search across all songs instantly
-- **Remote Log Streaming** - View real-time logs via TCP on port 2081
 - **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
 
@@ -100,12 +99,7 @@ cargo run -- run /path/to/music \
 
 `reqwest` proxy URL schemes supported by this build include `http://`, `https://`, and `socks5://`.
 
-A log streaming server is also available on port 2081 for real-time log viewing:
-
-```bash
-# Connect to see real-time logs
-nc localhost 2081
-```
+Runtime logs are emitted through `tracing`. Use `RUST_LOG=debug` when you need per-file scan detail during backend runs.
 
 In a separate terminal, start the frontend:
 
@@ -594,7 +588,6 @@ The application uses a JSON configuration file to persist the music directory pa
 | Setting | Default | Description |
 |---------|---------|-------------|
 | HTTP Port | 2080 | HTTP API server port |
-| Log Streaming Port | 2081 | TCP log streaming server (nc compatible) |
 | Discovery Port | 2082 | UDP device discovery request/reply |
 | Bind Address | 0.0.0.0 | Server bind address |
 | Music Directory | `~/Music` or `./music` | Path to music files |

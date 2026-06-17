@@ -128,7 +128,6 @@ backend/src/
 │   └── prelude.rs
 ├── file_ops/
 │   └── mod.rs       # Source registry, path resolver, and backend file operations
-├── log_broadcast.rs # TCP log streaming server on port 2081
 └── lufsgen.rs       # FFmpeg-based LUFS analysis utility
 ```
 
@@ -243,11 +242,6 @@ frontend/src-tauri/src/
   - Progress counters for file processing
 - Enable with: `RUST_LOG=debug cargo run`
 
-### Log Streaming
-- **TCP Port 2081** - Real-time log streaming (nc compatible)
-  - Connect with: `nc localhost 2081`
-  - See [`docs/log-streaming.md`](docs/log-streaming.md) for details
-
 ## API Endpoints
 
 ### Music Endpoints
@@ -279,11 +273,6 @@ frontend/src-tauri/src/
 - The background task updates the database when calculation completes
 - Frontend only refreshes data when receiving a cached LUFS value (not for 202 responses)
 - This prevents browser connection limits from blocking audio playback when switching songs quickly
-
-### Log Streaming
-- **TCP Port 2081** - Real-time log streaming (nc compatible)
-  - Connect with: `nc localhost 2081`
-  - See [`docs/log-streaming.md`](docs/log-streaming.md) for details
 
 ## Dependencies
 

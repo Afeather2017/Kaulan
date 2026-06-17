@@ -376,7 +376,7 @@ log::info!("MediaStore query complete: {} audio files found", files.len());
 
 Enable logging via:
 - **Desktop**: `RUST_LOG=debug cargo run`
-- **Android**: Check logcat or use the TCP log streaming feature on port 2081
+- **Android**: Check logcat or backend `tracing` output with `RUST_LOG=debug`
 
 ## References
 
