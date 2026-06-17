@@ -105,7 +105,7 @@ enum PreferredAudioOutput {
     TranscodeMp3,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum CoverImageCodec {
     Png,
     Jpeg,
@@ -120,6 +120,7 @@ impl CoverImageCodec {
     }
 }
 
+#[derive(Debug)]
 pub struct NormalizedCoverArt {
     pub codec: CoverImageCodec,
     pub bytes: Vec<u8>,
