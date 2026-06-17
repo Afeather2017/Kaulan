@@ -38,6 +38,7 @@
 //! - [`socket`] - Shared UDP socket for discovery (single socket for send/receive)
 //! - [`discovery`] - UDP listener and request sender logic
 
+#[allow(clippy::module_inception)]
 pub mod discovery;
 pub mod socket;
 pub mod types;

@@ -39,6 +39,11 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
 
       - name: Install Linux FFmpeg source build dependencies
         run: |
@@ -63,6 +68,13 @@ jobs:
 
       - name: Build Linux FFmpeg ${{ env.FFMPEG_VERSION }}
         run: bash ./scripts/ci-install-ffmpeg-linux.sh
+
+      - name: Clippy
+        run: >-
+          cargo clippy -p kaulan --lib --bins --no-deps --
+          -D warnings
+          -D clippy::unwrap_used
+          -D clippy::expect_used
 
       - name: Install local music notification package dependencies
         working-directory: vendor/tauri-plugin-music-notification

@@ -60,10 +60,7 @@ async fn main() -> std::io::Result<()> {
                 Err(e) => {
                     tracing::error!("Failed to start server: {}", e);
                     eprintln!("Failed to start server: {}", e);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    ));
+                    return Err(std::io::Error::other(e.to_string()));
                 }
             }
         }
@@ -91,10 +88,7 @@ async fn main() -> std::io::Result<()> {
                 Err(e) => {
                     tracing::error!("Failed to connect to database: {}", e);
                     eprintln!("Failed to connect to database: {}", e);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    ));
+                    return Err(std::io::Error::other(e.to_string()));
                 }
             };
             let download_root =

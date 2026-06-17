@@ -190,9 +190,9 @@ fn transcode_audio(
     unsafe {
         let mut input_ctx = InputContext::open(&input)?;
         let (stream_index, decoder) = input_ctx.best_audio_stream()?;
-        let input_stream = (*(*input_ctx.view()).streams.add(stream_index as usize))
+        let input_stream = (*input_ctx.view().streams.add(stream_index as usize))
             .as_ref()
-            .unwrap();
+            .ok_or_else(|| "best audio stream pointer was null".to_string())?;
         let mut decoder_ctx = CodecContext::decoder(decoder, input_stream.codecpar)?;
         normalize_channel_layout(decoder_ctx.as_mut_ptr(), 2)?;
 
@@ -510,7 +510,7 @@ pub fn replace_cover_art(
         let mut stream_map = vec![-1_i32; stream_count];
         let mut output_ctx = OutputContext::create(&output)?;
 
-        for index in 0..stream_count {
+        for (index, mapped_stream_index) in stream_map.iter_mut().enumerate().take(stream_count) {
             let input_stream = input_ctx.stream(index)?;
             let is_attached_pic =
                 ((*input_stream).disposition & ffi::AV_DISPOSITION_ATTACHED_PIC as i32) != 0;
@@ -529,7 +529,7 @@ pub fn replace_cover_art(
                 ffi::av_dict_copy(&mut (*output_stream).metadata, (*input_stream).metadata, 0),
                 "failed to copy stream metadata while replacing cover art",
             )?;
-            stream_map[index] = (*output_stream).index;
+            *mapped_stream_index = (*output_stream).index;
         }
 
         let cover_stream = output_ctx.new_stream(ptr::null())?;
@@ -897,7 +897,8 @@ fn is_pcm_codec(codec_id: ffi::AVCodecID) -> bool {
 unsafe fn find_encoder(target: AudioTranscodeTarget) -> Result<*const ffi::AVCodec, String> {
     match target {
         AudioTranscodeTarget::Mp3 => {
-            let codec_name = CString::new("libmp3lame").unwrap();
+            let codec_name = CString::new("libmp3lame")
+                .map_err(|e| format!("failed to create MP3 encoder name: {e}"))?;
             let encoder = ffi::avcodec_find_encoder_by_name(codec_name.as_ptr());
             if !encoder.is_null() {
                 return Ok(encoder);
@@ -1099,6 +1100,7 @@ unsafe fn audio_formats_match(
         && ffi::av_channel_layout_compare(&(*decoder_ctx).ch_layout, &(*encoder_ctx).ch_layout) == 0
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn decode_and_encode(
     decoder_ctx: *mut ffi::AVCodecContext,
     encoder_ctx: *mut ffi::AVCodecContext,
@@ -1163,6 +1165,7 @@ unsafe fn receive_loudness_frames(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn receive_decoded_frames(
     decoder_ctx: *mut ffi::AVCodecContext,
     encoder_ctx: *mut ffi::AVCodecContext,
@@ -1182,7 +1185,7 @@ unsafe fn receive_decoded_frames(
         ffmpeg_call(code, "failed to receive decoded audio frame")?;
 
         ffi::av_frame_unref(converted);
-        (*converted).format = (*encoder_ctx).sample_fmt as i32;
+        (*converted).format = (*encoder_ctx).sample_fmt;
         (*converted).sample_rate = (*encoder_ctx).sample_rate;
         ffmpeg_call(
             ffi::av_channel_layout_copy(&mut (*converted).ch_layout, &(*encoder_ctx).ch_layout),
@@ -1255,7 +1258,7 @@ unsafe fn drain_resampler_into_fifo(
 ) -> Result<(), String> {
     loop {
         ffi::av_frame_unref(converted);
-        (*converted).format = (*encoder_ctx).sample_fmt as i32;
+        (*converted).format = (*encoder_ctx).sample_fmt;
         (*converted).sample_rate = (*encoder_ctx).sample_rate;
         ffmpeg_call(
             ffi::av_channel_layout_copy(&mut (*converted).ch_layout, &(*encoder_ctx).ch_layout),
@@ -1787,7 +1790,7 @@ unsafe fn allocate_audio_frame(
     nb_samples: i32,
 ) -> Result<Frame, String> {
     let mut frame = Frame::new()?;
-    (*frame.as_mut_ptr()).format = (*encoder_ctx).sample_fmt as i32;
+    (*frame.as_mut_ptr()).format = (*encoder_ctx).sample_fmt;
     (*frame.as_mut_ptr()).sample_rate = (*encoder_ctx).sample_rate;
     (*frame.as_mut_ptr()).nb_samples = nb_samples;
     ffmpeg_call(
@@ -1849,14 +1852,21 @@ impl LoudnessAnalyzerGraph {
         let mut filter = ptr::null_mut();
         let mut sink = ptr::null_mut();
 
-        let buffer_name = CString::new("abuffer").unwrap();
-        let loudness_name = CString::new("ebur128").unwrap();
-        let sink_name = CString::new("abuffersink").unwrap();
-        let source_instance = CString::new("in").unwrap();
-        let filter_instance = CString::new("loudness").unwrap();
-        let sink_instance = CString::new("out").unwrap();
+        let buffer_name = CString::new("abuffer")
+            .map_err(|e| format!("failed to create buffer filter name: {e}"))?;
+        let loudness_name = CString::new("ebur128")
+            .map_err(|e| format!("failed to create loudness filter name: {e}"))?;
+        let sink_name = CString::new("abuffersink")
+            .map_err(|e| format!("failed to create sink filter name: {e}"))?;
+        let source_instance = CString::new("in")
+            .map_err(|e| format!("failed to create source filter instance name: {e}"))?;
+        let filter_instance = CString::new("loudness")
+            .map_err(|e| format!("failed to create loudness filter instance name: {e}"))?;
+        let sink_instance = CString::new("out")
+            .map_err(|e| format!("failed to create sink filter instance name: {e}"))?;
         let source_args = loudness_source_filter_args(decoder_ctx)?;
-        let filter_args = CString::new("metadata=1:video=0").unwrap();
+        let filter_args = CString::new("metadata=1:video=0")
+            .map_err(|e| format!("failed to create loudness filter arguments: {e}"))?;
 
         ffmpeg_call(
             ffi::avfilter_graph_create_filter(
@@ -1974,7 +1984,7 @@ impl BufferSrcParameters {
             return Err("failed to allocate buffer source parameters".to_string());
         }
 
-        (*params).format = (*decoder_ctx).sample_fmt as i32;
+        (*params).format = (*decoder_ctx).sample_fmt;
         (*params).sample_rate = (*decoder_ctx).sample_rate;
         (*params).time_base = ffi::AVRational {
             num: 1,

@@ -82,10 +82,7 @@ pub async fn start_server(
     cli_path: Option<String>,
 ) -> Result<ServerInfo, Box<dyn std::error::Error>> {
     download_service::initialize_runtime().map_err(|err| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("download runtime initialization failed: {err}"),
-        )
+        std::io::Error::other(format!("download runtime initialization failed: {err}"))
     })?;
 
     // Priority: CLI arg > Config file > Environment variable > Platform default
@@ -245,7 +242,7 @@ pub async fn start_server(
 
     // Spawn the server in the background using tokio (this works around Send issues)
     tokio::spawn(async move {
-        match HttpServer::new(move || {
+        let server = match HttpServer::new(move || {
             let cors = Cors::default()
                 .allow_any_origin()
                 .allow_any_method()
@@ -297,11 +294,16 @@ pub async fn start_server(
                 .service(get_directory_tree)
                 .service(upload_files)
         })
-        .bind((ip_clone, port))
-        .unwrap()
-        .run()
-        .await
+        .bind((ip_clone.clone(), port))
         {
+            Ok(server) => server,
+            Err(e) => {
+                error!("Failed to bind HTTP server on {}:{}: {}", ip_clone, port, e);
+                return;
+            }
+        };
+
+        match server.run().await {
             Ok(_) => info!("Server shutdown gracefully"),
             Err(e) => error!("Server error: {}", e),
         }

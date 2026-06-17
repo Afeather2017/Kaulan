@@ -58,15 +58,12 @@ pub async fn get_all_playlists(
                 // Add to "All Music" playlist
                 playlists
                     .entry("所有音乐".to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(info.clone());
 
                 // Add to folder-based playlist using parent_dir
                 if let Some(ref parent_dir) = music.parent_dir {
-                    playlists
-                        .entry(parent_dir.clone())
-                        .or_insert_with(Vec::new)
-                        .push(info);
+                    playlists.entry(parent_dir.clone()).or_default().push(info);
                 }
             }
         }

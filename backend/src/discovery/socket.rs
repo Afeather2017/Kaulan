@@ -6,6 +6,7 @@
 //! Tokio's UdpSocket does not implement Clone, but both send_to() and
 //! recv_from() take &self, so we can share the socket via Arc.
 
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
@@ -17,9 +18,6 @@ const BIND_ADDR: &str = "0.0.0.0:2082";
 
 /// Retry delay when socket creation fails
 const SOCKET_RETRY_DELAY: Duration = Duration::from_secs(5);
-
-/// Broadcast address for local network discovery
-const BROADCAST_ADDR: &str = "255.255.255.255:2082";
 
 /// Create and configure the shared UDP discovery socket
 ///
@@ -65,8 +63,6 @@ pub async fn create_discovery_socket() -> Option<Arc<UdpSocket>> {
 ///
 /// # Returns
 /// The broadcast socket address (255.255.255.255:2082)
-pub fn get_broadcast_addr() -> std::net::SocketAddr {
-    BROADCAST_ADDR
-        .parse()
-        .expect("Invalid broadcast address configuration")
+pub fn get_broadcast_addr() -> SocketAddr {
+    SocketAddr::from((Ipv4Addr::BROADCAST, 2082))
 }

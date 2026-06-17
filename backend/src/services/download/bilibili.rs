@@ -21,6 +21,12 @@ impl BilibiliProvider {
     }
 }
 
+impl Default for BilibiliProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait(?Send)]
 impl MusicProvider for BilibiliProvider {
     fn source(&self) -> DownloadSource {

@@ -54,8 +54,7 @@ pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> i
     match MusicEntity::find_by_id(id).one(&data.db_conn).await {
         Ok(Some(music)) => {
             // Check if LUFS already exists
-            if music.lufs.is_some() {
-                let existing_lufs = music.lufs.unwrap();
+            if let Some(existing_lufs) = music.lufs {
                 debug!("LUFS already cached for music ID {}: {}", id, existing_lufs);
                 info!(
                     "[ACCESS] POST /api/music/{}/precache-lufs - Status: 200 (Already Cached)",

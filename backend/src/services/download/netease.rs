@@ -21,6 +21,12 @@ impl NeteaseProvider {
     }
 }
 
+impl Default for NeteaseProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait(?Send)]
 impl MusicProvider for NeteaseProvider {
     fn source(&self) -> DownloadSource {

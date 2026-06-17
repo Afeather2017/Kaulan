@@ -190,7 +190,7 @@ async fn handle_client(socket: tokio::net::TcpStream, broadcaster: Arc<LogBroadc
                     break;
                 }
                 // Flush to ensure logs are sent immediately
-                if let Err(_) = writer.flush().await {
+                if writer.flush().await.is_err() {
                     break;
                 }
             }

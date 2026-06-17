@@ -187,7 +187,6 @@ pub async fn get_initial_scan_done(db_conn: &DatabaseConnection) -> Result<bool,
         id: Set(1),
         initial_scan_done: Set(false),
         updated_at: Set(Utc::now()),
-        ..Default::default()
     };
     meta.insert(db_conn).await?;
     Ok(false)
@@ -209,7 +208,6 @@ pub async fn set_initial_scan_done(db_conn: &DatabaseConnection, done: bool) -> 
         id: Set(1),
         initial_scan_done: Set(done),
         updated_at: Set(Utc::now()),
-        ..Default::default()
     };
     meta.insert(db_conn).await?;
     Ok(())
@@ -250,7 +248,7 @@ pub async fn update_database_with_roots(
     let media_types = crate::config::load_media_types();
     let audio_files = scan_library_roots(library_roots, &media_types)
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     info!(
         "[DB_UPDATE] Found {} media files in directory",
         audio_files.len()

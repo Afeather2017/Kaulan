@@ -153,16 +153,16 @@ fn source_registry() -> &'static RwLock<SourceRegistry> {
 
 pub fn register_source(source: Arc<dyn Source>) {
     let registry = source_registry();
-    registry
-        .write()
-        .expect("source registry poisoned")
-        .register(source);
+    match registry.write() {
+        Ok(mut registry) => registry.register(source),
+        Err(err) => tracing::error!("Source registry lock poisoned: {}", err),
+    }
 }
 
 pub fn resolve_path(raw_path: &str) -> io::Result<ResolvedPath> {
     source_registry()
         .read()
-        .expect("source registry poisoned")
+        .map_err(|e| io::Error::other(format!("source registry poisoned: {e}")))?
         .resolve(raw_path)
         .map(|resolved| resolved.resolved)
 }
@@ -170,7 +170,7 @@ pub fn resolve_path(raw_path: &str) -> io::Result<ResolvedPath> {
 fn resolve_source(raw_path: &str) -> io::Result<ResolvedSource> {
     source_registry()
         .read()
-        .expect("source registry poisoned")
+        .map_err(|e| io::Error::other(format!("source registry poisoned: {e}")))?
         .resolve(raw_path)
 }
 
@@ -414,7 +414,7 @@ impl Source for StdFsSource {
         let path = path.to_string();
         tokio::task::spawn_blocking(move || fs::read(path))
             .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .map_err(|e| io::Error::other(e.to_string()))?
     }
 
     async fn read_stream(&self, path: &str, chunk_size: usize) -> Result<ByteStream, io::Error> {
@@ -449,7 +449,7 @@ impl Source for StdFsSource {
         let path = path.to_string();
         let file = tokio::task::spawn_blocking(move || std::fs::File::open(path))
             .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))??;
+            .map_err(|e| io::Error::other(e.to_string()))??;
         Ok(Box::new(file))
     }
 
@@ -466,7 +466,7 @@ impl Source for StdFsSource {
             Ok(audio_files)
         })
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| io::Error::other(e.to_string()))?
     }
 
     async fn exists(&self, path: &str) -> Result<bool, io::Error> {
@@ -495,7 +495,7 @@ impl Source for StdFsSource {
             Ok(())
         })
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| io::Error::other(e.to_string()))?
     }
 
     async fn read_lyric(
@@ -507,7 +507,7 @@ impl Source for StdFsSource {
             let candidate = lyric_path.clone();
             match tokio::task::spawn_blocking(move || std::fs::read(candidate))
                 .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+                .map_err(|e| io::Error::other(e.to_string()))?
             {
                 Ok(content) => return Ok(Some(content)),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
@@ -532,7 +532,10 @@ fn scan_directory_recursive_sync(
                     if let Some(extension) = path.extension() {
                         let ext_str = extension.to_string_lossy().to_lowercase();
                         if is_supported_extension(&ext_str, media_types) {
-                            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                            let Some(file_name) = path.file_name() else {
+                                continue;
+                            };
+                            let filename = file_name.to_string_lossy().to_string();
                             let absolute_path = path
                                 .canonicalize()
                                 .unwrap_or_else(|_| path.clone())

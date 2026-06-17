@@ -256,8 +256,16 @@ pub async fn get_music_by_id(
                     .await
                 {
                     Ok(stream) => {
-                        let content_length = file_size.unwrap() - start;
-                        let end = file_size.unwrap() - 1;
+                        let Some(size) = file_size else {
+                            warn!(
+                                "Seek request for music ID {} had no file size after validation",
+                                id
+                            );
+                            return HttpResponse::InternalServerError()
+                                .body("File size unavailable for seek request");
+                        };
+                        let content_length = size - start;
+                        let end = size - 1;
                         info!(
                             "[ACCESS] GET /api/music/id/{} - Status: 206, bytes={}-{}",
                             id, start, end
@@ -268,7 +276,7 @@ pub async fn get_music_by_id(
                         response.insert_header(("Content-Length", content_length.to_string()));
                         response.insert_header((
                             "Content-Range",
-                            format!("bytes {}-{}/{}", start, end, file_size.unwrap()),
+                            format!("bytes {}-{}/{}", start, end, size),
                         ));
                         response.insert_header(("Accept-Ranges", "bytes"));
                         response.insert_header((

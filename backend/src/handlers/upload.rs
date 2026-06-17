@@ -37,7 +37,7 @@ pub async fn get_directory_tree(data: web::Data<AppState>) -> impl Responder {
             .strip_prefix(base_path)
             .ok()
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| String::new());
+            .unwrap_or_default();
 
         let mut children = Vec::new();
 
@@ -162,7 +162,7 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
                 let target_dir = Path::new(&music_path_str).join(&target_path);
 
                 // Canonicalize both paths for proper comparison
-                let music_path_canonical = fs::canonicalize(&music_path_str)
+                let music_path_canonical = fs::canonicalize(music_path_str)
                     .unwrap_or_else(|_| PathBuf::from(&music_path_str));
 
                 // Try to canonicalize the target directory - if it would escape, it will fail
@@ -281,7 +281,7 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
                 };
 
                 // Security check: ensure file path is within music directory
-                if !full_target_path.starts_with(&music_path_str) {
+                if !full_target_path.starts_with(music_path_str) {
                     warn!(
                         "[UPLOAD] Invalid file path: {} (not within music directory)",
                         full_target_path.display()

@@ -2,8 +2,12 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let repo_root = Path::new(&manifest_dir).parent().unwrap();
+    let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
+        return;
+    };
+    let Some(repo_root) = Path::new(&manifest_dir).parent() else {
+        return;
+    };
     let hook_src = repo_root.join("scripts").join("pre-commit");
     let hook_dst = repo_root.join(".git").join("hooks").join("pre-commit");
 
@@ -15,7 +19,10 @@ fn main() {
     let dst_content = fs::read_to_string(&hook_dst).unwrap_or_default();
 
     if src_content != dst_content {
-        let _ = fs::create_dir_all(hook_dst.parent().unwrap());
+        let Some(hook_parent) = hook_dst.parent() else {
+            return;
+        };
+        let _ = fs::create_dir_all(hook_parent);
         if fs::copy(&hook_src, &hook_dst).is_ok() {
             // racy on Windows but fine for dev machines
             #[cfg(unix)]
