@@ -115,6 +115,12 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 ### Download behavior
 
 - Full downloads are saved under the configured online download root.
+- Users can edit the saved audio filename before starting a full download.
+- The backend treats the edited value as a basename only:
+  - path separators are rejected
+  - blank names are rejected
+  - any user-supplied extension is stripped
+  - the provider-specific extension is appended by Kaulan (`.mp3`, `.m4a`, `.mka`, or other provider output)
 - On Android, Kaulan uses the app external files music directory:
   - `/sdcard/Android/data/afeather.kaulan/files/Music`
 - On desktop, YouTube full downloads are finalized through Kaulan's backend FFmpeg pipeline. Opus sources are remuxed into `.mka` with stream copy only instead of being rewritten as `.ogg`, which keeps the audio unchanged and lets Kaulan attach cover art. Related sources: `backend/src/services/download/youtube.rs`, `backend/src/ffmpeg.rs`.
@@ -247,6 +253,7 @@ Request:
   "id": "2015001195",
   "title": "Song Title",
   "artist": "Artist Name",
+  "file_name": "Artist - Song Title",
   "target_subdir": "",
   "lyric_selection": "2015001195"
 }
@@ -353,10 +360,12 @@ sequenceDiagram
     participant DB as Music Database
 
     User->>FE: Select target directory
+    User->>FE: Optionally edit output filename
     User->>FE: Optionally select lyric candidate
     User->>FE: Click 下载
     FE->>BE: POST /api/download/track
     BE->>BE: Validate target_subdir stays within download root
+    BE->>BE: Validate and normalize requested file_name
     BE->>Provider: Download full track
     Provider-->>BE: Audio file
     BE->>FS: Save final file into target directory

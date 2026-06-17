@@ -162,6 +162,7 @@ pub struct DownloadTrackRequest {
     pub id: String,
     pub title: String,
     pub artist: Option<String>,
+    pub file_name: Option<String>,
     pub target_subdir: Option<String>,
     pub lyric_selection: Option<String>,
 }

@@ -6,7 +6,7 @@ mod youtube;
 
 use async_trait::async_trait;
 use reqwest::StatusCode;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Once, OnceLock};
 use tokio::task;
 use tracing::warn;
@@ -125,6 +125,38 @@ pub(crate) fn sanitize_filename(name: &str) -> String {
         "download".to_string()
     } else {
         sanitized
+    }
+}
+
+pub(crate) fn resolve_download_file_stem(
+    requested_name: Option<&str>,
+    fallback_title: &str,
+) -> Result<String, String> {
+    match requested_name {
+        Some(name) => {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                return Err("文件名不能为空".to_string());
+            }
+
+            let requested_path = Path::new(trimmed);
+            if requested_path
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+            {
+                return Err("文件名不能包含路径".to_string());
+            }
+
+            let stem = requested_path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "文件名不能为空".to_string())?;
+
+            Ok(sanitize_filename(stem))
+        }
+        None => Ok(sanitize_filename(fallback_title)),
     }
 }
 
@@ -271,7 +303,8 @@ impl DownloadSource {
 mod tests {
     use super::{
         build_online_provider_statuses, create_download_staging_dir,
-        ensure_ytdl_solver_dependencies_in_dir, sanitize_filename, should_embed_cover_art,
+        ensure_ytdl_solver_dependencies_in_dir, resolve_download_file_stem, sanitize_filename,
+        should_embed_cover_art,
     };
     use std::fs;
     use std::path::Path;
@@ -304,6 +337,24 @@ mod tests {
     #[test]
     fn sanitize_filename_replaces_reserved_characters() {
         assert_eq!(sanitize_filename("a:b/c"), "a_b_c");
+    }
+
+    #[test]
+    fn resolve_download_file_stem_strips_extension() {
+        let stem = resolve_download_file_stem(Some("Artist - Song.mp3"), "fallback").unwrap();
+        assert_eq!(stem, "Artist - Song");
+    }
+
+    #[test]
+    fn resolve_download_file_stem_rejects_paths() {
+        let err = resolve_download_file_stem(Some("../song"), "fallback").unwrap_err();
+        assert!(err.contains("不能包含路径"));
+    }
+
+    #[test]
+    fn resolve_download_file_stem_rejects_blank_names() {
+        let err = resolve_download_file_stem(Some("   "), "fallback").unwrap_err();
+        assert!(err.contains("不能为空"));
     }
 
     #[test]

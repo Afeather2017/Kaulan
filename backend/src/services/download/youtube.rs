@@ -1,6 +1,6 @@
 use super::{
-    create_download_staging_dir, sanitize_filename, synthetic_preview_id, FullDownloadResult,
-    MusicProvider, PreviewBuildResult,
+    create_download_staging_dir, resolve_download_file_stem, synthetic_preview_id,
+    FullDownloadResult, MusicProvider, PreviewBuildResult,
 };
 use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineSearchResult,
@@ -136,7 +136,7 @@ impl MusicProvider for YoutubeProvider {
             .await
             .map_err(|e| e.to_string())?;
 
-        let title = sanitize_filename(&request.title);
+        let title = resolve_download_file_stem(request.file_name.as_deref(), &request.title)?;
         let source_audio = result.audio_path;
         let output_dir = target_dir.to_path_buf();
         let (_final_filename, final_path) = task::spawn_blocking(move || {

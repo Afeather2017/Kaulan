@@ -1,5 +1,6 @@
 use super::{
-    sanitize_filename, synthetic_preview_id, FullDownloadResult, MusicProvider, PreviewBuildResult,
+    resolve_download_file_stem, synthetic_preview_id, FullDownloadResult, MusicProvider,
+    PreviewBuildResult,
 };
 use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineSearchResult,
@@ -140,11 +141,12 @@ impl MusicProvider for NeteaseProvider {
             .map_err(|_| "无效的网易云歌曲 ID".to_string())?;
         let target_dir = target_dir.to_path_buf();
         let title = request.title.clone();
+        let file_stem = resolve_download_file_stem(request.file_name.as_deref(), &request.title)?;
 
         task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
             let client = NeteaseClient::new().map_err(|e| e.to_string())?;
             let track = client.track_detail(track_id).map_err(|e| e.to_string())?;
-            let filename = format!("{}.mp3", sanitize_filename(&title));
+            let filename = format!("{file_stem}.mp3");
             let final_path = target_dir.join(filename);
             download_netease_with_fallback(&client, track_id, &final_path, "full", title.as_str())?;
             Ok(FullDownloadResult {

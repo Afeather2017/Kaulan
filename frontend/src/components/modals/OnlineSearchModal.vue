@@ -229,6 +229,36 @@
       @close="lyricPickerState = null"
       @selected="handleLyricSelected"
     />
+
+    <div
+      v-if="downloadDialogState"
+      class="dialog-overlay"
+      @click="closeDownloadDialog"
+    >
+      <div class="download-dialog" @click.stop>
+        <div class="download-dialog-title">设置下载文件名</div>
+        <div class="download-dialog-meta">
+          {{ downloadDialogState.title }}
+        </div>
+        <label class="download-dialog-field">
+          <span>保存文件名</span>
+          <input
+            v-model="downloadDialogFileName"
+            type="text"
+            placeholder="输入下载文件名"
+            @keyup.enter="confirmDownload"
+          />
+        </label>
+        <div class="download-dialog-actions">
+          <button class="secondary-btn" @click="closeDownloadDialog">
+            取消
+          </button>
+          <button class="download-btn" @click="confirmDownload">
+            确认下载
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -310,8 +340,11 @@ const downloadDirectoryError = ref("");
 const showDownloadFolderPicker = ref(false);
 const selectedDownloadSubdir = ref("");
 const selectedLyrics = reactive<Record<string, LyricCandidate | null>>({});
+const customDownloadNames = reactive<Record<string, string>>({});
 const supportsProviderAccountActions = ref(false);
 const lyricPickerState = ref<SearchResult | null>(null);
+const downloadDialogState = ref<SearchResult | null>(null);
+const downloadDialogFileName = ref("");
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
     provider: "youtube",
@@ -412,6 +445,26 @@ watch(
 
 const resultKey = (result: SearchResult): string =>
   `${result.source}:${result.id}`;
+
+const defaultDownloadName = (result: SearchResult): string =>
+  result.title.trim();
+
+const downloadNameForResult = (result: SearchResult): string => {
+  const key = resultKey(result);
+  return key in customDownloadNames
+    ? customDownloadNames[key]
+    : defaultDownloadName(result);
+};
+
+const openDownloadDialog = (result: SearchResult) => {
+  downloadDialogState.value = result;
+  downloadDialogFileName.value = downloadNameForResult(result);
+};
+
+const closeDownloadDialog = () => {
+  downloadDialogState.value = null;
+  downloadDialogFileName.value = "";
+};
 
 const buildDefaultLyricSearchQuery = (result: SearchResult): string => {
   const manualQuery = searchInput.value.trim();
@@ -690,6 +743,7 @@ const handleLyricSelected = (candidate: LyricCandidate) => {
 const downloadTrackToApiBase = async (
   apiBase: string,
   result: SearchResult,
+  fileName: string,
   lyricId: string | null,
   targetSubdir: string | null,
 ) => {
@@ -701,6 +755,7 @@ const downloadTrackToApiBase = async (
       id: result.id,
       title: result.title,
       artist: result.artist,
+      file_name: fileName,
       target_subdir: targetSubdir,
       lyric_selection: lyricId,
     }),
@@ -715,10 +770,23 @@ const downloadTrackToApiBase = async (
   };
 };
 
-const handleDownload = async (result: SearchResult) => {
+const handleDownload = (result: SearchResult) => {
+  openDownloadDialog(result);
+};
+
+const confirmDownload = async () => {
+  const result = downloadDialogState.value;
+  if (!result) {
+    return;
+  }
+
+  const requestedFileName = downloadDialogFileName.value.trim();
+  customDownloadNames[resultKey(result)] = requestedFileName;
+
   downloadingKey.value = resultKey(result);
   statusType.value = "info";
   statusMessage.value = `正在下载: ${result.title}`;
+  closeDownloadDialog();
   try {
     const selectedLyric = selectedLyrics[resultKey(result)];
     const shouldAlsoSaveLocal =
@@ -730,6 +798,7 @@ const handleDownload = async (result: SearchResult) => {
     const sharedResult = await downloadTrackToApiBase(
       resolvedApiBase(),
       result,
+      requestedFileName,
       selectedLyric?.id ?? null,
       selectedDownloadSubdir.value || null,
     );
@@ -740,6 +809,7 @@ const handleDownload = async (result: SearchResult) => {
         await downloadTrackToApiBase(
           LOCALHOST_API_BASE,
           result,
+          requestedFileName,
           selectedLyric?.id ?? null,
           null,
         );
@@ -1162,6 +1232,67 @@ const handleDownload = async (result: SearchResult) => {
   display: flex;
   justify-content: center;
   margin-top: 18px;
+}
+
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 120;
+  padding: 20px;
+}
+
+.download-dialog {
+  width: min(92vw, 420px);
+  background: #fff;
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.2);
+}
+
+.download-dialog-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.download-dialog-meta {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #576475;
+}
+
+.download-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.download-dialog-field span {
+  font-size: 13px;
+  color: #576475;
+}
+
+.download-dialog-field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.download-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 @media (max-width: 640px) {

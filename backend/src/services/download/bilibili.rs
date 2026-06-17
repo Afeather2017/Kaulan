@@ -1,5 +1,6 @@
 use super::{
-    sanitize_filename, synthetic_preview_id, FullDownloadResult, MusicProvider, PreviewBuildResult,
+    resolve_download_file_stem, synthetic_preview_id, FullDownloadResult, MusicProvider,
+    PreviewBuildResult,
 };
 use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineSearchResult,
@@ -126,17 +127,13 @@ impl MusicProvider for BilibiliProvider {
         target_dir: &Path,
     ) -> Result<FullDownloadResult, String> {
         let bvid = request.id.clone();
-        let title = request.title.clone();
+        let file_stem = resolve_download_file_stem(request.file_name.as_deref(), &request.title)?;
         let target_dir = target_dir.to_path_buf();
 
         task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
             let client = BilibiliClient::new().map_err(|e| e.to_string())?;
             let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
-            let filename = format!(
-                "{}.{}",
-                sanitize_filename(&title),
-                BILIBILI_REMUXED_AUDIO_EXTENSION
-            );
+            let filename = format!("{file_stem}.{BILIBILI_REMUXED_AUDIO_EXTENSION}");
             let final_path = target_dir.join(filename);
             download_bilibili_audio(&client, &bvid, &final_path).map_err(|e| match e {
                 BilibiliError::Ffmpeg(message) => format!("FFmpeg 错误: {message}"),

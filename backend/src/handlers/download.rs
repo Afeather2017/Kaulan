@@ -391,7 +391,7 @@ pub async fn download_track(
     body: web::Json<DownloadTrackRequest>,
     data: web::Data<AppState>,
 ) -> HttpResponse {
-    let body = body.into_inner();
+    let mut body = body.into_inner();
     let target_dir = match resolve_target_dir(
         Path::new(data.download_root.as_ref()),
         body.target_subdir.as_deref(),
@@ -403,6 +403,29 @@ pub async fn download_track(
                 body.source.as_str(),
                 body.id,
                 body.target_subdir,
+                message
+            );
+            return HttpResponse::BadRequest().json(DownloadTrackResponse {
+                success: false,
+                message,
+                filename: None,
+                lyric_filename: None,
+                warning: None,
+            });
+        }
+    };
+
+    body.file_name = match download_service::resolve_download_file_stem(
+        body.file_name.as_deref(),
+        &body.title,
+    ) {
+        Ok(file_stem) => Some(file_stem),
+        Err(message) => {
+            warn!(
+                "[DOWNLOAD] Rejecting track download request: source={}, id={}, requested_file_name={:?}, reason={}",
+                body.source.as_str(),
+                body.id,
+                body.file_name,
                 message
             );
             return HttpResponse::BadRequest().json(DownloadTrackResponse {
@@ -650,7 +673,9 @@ fn join_artists(artists: &[netease_api::types::Artist]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_lyric, merge_lyric_content, resolve_target_dir, ApplyLyricRequest};
+    use super::{
+        apply_lyric, download_track, merge_lyric_content, resolve_target_dir, ApplyLyricRequest,
+    };
     use crate::types::AppState;
     use actix_web::{test as actix_test, web, App};
     use std::fs;
@@ -743,6 +768,54 @@ mod tests {
             .set_json(&ApplyLyricRequest {
                 song_id: 1,
                 lyric_selection: "invalid".to_string(),
+            })
+            .to_request();
+
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn test_download_track_rejects_blank_custom_filename() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(download_track)).await;
+        let req = actix_test::TestRequest::post()
+            .uri("/api/download/track")
+            .set_json(&crate::types::DownloadTrackRequest {
+                source: crate::types::DownloadSource::Netease,
+                id: "123".to_string(),
+                title: "Song".to_string(),
+                artist: Some("Artist".to_string()),
+                file_name: Some("   ".to_string()),
+                target_subdir: None,
+                lyric_selection: None,
+            })
+            .to_request();
+
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn test_download_track_rejects_path_custom_filename() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(download_track)).await;
+        let req = actix_test::TestRequest::post()
+            .uri("/api/download/track")
+            .set_json(&crate::types::DownloadTrackRequest {
+                source: crate::types::DownloadSource::Netease,
+                id: "123".to_string(),
+                title: "Song".to_string(),
+                artist: Some("Artist".to_string()),
+                file_name: Some("../Song".to_string()),
+                target_subdir: None,
+                lyric_selection: None,
             })
             .to_request();
 
