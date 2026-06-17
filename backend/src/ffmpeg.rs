@@ -10,8 +10,10 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use tokio::io::AsyncWriteExt;
+use tracing::warn;
 
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+const MAX_COVER_ART_BYTES: usize = 10 * 1024 * 1024;
 
 #[repr(C)]
 struct FormatContextView {
@@ -31,11 +33,17 @@ pub struct PreparedInput {
 }
 
 impl PreparedInput {
+    /// Returns a local filesystem path that FFmpeg can open directly.
     pub fn path(&self) -> &Path {
         &self.path
     }
 }
 
+/// Resolves a stored music path into a local file that can be passed to FFmpeg.
+///
+/// Standard filesystem paths are returned directly. Source-backed paths such as
+/// Android `content://` URIs are streamed into a temporary file held by the
+/// returned [`PreparedInput`].
 pub async fn prepare_input(file_path: &str) -> Result<PreparedInput, String> {
     let resolved = resolve_path(file_path).map_err(|e| {
         format!(
@@ -119,6 +127,11 @@ pub struct NormalizedCoverArt {
     pub height: i32,
 }
 
+/// Exports a downloaded audio source into the preferred library container.
+///
+/// The function detects the primary audio codec, stream-copies codecs that are
+/// safe in the target container, and transcodes only when needed. The returned
+/// tuple contains the generated file name and its absolute output path.
 pub fn export_audio_for_download(
     input: &Path,
     output_dir: &Path,
@@ -129,19 +142,25 @@ pub fn export_audio_for_download(
         PreferredAudioOutput::Remux { extension } => {
             let file_name = format!("{output_stem}.{extension}");
             let output_path = output_dir.join(&file_name);
-            remux_audio_stream(input, &output_path)?;
+            export_with_temporary_output(&output_path, |temp_output| {
+                remux_audio_stream(input, temp_output)
+            })?;
             (file_name, output_path)
         }
         PreferredAudioOutput::TranscodeFlac => {
             let file_name = format!("{output_stem}.flac");
             let output_path = output_dir.join(&file_name);
-            transcode_audio_to_flac(input, &output_path)?;
+            export_with_temporary_output(&output_path, |temp_output| {
+                transcode_audio_to_flac(input, temp_output)
+            })?;
             (file_name, output_path)
         }
         PreferredAudioOutput::TranscodeMp3 => {
             let file_name = format!("{output_stem}.mp3");
             let output_path = output_dir.join(&file_name);
-            transcode_audio_to_mp3(input, &output_path)?;
+            export_with_temporary_output(&output_path, |temp_output| {
+                transcode_audio_to_mp3(input, temp_output)
+            })?;
             (file_name, output_path)
         }
     };
@@ -149,10 +168,12 @@ pub fn export_audio_for_download(
     Ok((file_name, output_path))
 }
 
+/// Transcodes the primary audio stream to MP3.
 pub fn transcode_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String> {
     transcode_audio(input, output, AudioTranscodeTarget::Mp3)
 }
 
+/// Transcodes the primary audio stream to FLAC.
 pub fn transcode_audio_to_flac(input: &Path, output: &Path) -> Result<(), String> {
     transcode_audio(input, output, AudioTranscodeTarget::Flac)
 }
@@ -302,6 +323,7 @@ impl AudioTranscodeTarget {
     }
 }
 
+/// Detects the codec ID for the best audio stream in an input media file.
 pub fn detect_primary_audio_codec(input: &Path) -> Result<ffi::AVCodecID, String> {
     let input = path_to_cstring(input)?;
     unsafe {
@@ -312,6 +334,7 @@ pub fn detect_primary_audio_codec(input: &Path) -> Result<ffi::AVCodecID, String
     }
 }
 
+/// Copies the primary audio stream into another container without re-encoding.
 pub fn remux_audio_stream(input: &Path, output: &Path) -> Result<(), String> {
     let input = path_to_cstring(input)?;
     let output = path_to_cstring(output)?;
@@ -363,6 +386,7 @@ pub fn remux_audio_stream(input: &Path, output: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns whether FFmpeg can find an embedded cover-art stream.
 pub fn audio_file_has_cover_art(input: &Path) -> Result<bool, String> {
     let input = path_to_cstring(input)?;
 
@@ -372,6 +396,10 @@ pub fn audio_file_has_cover_art(input: &Path) -> Result<bool, String> {
     }
 }
 
+/// Extracts embedded cover art as `(mime_type, bytes)`.
+///
+/// Cover payloads larger than 10 MiB are rejected to avoid unbounded memory use
+/// when processing untrusted media files.
 pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, String> {
     let input = path_to_cstring(input)?;
 
@@ -384,14 +412,11 @@ pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, Stri
         match cover_stream {
             CoverArtStream::AttachedPicture { stream, codec_id } => {
                 let packet = &(*stream).attached_pic;
-                if packet.data.is_null() || packet.size <= 0 {
+                let Some(bytes) =
+                    packet_cover_bytes(packet.data, packet.size, "attached cover art")?
+                else {
                     return Ok(None);
-                }
-
-                let bytes = std::slice::from_raw_parts(packet.data, packet.size as usize).to_vec();
-                if bytes.is_empty() {
-                    return Ok(None);
-                }
+                };
 
                 Ok(Some((cover_mime_type(codec_id).to_string(), bytes)))
             }
@@ -405,12 +430,9 @@ pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, Stri
                     if is_cover_packet {
                         let data = (*packet.as_ptr()).data;
                         let size = (*packet.as_ptr()).size;
-                        if !data.is_null() && size > 0 {
-                            let bytes = std::slice::from_raw_parts(data, size as usize).to_vec();
+                        if let Some(bytes) = packet_cover_bytes(data, size, "cover video packet")? {
                             ffi::av_packet_unref(packet.as_mut_ptr());
-                            if !bytes.is_empty() {
-                                return Ok(Some((cover_mime_type(codec_id).to_string(), bytes)));
-                            }
+                            return Ok(Some((cover_mime_type(codec_id).to_string(), bytes)));
                         }
                     }
 
@@ -423,7 +445,17 @@ pub fn extract_cover_art(input: &Path) -> Result<Option<(String, Vec<u8>)>, Stri
     }
 }
 
+/// Decodes and normalizes cover image bytes for FFmpeg embedding.
+///
+/// JPEG covers are kept as JPEG. Other decodable formats are converted to PNG.
 pub fn normalize_cover_art_bytes(input: &[u8]) -> Result<NormalizedCoverArt, String> {
+    if input.len() > MAX_COVER_ART_BYTES {
+        return Err(format!(
+            "cover art exceeds {} MiB limit",
+            MAX_COVER_ART_BYTES / 1024 / 1024
+        ));
+    }
+
     let image_format = image::guess_format(input)
         .map_err(|e| format!("failed to detect cover image format: {e}"))?;
     let image = image::load_from_memory_with_format(input, image_format)
@@ -455,12 +487,14 @@ pub fn normalize_cover_art_bytes(input: &[u8]) -> Result<NormalizedCoverArt, Str
     }
 }
 
+/// Reads a cover image file and normalizes it for FFmpeg embedding.
 pub fn normalize_cover_art_file(path: &Path) -> Result<NormalizedCoverArt, String> {
     let bytes = std::fs::read(path)
         .map_err(|e| format!("failed to read cover image {}: {e}", path.display()))?;
     normalize_cover_art_bytes(&bytes)
 }
 
+/// Writes a copy of `input` to `output` with the supplied cover art attached.
 pub fn replace_cover_art(
     input: &Path,
     output: &Path,
@@ -550,6 +584,7 @@ pub fn replace_cover_art(
     Ok(())
 }
 
+/// Replaces or adds cover art by writing a temporary sibling file and renaming it over the input.
 pub fn replace_cover_art_in_place(
     audio_path: &Path,
     cover: &NormalizedCoverArt,
@@ -566,6 +601,7 @@ pub fn replace_cover_art_in_place(
     Ok(())
 }
 
+/// Calculates integrated loudness for the best audio stream using FFmpeg EBU R128 filtering.
 pub fn calculate_lufs(input: &Path) -> Result<Option<f64>, String> {
     let input = path_to_cstring(input)?;
 
@@ -638,10 +674,69 @@ fn temporary_output_path(output: &Path) -> PathBuf {
         .unwrap_or("download");
 
     match output.extension().and_then(|value| value.to_str()) {
+        Some(extension) if !extension.is_empty() => parent.join(format!(
+            "{stem}.cover.{}.tmp.{extension}",
+            uuid::Uuid::new_v4()
+        )),
+        _ => parent.join(format!("{stem}.cover.{}.tmp", uuid::Uuid::new_v4())),
+    }
+}
+
+fn temporary_export_path(output: &Path) -> PathBuf {
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let stem = output
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
+
+    match output.extension().and_then(|value| value.to_str()) {
         Some(extension) if !extension.is_empty() => {
-            parent.join(format!("{stem}.cover.tmp.{extension}"))
+            parent.join(format!(".{stem}.{}.tmp.{extension}", uuid::Uuid::new_v4()))
         }
-        _ => parent.join(format!("{stem}.cover.tmp")),
+        _ => parent.join(format!(".{stem}.{}.tmp", uuid::Uuid::new_v4())),
+    }
+}
+
+fn export_with_temporary_output(
+    output: &Path,
+    export: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let temp_output = temporary_export_path(output);
+    if let Err(err) = export(&temp_output) {
+        let _ = std::fs::remove_file(&temp_output);
+        return Err(err);
+    }
+
+    match std::fs::rename(&temp_output, output) {
+        Ok(()) => Ok(()),
+        Err(first_err) if output.exists() => {
+            std::fs::remove_file(output).map_err(|remove_err| {
+                format!(
+                    "failed to replace existing output {} after export to {} failed: {}; remove failed: {}",
+                    output.display(),
+                    temp_output.display(),
+                    first_err,
+                    remove_err
+                )
+            })?;
+            std::fs::rename(&temp_output, output).map_err(|rename_err| {
+                format!(
+                    "failed to move exported audio {} to {}: {}",
+                    temp_output.display(),
+                    output.display(),
+                    rename_err
+                )
+            })
+        }
+        Err(err) => {
+            let _ = std::fs::remove_file(&temp_output);
+            Err(format!(
+                "failed to move exported audio {} to {}: {}",
+                temp_output.display(),
+                output.display(),
+                err
+            ))
+        }
     }
 }
 
@@ -681,10 +776,19 @@ fn write_cover_packet(
     cover_stream: *mut ffi::AVStream,
     cover: &NormalizedCoverArt,
 ) -> Result<(), String> {
+    if cover.bytes.len() > MAX_COVER_ART_BYTES {
+        return Err(format!(
+            "cover art exceeds {} MiB limit",
+            MAX_COVER_ART_BYTES / 1024 / 1024
+        ));
+    }
+    let packet_size = i32::try_from(cover.bytes.len())
+        .map_err(|_| "cover art is too large for FFmpeg packet allocation".to_string())?;
+
     unsafe {
         let mut packet = Packet::new()?;
         ffmpeg_call(
-            ffi::av_new_packet(packet.as_mut_ptr(), cover.bytes.len() as i32),
+            ffi::av_new_packet(packet.as_mut_ptr(), packet_size),
             "failed to allocate cover art packet",
         )?;
         ptr::copy_nonoverlapping(
@@ -713,7 +817,39 @@ fn preferred_output_for_codec(codec_id: ffi::AVCodecID) -> PreferredAudioOutput 
         ffi::AV_CODEC_ID_MP3 => PreferredAudioOutput::Remux { extension: "mp3" },
         ffi::AV_CODEC_ID_FLAC => PreferredAudioOutput::Remux { extension: "flac" },
         codec_id if is_pcm_codec(codec_id) => PreferredAudioOutput::TranscodeFlac,
-        _ => PreferredAudioOutput::TranscodeMp3,
+        unknown => {
+            warn!(
+                "[FFMPEG] Unknown or unsupported audio codec id {:?}; falling back to MP3 transcoding",
+                unknown
+            );
+            PreferredAudioOutput::TranscodeMp3
+        }
+    }
+}
+
+fn packet_cover_bytes(
+    data: *const u8,
+    size: i32,
+    context: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    if data.is_null() || size <= 0 {
+        return Ok(None);
+    }
+
+    let size =
+        usize::try_from(size).map_err(|_| format!("{context} has an invalid negative size"))?;
+    if size > MAX_COVER_ART_BYTES {
+        return Err(format!(
+            "{context} exceeds {} MiB limit",
+            MAX_COVER_ART_BYTES / 1024 / 1024
+        ));
+    }
+
+    let bytes = unsafe { std::slice::from_raw_parts(data, size).to_vec() };
+    if bytes.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(bytes))
     }
 }
 
@@ -1944,8 +2080,8 @@ mod tests {
     use super::{
         audio_file_has_cover_art, cover_mime_type, detect_primary_audio_codec,
         export_audio_for_download, extract_cover_art, loudness_source_filter_args,
-        normalize_cover_art_bytes, path_to_cstring, replace_cover_art, temporary_output_path,
-        transcode_audio_to_mp3, InputContext,
+        normalize_cover_art_bytes, path_to_cstring, replace_cover_art, temporary_export_path,
+        temporary_output_path, transcode_audio_to_mp3, InputContext,
     };
     use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
     use rusty_ffmpeg::ffi;
@@ -1966,6 +2102,13 @@ mod tests {
     fn cover_codec_ids_map_to_expected_mime_types() {
         assert_eq!(cover_mime_type(ffi::AV_CODEC_ID_MJPEG), "image/jpeg");
         assert_eq!(cover_mime_type(ffi::AV_CODEC_ID_PNG), "image/png");
+    }
+
+    #[test]
+    fn normalize_cover_art_rejects_oversized_payloads() {
+        let oversized = vec![0_u8; super::MAX_COVER_ART_BYTES + 1];
+        let err = normalize_cover_art_bytes(&oversized).unwrap_err();
+        assert!(err.contains("cover art exceeds 10 MiB limit"));
     }
 
     #[test]
@@ -2081,17 +2224,34 @@ mod tests {
         let mp3 = Path::new("/tmp/example.mp3");
         let no_extension = Path::new("/tmp/example");
 
-        assert_eq!(
-            temporary_output_path(ogg),
-            Path::new("/tmp/example.cover.tmp.ogg")
+        assert_cover_temp_path_shape(
+            &temporary_output_path(ogg),
+            "/tmp",
+            "example.cover.",
+            ".tmp.ogg",
         );
-        assert_eq!(
-            temporary_output_path(mp3),
-            Path::new("/tmp/example.cover.tmp.mp3")
+        assert_cover_temp_path_shape(
+            &temporary_output_path(mp3),
+            "/tmp",
+            "example.cover.",
+            ".tmp.mp3",
         );
-        assert_eq!(
-            temporary_output_path(no_extension),
-            Path::new("/tmp/example.cover.tmp")
+        assert_cover_temp_path_shape(
+            &temporary_output_path(no_extension),
+            "/tmp",
+            "example.cover.",
+            ".tmp",
+        );
+    }
+
+    #[test]
+    fn temporary_export_path_is_hidden_and_keeps_container_extension_last() {
+        let output = Path::new("/tmp/example.mka");
+        assert_cover_temp_path_shape(
+            &temporary_export_path(output),
+            "/tmp",
+            ".example.",
+            ".tmp.mka",
         );
     }
 
@@ -2162,6 +2322,17 @@ mod tests {
 
         let output_codec = detect_primary_audio_codec(&output).unwrap();
         assert_eq!(output_codec, expected_codec);
+    }
+
+    fn assert_cover_temp_path_shape(path: &Path, parent: &str, prefix: &str, suffix: &str) {
+        assert_eq!(path.parent(), Some(Path::new(parent)));
+        let file_name = path.file_name().and_then(|value| value.to_str()).unwrap();
+        assert!(file_name.starts_with(prefix), "{file_name}");
+        assert!(file_name.ends_with(suffix), "{file_name}");
+        assert!(
+            file_name.len() > prefix.len() + suffix.len(),
+            "missing random suffix in {file_name}"
+        );
     }
 
     fn write_silent_wav(

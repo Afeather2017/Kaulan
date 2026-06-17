@@ -56,19 +56,22 @@ Sequence:
 sequenceDiagram
     participant YT as ytdl-audio
     participant BE as youtube.rs
+    participant BLK as Tokio blocking pool
     participant RFF as rusty_ffmpeg
 
     YT-->>BE: raw downloaded audio path
-    BE->>RFF: inspect primary audio codec
+    BE->>BLK: export_audio_for_download(...)
+    BLK->>RFF: inspect primary audio codec
     alt Opus source
         RFF->>RFF: remux audio stream only
-        RFF-->>BE: finalized MKA
+        RFF-->>BLK: finalized MKA
     else other codecs
         RFF->>RFF: remux or transcode as needed
-        RFF-->>BE: finalized download audio
+        RFF-->>BLK: finalized download audio
+    end
 ```
 
-Kaulan now finalizes YouTube downloads through the shared FFmpeg export path on desktop. Opus source audio is remuxed into `.mka` with stream copy only, which preserves the original audio while allowing Kaulan to embed cover art. The backend does not preserve the raw provider container like `.webm` as a silent fallback.
+Kaulan now finalizes YouTube downloads through the shared FFmpeg export path on desktop. The FFmpeg work runs on Tokio's blocking pool so a long remux or transcode does not occupy an async executor worker. Opus source audio is remuxed into `.mka` with stream copy only, which preserves the original audio while allowing Kaulan to embed cover art. The backend does not preserve the raw provider container like `.webm` as a silent fallback.
 
 ### Bilibili download finalization
 
@@ -113,5 +116,7 @@ cargo check
 - Desktop YouTube download finalization now runs in-process through `rusty_ffmpeg`.
 - LUFS calculation and cover-art probing now run in-process through `rusty_ffmpeg`, not by shelling out to `ffmpeg` or `ffprobe`.
 - Online download cover-art embedding now also runs through the same in-process FFmpeg path, so YouTube, Netease, and Bilibili share one artwork muxer.
+- Embedded cover-art payloads are capped at 10 MiB during extraction and embedding to avoid unbounded memory allocation on malformed media.
+- FFmpeg export and cover replacement use UUID-suffixed output paths for temporary/intermediate files. When an unknown audio codec falls back to MP3 transcoding, the backend emits a warning log so support can be added later.
 - Vorbis outputs remain a documented exception: Kaulan still exports Vorbis downloads as `.ogg`, but the current attached-picture muxing path does not work for that container, so those files are expected to remain without embedded artwork.
 - The next Android step is packaging or bundling FFmpeg in a way that works for the Tauri Android runtime.
