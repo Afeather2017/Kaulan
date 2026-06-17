@@ -2,14 +2,16 @@
 
 use crate::entities::music::Entity as MusicEntity;
 use actix_files::NamedFile;
-use actix_web::{get, post, web, HttpRequest, HttpResponse};
+use actix_web::{get, http::header, post, web, HttpRequest, HttpResponse};
 use futures::future::join_all;
 use netease_api::types::SearchType;
 use netease_api::{NeteaseClient, NeteaseError};
+use reqwest::StatusCode;
 use sea_orm::EntityTrait;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 use tokio::task;
 use tracing::{error, warn};
 
@@ -21,7 +23,7 @@ use crate::types::{
 };
 
 #[post("/api/download/search")]
-pub async fn search_online(body: web::Json<OnlineSearchRequest>) -> HttpResponse {
+pub async fn search_online(body: web::Json<OnlineSearchRequest>, req: HttpRequest) -> HttpResponse {
     let query = body.query.trim().to_string();
     if query.is_empty() {
         return HttpResponse::Ok().json(Vec::<OnlineSearchResult>::new());
@@ -52,6 +54,11 @@ pub async fn search_online(body: web::Json<OnlineSearchRequest>) -> HttpResponse
         }
     });
 
+    let host = format!(
+        "{}://{}",
+        req.connection_info().scheme(),
+        req.connection_info().host()
+    );
     let mut results = Vec::new();
     for (source, result) in join_all(search_jobs).await {
         match result {
@@ -60,7 +67,90 @@ pub async fn search_online(body: web::Json<OnlineSearchRequest>) -> HttpResponse
         }
     }
 
+    for item in &mut results {
+        if item.source == DownloadSource::Bilibili {
+            item.thumbnail_url = Some(format!(
+                "{host}/api/download/bilibili/thumbnail/{}",
+                item.id
+            ));
+        }
+    }
+
     HttpResponse::Ok().json(results)
+}
+
+#[get("/api/download/bilibili/thumbnail/{bvid}")]
+pub async fn get_bilibili_thumbnail(path: web::Path<String>) -> HttpResponse {
+    let bvid = path.into_inner();
+    if bvid.trim().is_empty() || bvid.contains('/') || bvid.contains('\\') {
+        return HttpResponse::BadRequest().body("Invalid Bilibili video id");
+    }
+
+    let cover_url = match download_service::resolve_bilibili_cover_url(&bvid).await {
+        Ok(url) => url,
+        Err(err) => {
+            warn!(
+                "[DOWNLOAD] Failed to resolve Bilibili thumbnail for {}: {}",
+                bvid, err
+            );
+            return HttpResponse::BadGateway().body("Failed to resolve Bilibili thumbnail");
+        }
+    };
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            error!("[DOWNLOAD] Failed to build thumbnail HTTP client: {}", err);
+            return HttpResponse::InternalServerError()
+                .body("Failed to initialize thumbnail proxy");
+        }
+    };
+
+    let response = match client.get(&cover_url).send().await {
+        Ok(response) => response,
+        Err(err) => {
+            warn!(
+                "[DOWNLOAD] Failed to fetch Bilibili thumbnail {} for {}: {}",
+                cover_url, bvid, err
+            );
+            return HttpResponse::BadGateway().body("Failed to fetch Bilibili thumbnail");
+        }
+    };
+
+    if response.status() != StatusCode::OK {
+        warn!(
+            "[DOWNLOAD] Bilibili thumbnail upstream returned {} for {} ({})",
+            response.status(),
+            bvid,
+            cover_url
+        );
+        return HttpResponse::BadGateway().body("Bilibili thumbnail upstream rejected request");
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                "[DOWNLOAD] Failed to read Bilibili thumbnail body for {} ({}): {}",
+                bvid, cover_url, err
+            );
+            return HttpResponse::BadGateway().body("Failed to read Bilibili thumbnail");
+        }
+    };
+
+    HttpResponse::Ok()
+        .insert_header((header::CONTENT_TYPE, content_type))
+        .insert_header((header::CACHE_CONTROL, "public, max-age=86400"))
+        .body(bytes)
 }
 
 #[get("/api/download/providers")]
@@ -362,6 +452,12 @@ pub async fn download_track(
             });
         }
     };
+
+    download_service::try_attach_cover_art_from_url(
+        &output.final_path,
+        output.cover_url.as_deref(),
+    )
+    .await;
 
     let mut warning = None;
     let lyric_filename = if let Some(lyric_id) = body.lyric_selection.as_deref() {

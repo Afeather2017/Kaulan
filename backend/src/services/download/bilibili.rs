@@ -10,6 +10,7 @@ use bilibili_api::{BilibiliClient, BilibiliError};
 use std::path::Path;
 use tokio::task;
 
+const BILIBILI_REMUXED_AUDIO_EXTENSION: &str = "m4a";
 const BILIBILI_RAW_AUDIO_EXTENSION: &str = "m4s";
 
 pub struct BilibiliProvider;
@@ -96,11 +97,7 @@ impl MusicProvider for BilibiliProvider {
         task::spawn_blocking(move || -> Result<PreviewBuildResult, String> {
             let client = BilibiliClient::new().map_err(|e| e.to_string())?;
             let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
-            let final_name = if should_skip_bilibili_ffmpeg() {
-                format!("{token}.{BILIBILI_RAW_AUDIO_EXTENSION}")
-            } else {
-                format!("{token}.mp3")
-            };
+            let final_name = format!("{token}.{BILIBILI_REMUXED_AUDIO_EXTENSION}");
             let final_path = preview_root.join(&final_name);
             download_bilibili_audio(&client, &bvid, &final_path).map_err(|e| e.to_string())?;
 
@@ -127,29 +124,25 @@ impl MusicProvider for BilibiliProvider {
 
         task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
             let client = BilibiliClient::new().map_err(|e| e.to_string())?;
-            let filename = if should_skip_bilibili_ffmpeg() {
-                format!(
-                    "{}.{}",
-                    sanitize_filename(&title),
-                    BILIBILI_RAW_AUDIO_EXTENSION
-                )
-            } else {
-                format!("{}.mp3", sanitize_filename(&title))
-            };
+            let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
+            let filename = format!(
+                "{}.{}",
+                sanitize_filename(&title),
+                BILIBILI_REMUXED_AUDIO_EXTENSION
+            );
             let final_path = target_dir.join(filename);
             download_bilibili_audio(&client, &bvid, &final_path).map_err(|e| match e {
                 BilibiliError::Ffmpeg(message) => format!("FFmpeg 错误: {message}"),
                 other => other.to_string(),
             })?;
-            Ok(FullDownloadResult { final_path })
+            Ok(FullDownloadResult {
+                final_path,
+                cover_url: Some(normalize_remote_url(&detail.pic)),
+            })
         })
         .await
         .map_err(|e| e.to_string())?
     }
-}
-
-fn should_skip_bilibili_ffmpeg() -> bool {
-    cfg!(target_os = "android")
 }
 
 fn download_bilibili_audio(
@@ -157,11 +150,33 @@ fn download_bilibili_audio(
     bvid: &str,
     output: &Path,
 ) -> Result<u64, BilibiliError> {
-    if should_skip_bilibili_ffmpeg() {
-        client.download_audio_raw(bvid, output)
-    } else {
-        client.download_audio(bvid, output, bilibili_api::types::AudioFormat::Mp3)
+    download_bilibili_audio_with_muxer(client, bvid, output)
+}
+
+fn download_bilibili_audio_with_muxer(
+    client: &BilibiliClient,
+    bvid: &str,
+    output: &Path,
+) -> Result<u64, BilibiliError> {
+    let tmp_dir = std::env::temp_dir();
+    let tmp_file = tmp_dir.join(format!("bili_{bvid}.{BILIBILI_RAW_AUDIO_EXTENSION}"));
+    client.download_audio_raw(bvid, &tmp_file)?;
+
+    let remux_result = remux_aac_to_m4a(&tmp_file, output);
+    let _ = std::fs::remove_file(&tmp_file);
+
+    remux_result?;
+
+    let size = std::fs::metadata(output)?.len();
+    Ok(size)
+}
+
+fn remux_aac_to_m4a(input: &Path, output: &Path) -> Result<(), BilibiliError> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+
+    crate::ffmpeg::remux_audio_stream(input, output).map_err(BilibiliError::Ffmpeg)
 }
 
 fn normalize_remote_url(url: &str) -> String {
@@ -170,6 +185,17 @@ fn normalize_remote_url(url: &str) -> String {
     } else {
         url.to_string()
     }
+}
+
+pub async fn resolve_cover_url(bvid: &str) -> Result<String, String> {
+    let bvid = bvid.to_string();
+    task::spawn_blocking(move || -> Result<String, String> {
+        let client = BilibiliClient::new().map_err(|e| e.to_string())?;
+        let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
+        Ok(normalize_remote_url(&detail.pic))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn strip_html_tags(text: &str) -> String {
@@ -188,16 +214,10 @@ fn strip_html_tags(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_skip_bilibili_ffmpeg, BILIBILI_RAW_AUDIO_EXTENSION};
+    use super::BILIBILI_REMUXED_AUDIO_EXTENSION;
 
     #[test]
-    fn bilibili_android_downloads_keep_raw_extension() {
-        let extension = if should_skip_bilibili_ffmpeg() {
-            BILIBILI_RAW_AUDIO_EXTENSION
-        } else {
-            "mp3"
-        };
-
-        assert!(!extension.is_empty());
+    fn bilibili_downloads_always_use_remuxed_extension() {
+        assert_eq!(BILIBILI_REMUXED_AUDIO_EXTENSION, "m4a");
     }
 }

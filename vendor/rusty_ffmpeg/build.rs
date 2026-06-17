@@ -308,7 +308,7 @@ impl EnvVars {
         println!("cargo:rerun-if-env-changed=FFMPEG_LIBS_DIR");
         println!("cargo:rerun-if-env-changed=FFMPEG_BINDING_PATH");
         println!("cargo:rerun-if-env-changed=FFMPEG_LINK_MODE");
-        Self {
+        let mut env_vars = Self {
             docs_rs: env::var("DOCS_RS").ok(),
             out_dir: env::var("OUT_DIR").ok().map(remove_verbatim),
             ffmpeg_include_dir: env::var("FFMPEG_INCLUDE_DIR").ok().map(remove_verbatim),
@@ -317,6 +317,58 @@ impl EnvVars {
             ffmpeg_libs_dir: env::var("FFMPEG_LIBS_DIR").ok().map(remove_verbatim),
             ffmpeg_binding_path: env::var("FFMPEG_BINDING_PATH").ok().map(remove_verbatim),
             ffmpeg_link_mode: env::var("FFMPEG_LINK_MODE").ok().map(Into::into),
+        };
+
+        env_vars.populate_android_prebuilt_defaults();
+        env_vars
+    }
+
+    fn populate_android_prebuilt_defaults(&mut self) {
+        if env::var("CARGO_CFG_TARGET_OS").ok().as_deref() != Some("android") {
+            return;
+        }
+
+        if self.ffmpeg_libs_dir.is_some()
+            || self.ffmpeg_include_dir.is_some()
+            || self.ffmpeg_binding_path.is_some()
+        {
+            return;
+        }
+
+        let Some(manifest_dir) = env::var("CARGO_MANIFEST_DIR").ok().map(remove_verbatim) else {
+            return;
+        };
+        let Some(target) = env::var("TARGET").ok() else {
+            return;
+        };
+
+        let workspace_root = manifest_dir.join("..").join("..");
+        let android_root = workspace_root
+            .join("build")
+            .join("android-ffmpeg")
+            .join("android");
+        let target_root = android_root.join(&target);
+        let libs_dir = target_root.join("lib");
+        let include_dir = target_root.join("prefix").join("include");
+        let binding_path = android_root.join("binding.rs");
+
+        if !Path::new(&libs_dir).exists()
+            || !Path::new(&include_dir).exists()
+            || !Path::new(&binding_path).exists()
+        {
+            return;
+        }
+
+        println!(
+            "cargo:warning=rusty_ffmpeg using staged Android FFmpeg from {}",
+            target_root
+        );
+
+        self.ffmpeg_libs_dir = Some(libs_dir);
+        self.ffmpeg_include_dir = Some(include_dir);
+        self.ffmpeg_binding_path = Some(binding_path);
+        if self.ffmpeg_link_mode.is_none() {
+            self.ffmpeg_link_mode = Some(FFmpegLinkMode::Dynamic);
         }
     }
 }

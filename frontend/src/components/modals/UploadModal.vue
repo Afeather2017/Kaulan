@@ -22,7 +22,7 @@
         <input
           ref="fileInput"
           type="file"
-          accept=".mp3,.ogg,.wav,.aac,.flac"
+          accept=".mp3,.ogg,.wav,.aac,.flac,.m4a,.opus,.mka"
           @change="handleFileSelect"
           style="display: none"
         />

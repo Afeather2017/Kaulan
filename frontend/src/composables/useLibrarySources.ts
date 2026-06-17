@@ -44,6 +44,7 @@ export const inferMediaType = (song: {
     ".flac",
     ".wav",
     ".ogg",
+    ".mka",
     ".m4a",
     ".aac",
     ".opus",

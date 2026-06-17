@@ -8,6 +8,7 @@ use crate::types::{
 use async_trait::async_trait;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tokio::task;
 use tracing::warn;
 use ytdl_audio::{DownloadOpts, YoutubeClient};
 
@@ -90,8 +91,13 @@ impl MusicProvider for YoutubeProvider {
             )
             .await
             .map_err(|e| e.to_string())?;
-        let (final_name, final_path) =
-            finalize_youtube_audio(&result.audio_path, preview_root, &token)?;
+        let source_audio = result.audio_path;
+        let output_dir = preview_root.to_path_buf();
+        let (final_name, final_path) = task::spawn_blocking(move || {
+            finalize_youtube_audio(&source_audio, &output_dir, &token)
+        })
+        .await
+        .map_err(|e| format!("YouTube audio export task failed: {e}"))??;
 
         Ok(PreviewBuildResult {
             source: DownloadSource::Youtube,
@@ -125,10 +131,21 @@ impl MusicProvider for YoutubeProvider {
             .map_err(|e| e.to_string())?;
 
         let title = sanitize_filename(&request.title);
-        let (_final_filename, final_path) =
-            finalize_youtube_audio(&result.audio_path, target_dir, &title)?;
+        let source_audio = result.audio_path;
+        let output_dir = target_dir.to_path_buf();
+        let (_final_filename, final_path) = task::spawn_blocking(move || {
+            finalize_youtube_audio(&source_audio, &output_dir, &title)
+        })
+        .await
+        .map_err(|e| format!("YouTube audio export task failed: {e}"))??;
 
-        Ok(FullDownloadResult { final_path })
+        Ok(FullDownloadResult {
+            final_path,
+            cover_url: Some(format!(
+                "https://i.ytimg.com/vi/{}/hqdefault.jpg",
+                request.id
+            )),
+        })
     }
 }
 

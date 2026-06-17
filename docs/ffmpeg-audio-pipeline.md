@@ -2,15 +2,13 @@
 
 ## Overview
 
-Kaulan currently uses a hybrid FFmpeg backend:
-
-- vendored [`rusty_ffmpeg`](../vendor/rusty_ffmpeg) for desktop audio transcoding to MP3
-- system `ffmpeg` and `ffprobe` binaries for LUFS calculation and cover-art probing
+Kaulan currently uses an in-process FFmpeg backend through vendored
+[`rusty_ffmpeg`](../vendor/rusty_ffmpeg).
 
 This pipeline currently covers:
 
 - LUFS calculation through the `ebur128` filter
-- YouTube preview/full-download audio transcoding to MP3
+- YouTube preview/full-download audio finalization
 - Cover-art extraction for downloaded or scanned files
 - Bilibili audio conversion through the vendored `bilibili-api` crate
 
@@ -32,18 +30,17 @@ Sequence:
 sequenceDiagram
     participant API as LUFS API
     participant FF as backend/src/ffmpeg.rs
-    participant BIN as ffmpeg
     participant DB as SQLite
 
     API->>FF: calculate_lufs_for_source(file_path)
     FF->>FF: prepare_input(file_path)
-    FF->>BIN: ffmpeg -filter:a ebur128=framelog=verbose -f null -
-    BIN-->>FF: stderr summary with integrated loudness
+    FF->>FF: decode audio and run ebur128 filter graph
+    FF->>FF: read lavfi.r128.I metadata from filtered frames
     FF-->>API: Option<f64>
     API->>DB: persist LUFS when available
 ```
 
-For non-filesystem sources such as Android `content://` URIs, Kaulan first materializes a temporary local file before launching `ffmpeg`.
+For non-filesystem sources such as Android `content://` URIs, Kaulan first materializes a temporary local file before opening it through the in-process FFmpeg pipeline.
 
 ### YouTube download finalization
 
@@ -59,14 +56,22 @@ Sequence:
 sequenceDiagram
     participant YT as ytdl-audio
     participant BE as youtube.rs
+    participant BLK as Tokio blocking pool
     participant RFF as rusty_ffmpeg
 
     YT-->>BE: raw downloaded audio path
-    BE->>RFF: decode -> resample -> encode MP3
-    RFF-->>BE: finalized MP3
+    BE->>BLK: export_audio_for_download(...)
+    BLK->>RFF: inspect primary audio codec
+    alt Opus source
+        RFF->>RFF: remux audio stream only
+        RFF-->>BLK: finalized MKA
+    else other codecs
+        RFF->>RFF: remux or transcode as needed
+        RFF-->>BLK: finalized download audio
+    end
 ```
 
-Kaulan now requires a successful FFmpeg transcode for the YouTube path on desktop. It no longer preserves a provider container like `.webm` as a silent fallback when re-encoding fails.
+Kaulan now finalizes YouTube downloads through the shared FFmpeg export path on desktop. The FFmpeg work runs on Tokio's blocking pool so a long remux or transcode does not occupy an async executor worker. Opus source audio is remuxed into `.mka` with stream copy only, which preserves the original audio while allowing Kaulan to embed cover art. The backend does not preserve the raw provider container like `.webm` as a silent fallback.
 
 ### Bilibili download finalization
 
@@ -75,14 +80,21 @@ Related source files:
 - [`backend/src/services/download/bilibili.rs`](../backend/src/services/download/bilibili.rs)
 - [`vendor/ncmdump-rs/bilibili-api/src/download.rs`](../vendor/ncmdump-rs/bilibili-api/src/download.rs)
 
-Desktop Bilibili downloads already use FFmpeg conversion after fetching the raw DASH audio stream. Android still keeps the raw container until FFmpeg is integrated into that runtime path.
+Desktop Bilibili downloads now remux the raw DASH AAC stream into an `.m4a` container with FFmpeg stream copy only (`-c:a copy`). Kaulan sets the output muxer explicitly instead of relying on the temporary file suffix, because the remux is written to a temporary path before being renamed into place. Android still keeps the raw `.m4s` container until FFmpeg is integrated into that runtime path.
 
 ## Runtime Requirements
 
 - system FFmpeg libraries and headers must be installed for `rusty_ffmpeg`
 - `pkg-config` metadata for FFmpeg must be available
-- `ffmpeg` must be available on `PATH` for LUFS calculation
-- `ffprobe` must be available on `PATH` for cover-art probing
+
+Android builds use the staged FFmpeg bundle under
+[`build/android-ffmpeg/android/<target>`](../build/android-ffmpeg/android)
+instead of host `pkg-config`. The vendored `rusty_ffmpeg` build script
+automatically picks that bundle when Cargo targets Android, using:
+
+- `build/android-ffmpeg/android/<target>/lib` for linker search paths
+- `build/android-ffmpeg/android/<target>/prefix/include` for FFmpeg headers
+- `build/android-ffmpeg/android/binding.rs` as the prebuilt Rust bindings
 
 On Arch Linux, the desktop build currently relies on:
 
@@ -101,6 +113,10 @@ cargo check
 ## Notes
 
 - The backend no longer depends on `lufsgen`, so Symphonia is removed from the backend media-analysis path.
-- Desktop YouTube MP3 conversion now runs in-process through `rusty_ffmpeg`.
-- LUFS and cover-art probing still use the command-line FFmpeg tools today.
+- Desktop YouTube download finalization now runs in-process through `rusty_ffmpeg`.
+- LUFS calculation and cover-art probing now run in-process through `rusty_ffmpeg`, not by shelling out to `ffmpeg` or `ffprobe`.
+- Online download cover-art embedding now also runs through the same in-process FFmpeg path, so YouTube, Netease, and Bilibili share one artwork muxer.
+- Embedded cover-art payloads are capped at 10 MiB during extraction and embedding to avoid unbounded memory allocation on malformed media.
+- FFmpeg export and cover replacement use UUID-suffixed output paths for temporary/intermediate files. When an unknown audio codec falls back to MP3 transcoding, the backend emits a warning log so support can be added later.
+- Vorbis outputs remain a documented exception: Kaulan still exports Vorbis downloads as `.ogg`, but the current attached-picture muxing path does not work for that container, so those files are expected to remain without embedded artwork.
 - The next Android step is packaging or bundling FFmpeg in a way that works for the Tauri Android runtime.

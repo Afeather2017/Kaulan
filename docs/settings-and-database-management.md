@@ -348,8 +348,6 @@ The update process will:
 - FLAC (`.flac`)
 - M4A (`.m4a`)
 - Opus (`.opus`)
-- Bilibili DASH audio (`.m4s`)
-- WebM audio (`.webm`)
 
 ### Supported Video Formats
 
@@ -399,7 +397,7 @@ Response (500 Internal Server Error - Content URI read failure):
 }
 ```
 
-**Note:** FFmpeg must be installed on the system for LUFS calculation to work. If FFmpeg is not available, the pre-cache request will fail gracefully.
+**Note:** Kaulan uses in-process FFmpeg bindings for LUFS calculation. The desktop/runtime environment still needs FFmpeg libraries available for `rusty_ffmpeg`, and pre-cache requests fail gracefully if that runtime support is missing.
 
 Video files are excluded from LUFS pre-caching. The backend returns success immediately for video entries so playback does not block on an analysis path that is not supported.
 
