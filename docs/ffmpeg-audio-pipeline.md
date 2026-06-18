@@ -96,6 +96,14 @@ automatically picks that bundle when Cargo targets Android, using:
 - `build/android-ffmpeg/android/<target>/prefix/include` for FFmpeg headers
 - `build/android-ffmpeg/android/binding.rs` as the prebuilt Rust bindings
 
+The staged bundle can be generated locally with:
+
+```bash
+./scripts/build-android-ffmpeg.sh --target aarch64
+```
+
+Omit `--target` to stage all Android ABIs that the release workflow expects.
+
 On Arch Linux, the desktop build currently relies on:
 
 ```bash

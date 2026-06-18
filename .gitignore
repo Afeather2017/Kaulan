@@ -54,6 +54,7 @@ frontend/src-tauri/target/
 
 # Android FFmpeg cross-build output (built via scripts/build-android-ffmpeg.sh)
 frontend/src-tauri/gen/android/app/src/main/jniLibs/
+build/android-ffmpeg/
 ffmpeg/
 
 .opencode/

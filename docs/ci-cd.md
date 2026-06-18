@@ -32,6 +32,8 @@ The workflow uploads these packages to the GitHub Release:
 
 The Android release job is present on the `migrate-ffmpeg` branch, but it checks for the staged FFmpeg bundle described in [`ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md) before setting up the Android toolchain. If the bundle is missing, the job exits successfully with a step-summary notice instead of failing desktop publishing.
 
+The root [`build-android.sh`](../build-android.sh) script performs the same staged-bundle preflight locally. Targeted builds such as `./build-android.sh --target aarch64` only require the matching target subtree plus `binding.rs`; the default multi-ABI build requires all four Android target subtrees.
+
 ## FFmpeg build dependencies
 
 The workflow installs FFmpeg 8.1.1 development dependencies before Rust builds:

@@ -24,6 +24,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - Rust 1.70+ and Cargo
 - Node.js 18+ and npm
 - FFmpeg (for LUFS calculation during database updates)
+- Android SDK/NDK when building the Android app
 - Music files organized in folders
 
 ### Installation
@@ -109,6 +110,29 @@ npm run dev
 ```
 
 The frontend will be available at `http://localhost:3000`
+
+### Building for Android
+
+Android builds require a staged FFmpeg bundle for the target ABI before running the
+main packaging script.
+
+Single-target example (`aarch64` / `arm64-v8a`):
+
+```bash
+./scripts/build-android-ffmpeg.sh --target aarch64
+./build-android.sh --target aarch64
+```
+
+Release-style multi-ABI build:
+
+```bash
+./scripts/build-android-ffmpeg.sh
+./build-android.sh
+```
+
+The staged FFmpeg bundle is written under `build/android-ffmpeg/android/...` and is
+consumed automatically by the vendored `rusty_ffmpeg` build script during Android
+cross-compilation.
 
 ## How to Use
 
