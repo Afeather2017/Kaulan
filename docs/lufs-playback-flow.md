@@ -18,7 +18,7 @@ The LUFS flow is designed to keep playback responsive.
 
 1. Do not block playback for a long LUFS calculation.
 2. Try to use LUFS before playback if the value is already cached.
-3. Only pre-cache the current song and the immediate next song.
+3. Pre-cache a configurable queue window starting at the selected/current song.
 4. Keep Android native playback and web playback behavior aligned.
 5. Let the webview update itself from backend playback state when Android service metadata changes.
 
@@ -169,19 +169,20 @@ The important rule is:
 - if service state differs from the webview, the webview should update itself
 - Android normalization settings are pushed once through `setNormalizationConfig()`, then applied by `MusicPlayerService`
 
-## Current Song Flow
+## Queue Pre-cache Flow
 
-When the user starts a song and that song has `lufs = null`, the player does one LUFS request before playback starts.
+When the user starts playback by selecting a song, Kaulan scans the resolved playback queue from that selected/current song onward.
 
 ### Rule
 
-1. Send one `POST /api/music/{id}/precache-lufs`.
-2. If response is `200` with a LUFS value:
-   store that LUFS in frontend state first, then start playback.
-3. If response is `202`:
-   start playback immediately and do not retry in that playback start.
+1. Use the active play-mode queue after shuffle/sequential resolution.
+2. Inspect the current song first, then the next queue entries in order.
+3. Send `POST /api/music/{id}/precache-lufs` for songs whose `lufs` is null.
+4. Stop after the configured number of missing-LUFS songs has been requested.
+5. If response is `200`, patch that song's LUFS into frontend state immediately.
+6. If response is `202`, playback continues while the backend calculates in the background.
 
-There is no polling loop and no retry loop for the current song start.
+The count is configured in **Settings > Advanced Settings > Playback & Loudness > LUFS Pre-cache Count**. The default is `5`; `0` disables queue pre-cache.
 
 ### Example 1: LUFS already cached
 
@@ -230,9 +231,9 @@ User presses play on song `A`.
 4. Playback starts immediately.
 5. Volume uses the existing null-LUFS fallback behavior until a later state refresh sees a real LUFS value.
 
-## Next Song Pre-cache Flow
+## Song Start Pre-cache Flow
 
-When the current song starts, Kaulan may also pre-cache the immediate next song.
+When the current song starts or changes, Kaulan may still pre-cache the immediate next song. This keeps continuous playback useful even after the initial click playback queue window has already run.
 
 ### Rule
 
@@ -240,7 +241,7 @@ When the current song starts, Kaulan may also pre-cache the immediate next song.
 2. If next song already has LUFS, do nothing.
 3. If next song has `lufs = null`, send one `POST /api/music/{id}/precache-lufs`.
 4. If response is `200`, patch the next song metadata immediately.
-5. If response is `202`, do nothing else.
+5. If response is `202`, poll briefly for completion and patch frontend state if the value becomes available.
 
 ### Example
 

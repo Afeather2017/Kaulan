@@ -265,6 +265,25 @@ describe("useAudioPlayer - duration loading", () => {
     });
   });
 
+  it("should notify queue pre-cache with the selected sequential queue index", async () => {
+    const onPlaybackQueueStart = vi.fn();
+    const { playSongAtIndex } = useAudioPlayer({
+      songs: () => mockSongs,
+      onPlaybackQueueStart,
+    });
+
+    await playSongAtIndex(mockSongs[1], 1, mockSongs);
+
+    expect(onPlaybackQueueStart).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 1 }),
+        expect.objectContaining({ id: 2 }),
+      ]),
+      1,
+      "sequential",
+    );
+  });
+
   it("should keep the current song stable when toggling to shuffle mode", async () => {
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     const {

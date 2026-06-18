@@ -365,10 +365,12 @@ The detailed playback behavior has changed over time and is documented separatel
 
 Current high-level rule:
 
-1. The current song may do one LUFS request before playback starts.
-2. The next song may do one non-blocking pre-cache request after current playback starts.
+1. A click playback scans the active queue from the selected song onward.
+2. The frontend sends pre-cache requests for the configured number of songs that do not have LUFS yet.
 3. If LUFS is already cached, the player can use it immediately.
 4. If LUFS is not cached yet, playback starts without waiting for a long calculation.
+
+The queue pre-cache count is configured in **Settings > Advanced Settings > Playback & Loudness > LUFS Pre-cache Count**. The setting is frontend-only and stored in browser localStorage.
 
 **Pre-cache endpoint:**
 

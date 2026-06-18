@@ -77,6 +77,7 @@ export function useAppShell() {
 
   const {
     requestSongLufs,
+    requestQueueLufs,
     resolveSongForPlayback,
     syncPlaybackMetadataFromBackend,
   } = useLufs({
@@ -93,6 +94,10 @@ export function useAppShell() {
 
   playerStore.setPrepareSongHandler(async (song) => {
     return await resolveSongForPlayback(song);
+  });
+
+  playerStore.setQueuePrecacheHandler(async (queue, index, mode) => {
+    await requestQueueLufs(queue, index, player.lufsPrecacheCount.value, mode);
   });
 
   const shellLayout = useAppShellLayout({
@@ -798,6 +803,7 @@ export function useAppShell() {
     duration: player.duration,
     playMode: player.playMode,
     showLufs: player.showLufs,
+    lufsPrecacheCount: player.lufsPrecacheCount,
     volumeMode: player.volumeMode,
     manualVolume: player.manualVolume,
     manualVolumeInput: player.manualVolumeInput,
@@ -841,6 +847,7 @@ export function useAppShell() {
     handleActionBack: androidBackNavigation.handleActionBack,
     handleShowSettingsModal,
     handleShowLufsChange: playerStore.setShowLufsState,
+    handleLufsPrecacheCountChange: playerStore.setLufsPrecacheCountState,
     handleSetTimerPreset: playerStore.setTimerPreset,
     handleStartTimer: playerStore.startSleepTimer,
     handleCancelTimer: playerStore.cancelSleepTimer,

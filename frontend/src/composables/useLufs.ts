@@ -1,5 +1,5 @@
 import type { Ref } from "vue";
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import type { MusicInfo, PlayMode } from "@/composables/useAudioPlayer";
 import { resolveSourceApiBase } from "@/utils/api";
 import type { LibrarySourceGroup } from "@/types/library";
 
@@ -48,7 +48,12 @@ export function useLufs(options: UseLufsOptions) {
     currentView,
   } = options;
 
-  const pendingLufsPolls = new Set<number>();
+  const pendingLufsPolls = new Set<string>();
+
+  const getSongRequestKey = (
+    songId: number,
+    sourceKey: string | null | undefined,
+  ) => `${sourceKey ?? "local"}:${songId}`;
 
   const patchSongLufsInList = (
     songs: MusicInfo[],
@@ -131,7 +136,8 @@ export function useLufs(options: UseLufsOptions) {
     sourceKey: string | null | undefined,
     context: "current" | "next",
   ) => {
-    if (pendingLufsPolls.has(songId)) {
+    const requestKey = getSongRequestKey(songId, sourceKey);
+    if (pendingLufsPolls.has(requestKey)) {
       console.log(
         `[app] LUFS ${context} poll already in flight for song ID:`,
         songId,
@@ -139,7 +145,7 @@ export function useLufs(options: UseLufsOptions) {
       return;
     }
 
-    pendingLufsPolls.add(songId);
+    pendingLufsPolls.add(requestKey);
 
     try {
       for (let attempt = 1; attempt <= LUFS_POLL_MAX_ATTEMPTS; attempt++) {
@@ -187,20 +193,29 @@ export function useLufs(options: UseLufsOptions) {
         }
       }
     } finally {
-      pendingLufsPolls.delete(songId);
+      pendingLufsPolls.delete(requestKey);
     }
   };
 
   const requestSongLufs = async (
     song: MusicInfo,
-    context: "current" | "next",
+    context: "current" | "next" | "queue",
   ): Promise<MusicInfo> => {
+    const requestKey = getSongRequestKey(song.id, song.source_key);
     if (song.lufs !== null) {
       console.log(
         `[app] LUFS ${context} already cached for song ID:`,
         song.id,
         "value:",
         song.lufs,
+      );
+      return song;
+    }
+
+    if (pendingLufsPolls.has(requestKey)) {
+      console.log(
+        `[app] LUFS ${context} request already in flight for song ID:`,
+        song.id,
       );
       return song;
     }
@@ -226,7 +241,7 @@ export function useLufs(options: UseLufsOptions) {
       if (result.success && result.lufs !== null) {
         console.log(`[app] LUFS ${context} resolved immediately:`, result.lufs);
         patchSongLufs(song.id, result.lufs);
-        if (context === "next" && isAndroidPlayer.value) {
+        if (isAndroidPlayer.value) {
           await syncAndroidQueueState();
         }
         return {
@@ -239,7 +254,11 @@ export function useLufs(options: UseLufsOptions) {
         console.log(
           `[app] LUFS ${context} started in background (non-blocking)`,
         );
-        void pollSongLufs(song.id, song.source_key, context);
+        void pollSongLufs(
+          song.id,
+          song.source_key,
+          context === "queue" ? "next" : context,
+        );
       }
     } catch (error) {
       console.error(`[app] LUFS ${context} pre-cache error:`, error);
@@ -248,14 +267,48 @@ export function useLufs(options: UseLufsOptions) {
     return song;
   };
 
+  const requestQueueLufs = async (
+    queue: MusicInfo[],
+    currentIndex: number,
+    count: number,
+    playMode: PlayMode,
+  ) => {
+    const normalizedCount = Math.max(0, Math.floor(count));
+    if (normalizedCount === 0 || queue.length === 0) {
+      return;
+    }
+
+    const startIndex =
+      currentIndex >= 0 && currentIndex < queue.length ? currentIndex : 0;
+    const maxPositions = playMode === "loop" ? 1 : queue.length;
+    const requestedSongKeys = new Set<string>();
+    let queuedCount = 0;
+
+    for (let offset = 0; offset < maxPositions; offset++) {
+      const song = queue[(startIndex + offset) % queue.length];
+      if (!song || song.lufs !== null) {
+        continue;
+      }
+
+      const requestKey = getSongRequestKey(song.id, song.source_key);
+      if (requestedSongKeys.has(requestKey)) {
+        continue;
+      }
+
+      requestedSongKeys.add(requestKey);
+      queuedCount++;
+      await requestSongLufs(song, "queue");
+
+      if (queuedCount >= normalizedCount) {
+        return;
+      }
+    }
+  };
+
   const resolveSongForPlayback = async (
     song: MusicInfo,
   ): Promise<MusicInfo> => {
-    if (isAndroidPlayer.value) {
-      return song;
-    }
-
-    return await requestSongLufs(song, "current");
+    return song;
   };
 
   const syncPlaybackMetadataFromBackend = () => {
@@ -272,6 +325,7 @@ export function useLufs(options: UseLufsOptions) {
 
   return {
     requestSongLufs,
+    requestQueueLufs,
     resolveSongForPlayback,
     syncPlaybackMetadataFromBackend,
   };

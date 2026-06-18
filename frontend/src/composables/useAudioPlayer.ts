@@ -26,6 +26,11 @@ interface UseAudioPlayerOptions {
   songs: () => MusicInfo[];
   onSongEnd?: () => void;
   onSongStart?: (currentSong: MusicInfo, nextSong: MusicInfo | null) => void;
+  onPlaybackQueueStart?: (
+    queue: MusicInfo[],
+    currentIndex: number,
+    playMode: PlayMode,
+  ) => Promise<void> | void;
   prepareSong?: (song: MusicInfo) => Promise<MusicInfo>;
 }
 
@@ -75,7 +80,8 @@ interface PlaybackBackend {
 }
 
 export function useAudioPlayer(options: UseAudioPlayerOptions) {
-  const { songs, onSongEnd, onSongStart, prepareSong } = options;
+  const { songs, onSongEnd, onSongStart, onPlaybackQueueStart, prepareSong } =
+    options;
 
   const audioElement = ref<HTMLAudioElement | null>(null);
   const currentSong = ref<MusicInfo | null>(null);
@@ -482,6 +488,17 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     onSongStart(song, nextSong);
   };
 
+  const notifyPlaybackQueueStart = async (
+    queue: MusicInfo[],
+    index: number,
+  ) => {
+    if (!onPlaybackQueueStart || queue.length === 0) {
+      return;
+    }
+
+    await onPlaybackQueueStart(queue.slice(), index, playMode.value);
+  };
+
   const applyAndroidSession = (
     session: PlaybackSession,
     source = "unknown",
@@ -649,6 +666,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentIndex.value = resolvedIndex;
     currentSong.value = targetSong;
     persistPlaybackSession(activeQueue.value, currentSong.value);
+    await notifyPlaybackQueueStart(activeQueue.value, currentIndex.value);
 
     if (seekTime !== undefined) {
       pendingSeekTargetMs = Math.max(0, Math.floor(seekTime * 1000));
@@ -1136,6 +1154,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       );
       duration.value = 0;
       persistPlaybackSession(activeQueue.value, preparedSong);
+      await notifyPlaybackQueueStart(activeQueue.value, currentIndex.value);
       isPlayingInternal = true;
 
       maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value);
