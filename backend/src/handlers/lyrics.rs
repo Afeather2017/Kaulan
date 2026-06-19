@@ -217,7 +217,7 @@ mod tests {
             .unwrap();
 
         // Initialize database to scan the music file
-        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
             .await
             .unwrap();
 
@@ -279,7 +279,7 @@ mod tests {
             .unwrap();
 
         // Initialize database to scan the music file
-        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
             .await
             .unwrap();
 
@@ -327,7 +327,7 @@ mod tests {
             .await
             .unwrap();
 
-        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
             .await
             .unwrap();
 
@@ -417,7 +417,7 @@ mod tests {
             .unwrap();
 
         // Initialize database to scan the music file
-        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
             .await
             .unwrap();
 

@@ -57,7 +57,7 @@ async fn test_delete_music_batch_removes_file_and_database_entry() {
     let db = setup_test_db()
         .await
         .expect("Failed to setup test database");
-    update_database(&music_dir.to_string_lossy().to_string(), &db)
+    update_database(music_dir.to_string_lossy().as_ref(), &db)
         .await
         .expect("Failed to scan test music");
 
@@ -118,7 +118,7 @@ async fn test_delete_music_batch_keeps_database_entry_when_delete_fails() {
         filename: Set("content-song.mp3".to_string()),
         file_path: Set("content://media/external/audio/media/42".to_string()),
         lufs: Set(None),
-        created_at: Set(Utc::now().into()),
+        created_at: Set(Utc::now()),
         ..Default::default()
     };
     let inserted = model

@@ -343,7 +343,7 @@ async fn test_upload_updates_database() {
     let music_after: serde_json::Value = test::read_body_json(resp_get_after).await;
 
     assert!(
-        music_after.as_array().unwrap().len() > 0,
+        !music_after.as_array().unwrap().is_empty(),
         "Database should contain uploaded file"
     );
 

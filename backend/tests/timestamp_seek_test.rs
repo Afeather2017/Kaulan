@@ -268,7 +268,7 @@ async fn test_timestamp_seek_end() {
         .nth(1)
         .unwrap()
         .split('/')
-        .nth(0)
+        .next()
         .unwrap()
         .split('-')
         .collect();

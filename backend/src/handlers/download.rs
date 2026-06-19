@@ -691,7 +691,7 @@ mod tests {
         let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
             .await
             .unwrap();
-        crate::services::scanner::initialize_database(&music_dir.to_str().unwrap(), &db_conn)
+        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
             .await
             .unwrap();
 

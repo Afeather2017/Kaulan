@@ -322,7 +322,7 @@ async fn test_startup_update_runs_and_sets_flag() {
         .await
         .expect("Failed to read db_meta");
     assert!(meta.is_some());
-    assert_eq!(meta.unwrap().initial_scan_done, true);
+    assert!(meta.unwrap().initial_scan_done);
 
     let all_music = MusicEntity::find()
         .all(&db)
@@ -346,7 +346,7 @@ async fn test_update_database_function_with_empty_db() {
     std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
     // Call update_database directly
-    let result = update_database(&test_music_dir.to_string_lossy().to_string(), &db).await;
+    let result = update_database(test_music_dir.to_string_lossy().as_ref(), &db).await;
 
     // Should succeed even with no music files
     assert!(result.is_ok());

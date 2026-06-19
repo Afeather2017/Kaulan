@@ -63,7 +63,7 @@ async fn test_update_database_adds_new_files_to_database() {
 
     // STEP 3: Call update_database() to simulate what happens after upload
     println!("Calling update_database() after file copy...");
-    let result = update_database(&test_music_dir.to_string_lossy().to_string(), &db).await;
+    let result = update_database(test_music_dir.to_string_lossy().as_ref(), &db).await;
 
     assert!(result.is_ok(), "update_database should succeed");
 
@@ -200,7 +200,7 @@ async fn test_update_database_with_multiple_new_files() {
     }
 
     // Call update_database
-    let _result = update_database(&test_music_dir.to_string_lossy().to_string(), &db).await;
+    let _result = update_database(test_music_dir.to_string_lossy().as_ref(), &db).await;
 
     // Verify database
     use kaulan::entities::music::Entity as MusicEntity;
