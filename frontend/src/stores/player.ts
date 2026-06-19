@@ -233,6 +233,7 @@ export const usePlayerStore = defineStore("player", () => {
       volumeMode.value,
       manualVolume.value,
       fixedLufs.value,
+      lufsPrecacheCount.value,
       calculateVolume(),
     );
   };

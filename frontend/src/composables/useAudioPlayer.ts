@@ -73,6 +73,7 @@ interface PlaybackBackend {
     mode: NormalizationMode,
     manualVolume: number,
     fixedLufs: number,
+    lufsPrecacheCount: number,
     currentVolume: number,
   ) => Promise<void>;
   setTimedPause: (delayMs: number) => Promise<void>;
@@ -1029,12 +1030,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     mode: NormalizationMode,
     manualVolume: number,
     fixedLufs: number,
+    lufsPrecacheCount: number,
     currentVolume: number,
   ) => {
     await getPlaybackBackend().syncNormalizationConfig(
       mode,
       manualVolume,
       fixedLufs,
+      lufsPrecacheCount,
       currentVolume,
     );
   };
@@ -1403,12 +1406,18 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     refreshSession: async (source = "manual") => {
       await fetchAndroidSession(source);
     },
-    syncNormalizationConfig: async (mode, manualVolume, fixedLufs) => {
+    syncNormalizationConfig: async (
+      mode,
+      manualVolume,
+      fixedLufs,
+      lufsPrecacheCount,
+    ) => {
       const plugin = await loadPluginApi();
       await plugin.setNormalizationConfig({
         mode,
         manualVolume: Math.min(1, Math.max(0, manualVolume)),
         fixedLufs,
+        lufsPrecacheCount,
       });
     },
     setTimedPause: async (delayMs) => {

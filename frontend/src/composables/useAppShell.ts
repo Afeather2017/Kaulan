@@ -698,6 +698,7 @@ export function useAppShell() {
       player.manualVolumeInput,
       player.fixedLufs,
       player.fixedLufsInput,
+      player.lufsPrecacheCount,
       () => player.currentSong.value?.id ?? null,
       () => player.currentSong.value?.lufs ?? null,
       () =>
