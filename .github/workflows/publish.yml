@@ -282,6 +282,15 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK_VERSION}"
 
+      - name: Install Android FFmpeg build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ca-certificates \
+            nasm \
+            yasm
+
       - name: Build Android FFmpeg bundle
         run: |
           bash ./scripts/build-android-ffmpeg.sh
