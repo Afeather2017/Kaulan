@@ -26,6 +26,11 @@ interface UseAudioPlayerOptions {
   songs: () => MusicInfo[];
   onSongEnd?: () => void;
   onSongStart?: (currentSong: MusicInfo, nextSong: MusicInfo | null) => void;
+  onPlaybackQueueStart?: (
+    queue: MusicInfo[],
+    currentIndex: number,
+    playMode: PlayMode,
+  ) => Promise<void> | void;
   prepareSong?: (song: MusicInfo) => Promise<MusicInfo>;
 }
 
@@ -68,6 +73,7 @@ interface PlaybackBackend {
     mode: NormalizationMode,
     manualVolume: number,
     fixedLufs: number,
+    lufsPrecacheCount: number,
     currentVolume: number,
   ) => Promise<void>;
   setTimedPause: (delayMs: number) => Promise<void>;
@@ -75,7 +81,8 @@ interface PlaybackBackend {
 }
 
 export function useAudioPlayer(options: UseAudioPlayerOptions) {
-  const { songs, onSongEnd, onSongStart, prepareSong } = options;
+  const { songs, onSongEnd, onSongStart, onPlaybackQueueStart, prepareSong } =
+    options;
 
   const audioElement = ref<HTMLAudioElement | null>(null);
   const currentSong = ref<MusicInfo | null>(null);
@@ -482,6 +489,17 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     onSongStart(song, nextSong);
   };
 
+  const notifyPlaybackQueueStart = async (
+    queue: MusicInfo[],
+    index: number,
+  ) => {
+    if (!onPlaybackQueueStart || queue.length === 0) {
+      return;
+    }
+
+    await onPlaybackQueueStart(queue.slice(), index, playMode.value);
+  };
+
   const applyAndroidSession = (
     session: PlaybackSession,
     source = "unknown",
@@ -649,6 +667,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     currentIndex.value = resolvedIndex;
     currentSong.value = targetSong;
     persistPlaybackSession(activeQueue.value, currentSong.value);
+    await notifyPlaybackQueueStart(activeQueue.value, currentIndex.value);
 
     if (seekTime !== undefined) {
       pendingSeekTargetMs = Math.max(0, Math.floor(seekTime * 1000));
@@ -1011,12 +1030,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     mode: NormalizationMode,
     manualVolume: number,
     fixedLufs: number,
+    lufsPrecacheCount: number,
     currentVolume: number,
   ) => {
     await getPlaybackBackend().syncNormalizationConfig(
       mode,
       manualVolume,
       fixedLufs,
+      lufsPrecacheCount,
       currentVolume,
     );
   };
@@ -1136,6 +1157,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       );
       duration.value = 0;
       persistPlaybackSession(activeQueue.value, preparedSong);
+      await notifyPlaybackQueueStart(activeQueue.value, currentIndex.value);
       isPlayingInternal = true;
 
       maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value);
@@ -1384,12 +1406,18 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     refreshSession: async (source = "manual") => {
       await fetchAndroidSession(source);
     },
-    syncNormalizationConfig: async (mode, manualVolume, fixedLufs) => {
+    syncNormalizationConfig: async (
+      mode,
+      manualVolume,
+      fixedLufs,
+      lufsPrecacheCount,
+    ) => {
       const plugin = await loadPluginApi();
       await plugin.setNormalizationConfig({
         mode,
         manualVolume: Math.min(1, Math.max(0, manualVolume)),
         fixedLufs,
+        lufsPrecacheCount,
       });
     },
     setTimedPause: async (delayMs) => {

@@ -237,6 +237,33 @@
               <span class="value-suffix">x</span>
             </div>
           </div>
+          <div class="setting-item">
+            <label class="setting-label">LUFS 预缓存数量</label>
+            <div class="slider-container">
+              <input
+                type="range"
+                class="volume-slider"
+                :value="lufsPrecacheCount"
+                @input="handleLufsPrecacheCountInput"
+                :min="MIN_LUFS_PRECACHE_COUNT"
+                :max="MAX_LUFS_PRECACHE_COUNT"
+                step="1"
+              />
+              <input
+                type="number"
+                class="value-input"
+                :value="lufsPrecacheCount"
+                @input="handleLufsPrecacheCountInput"
+                :min="MIN_LUFS_PRECACHE_COUNT"
+                :max="MAX_LUFS_PRECACHE_COUNT"
+                step="1"
+              />
+              <span class="value-suffix">首</span>
+            </div>
+            <p class="setting-hint">
+              点击播放时，从当前歌曲开始按队列顺序预缓存还没有 LUFS 的歌曲。
+            </p>
+          </div>
           <div class="mode-toggle">
             <div class="mode-label">播放诊断</div>
           </div>
@@ -374,6 +401,9 @@ import {
   setDisableHeadsetMediaButton,
   getTimerExitAppOnAndroid,
   setTimerExitAppOnAndroid,
+  normalizeLufsPrecacheCount,
+  MIN_LUFS_PRECACHE_COUNT,
+  MAX_LUFS_PRECACHE_COUNT,
 } from "@/utils/storage";
 import { useDeviceDiscovery } from "@/composables/useDeviceDiscovery";
 
@@ -386,6 +416,7 @@ const props = defineProps<{
   fixedLufs: number;
   fixedLufsInput: number;
   showLufs: boolean;
+  lufsPrecacheCount: number;
   timerMinutes: number;
   timerMinutesInput: number;
   timerActive: boolean;
@@ -401,6 +432,7 @@ const emit = defineEmits<{
   (e: "update:fixedLufs", value: number): void;
   (e: "update:fixedLufsInput", value: number): void;
   (e: "update:showLufs", value: boolean): void;
+  (e: "update:lufsPrecacheCount", value: number): void;
   (e: "update:timerMinutes", value: number): void;
   (e: "update:timerMinutesInput", value: number): void;
   (e: "setTimerPreset", minutes: number): void;
@@ -506,6 +538,13 @@ const handleTimerExitAppOnAndroidChange = (e: Event) => {
   const checked = (e.target as HTMLInputElement).checked;
   timerExitAppOnAndroid.value = checked;
   setTimerExitAppOnAndroid(checked);
+};
+
+const handleLufsPrecacheCountInput = (e: Event) => {
+  emit(
+    "update:lufsPrecacheCount",
+    normalizeLufsPrecacheCount(Number((e.target as HTMLInputElement).value)),
+  );
 };
 
 const sortMediaTypes = (mediaTypes: string[]): string[] => {

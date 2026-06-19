@@ -4,12 +4,20 @@ import { useAudioPlayer, type MusicInfo } from "@/composables/useAudioPlayer";
 import { useTimer } from "@/composables/useTimer";
 import { useVolume } from "@/composables/useVolume";
 import {
+  getLufsPrecacheCount,
   getShowLufs,
   getTimerExitAppOnAndroid,
+  normalizeLufsPrecacheCount,
+  setLufsPrecacheCount,
   setShowLufs,
 } from "@/utils/storage";
 
 type PrepareSongHandler = (song: MusicInfo) => Promise<MusicInfo>;
+type QueuePrecacheHandler = (
+  queue: MusicInfo[],
+  currentIndex: number,
+  playMode: "sequential" | "shuffle" | "loop",
+) => Promise<void>;
 type SongStartHandler =
   | ((currentSongInfo: MusicInfo, nextSongInfo: MusicInfo | null) => void)
   | null;
@@ -19,8 +27,10 @@ export const usePlayerStore = defineStore("player", () => {
   const playlistSongs = ref<MusicInfo[]>([]);
   const searchPlaybackSongs = ref<MusicInfo[]>([]);
   const prepareSongHandler = ref<PrepareSongHandler>(async (song) => song);
+  const queuePrecacheHandler = ref<QueuePrecacheHandler | null>(null);
   const songStartHandler = ref<SongStartHandler>(null);
   const showLufs = ref(getShowLufs());
+  const lufsPrecacheCount = ref(getLufsPrecacheCount());
 
   const {
     audioElement,
@@ -57,6 +67,9 @@ export const usePlayerStore = defineStore("player", () => {
     onSongEnd: () => {},
     onSongStart: (currentSongInfo, nextSongInfo) => {
       songStartHandler.value?.(currentSongInfo, nextSongInfo);
+    },
+    onPlaybackQueueStart: async (queue, currentIndex, mode) => {
+      await queuePrecacheHandler.value?.(queue, currentIndex, mode);
     },
     prepareSong: async (song) => await prepareSongHandler.value(song),
   });
@@ -106,6 +119,10 @@ export const usePlayerStore = defineStore("player", () => {
 
   const setPrepareSongHandler = (handler: PrepareSongHandler) => {
     prepareSongHandler.value = handler;
+  };
+
+  const setQueuePrecacheHandler = (handler: QueuePrecacheHandler | null) => {
+    queuePrecacheHandler.value = handler;
   };
 
   const setSongStartHandler = (handler: SongStartHandler) => {
@@ -185,6 +202,12 @@ export const usePlayerStore = defineStore("player", () => {
     setShowLufs(value);
   };
 
+  const setLufsPrecacheCountState = (value: number) => {
+    const normalized = normalizeLufsPrecacheCount(value);
+    lufsPrecacheCount.value = normalized;
+    setLufsPrecacheCount(normalized);
+  };
+
   const startSleepTimer = async () => {
     if (isAndroidPlayer.value) {
       await setTimedPause(timerMinutes.value * 60 * 1000);
@@ -210,6 +233,7 @@ export const usePlayerStore = defineStore("player", () => {
       volumeMode.value,
       manualVolume.value,
       fixedLufs.value,
+      lufsPrecacheCount.value,
       calculateVolume(),
     );
   };
@@ -236,6 +260,7 @@ export const usePlayerStore = defineStore("player", () => {
     volumeModeLabels,
     calculateVolume,
     showLufs,
+    lufsPrecacheCount,
     timerMinutes,
     timerMinutesInput,
     timerActive,
@@ -256,6 +281,7 @@ export const usePlayerStore = defineStore("player", () => {
     syncAndroidQueueState,
     syncNormalizationConfig,
     setPrepareSongHandler,
+    setQueuePrecacheHandler,
     setSongStartHandler,
     setPlaylistSongs,
     setSearchPlaybackQueue,
@@ -267,6 +293,7 @@ export const usePlayerStore = defineStore("player", () => {
     playPreviewTrack,
     replaceQueue,
     setShowLufsState,
+    setLufsPrecacheCountState,
     handleAndroidTimerComplete,
     startSleepTimer,
     setTimerPreset,

@@ -10,6 +10,7 @@
 export const STORAGE_KEYS = {
   VIEW_MODE: "kaulan_view_mode",
   SHOW_LUFS: "kaulan_show_lufs",
+  LUFS_PRECACHE_COUNT: "kaulan_lufs_precache_count",
   MEDIA_TYPES: "kaulan_media_types",
   PLAYBACK_SESSION: "kaulan_playback_session",
   DISABLE_HEADSET_MEDIA_BUTTON: "kaulan_disable_headset_media_button",
@@ -18,6 +19,10 @@ export const STORAGE_KEYS = {
   LOCAL_COLLECTIONS: "kaulan_local_collections",
   DEFAULT_ONLINE_SEARCH_API_BASE: "kaulan_default_online_search_api_base",
 } as const;
+
+export const DEFAULT_LUFS_PRECACHE_COUNT = 5;
+export const MIN_LUFS_PRECACHE_COUNT = 0;
+export const MAX_LUFS_PRECACHE_COUNT = 20;
 
 export interface ManualDevice {
   api_url: string;
@@ -127,6 +132,33 @@ export function getShowLufs(): boolean {
  */
 export function setShowLufs(show: boolean): void {
   setStorageValue(STORAGE_KEYS.SHOW_LUFS, show ? "true" : "false");
+}
+
+export function normalizeLufsPrecacheCount(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_LUFS_PRECACHE_COUNT;
+  }
+
+  return Math.min(
+    MAX_LUFS_PRECACHE_COUNT,
+    Math.max(MIN_LUFS_PRECACHE_COUNT, Math.round(value)),
+  );
+}
+
+export function getLufsPrecacheCount(): number {
+  const stored = getStorageValue(STORAGE_KEYS.LUFS_PRECACHE_COUNT);
+  if (!stored) {
+    return DEFAULT_LUFS_PRECACHE_COUNT;
+  }
+
+  return normalizeLufsPrecacheCount(Number(stored));
+}
+
+export function setLufsPrecacheCount(count: number): void {
+  setStorageValue(
+    STORAGE_KEYS.LUFS_PRECACHE_COUNT,
+    String(normalizeLufsPrecacheCount(count)),
+  );
 }
 
 export function getDisableHeadsetMediaButton(): boolean {
