@@ -97,7 +97,7 @@ export function useAppShell() {
   });
 
   playerStore.setQueuePrecacheHandler(async (queue, index, mode) => {
-    await requestQueueLufs(queue, index, player.lufsPrecacheCount.value, mode);
+    void requestQueueLufs(queue, index, player.lufsPrecacheCount.value, mode);
   });
 
   const shellLayout = useAppShellLayout({

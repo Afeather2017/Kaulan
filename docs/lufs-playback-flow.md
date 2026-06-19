@@ -182,6 +182,8 @@ When the user starts playback by selecting a song, Kaulan scans the resolved pla
 5. If response is `200`, patch that song's LUFS into frontend state immediately.
 6. If response is `202`, playback continues while the backend calculates in the background.
 
+On Android, every resolved LUFS value is also pushed back into the playback service queue metadata. That keeps `getPlaybackSession()` consistent after the webview is recreated or refreshed.
+
 The count is configured in **Settings > Advanced Settings > Playback & Loudness > LUFS Pre-cache Count**. The default is `5`; `0` disables queue pre-cache.
 
 ### Example 1: LUFS already cached

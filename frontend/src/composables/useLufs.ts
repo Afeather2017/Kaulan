@@ -176,6 +176,8 @@ export function useLufs(options: UseLufsOptions) {
             );
             patchSongLufs(songId, result.lufs);
             if (isAndroidPlayer.value) {
+              // Android playback session metadata is authoritative after the
+              // webview reconnects, so LUFS patches must be pushed back.
               await syncAndroidQueueState();
             }
             return;
@@ -242,6 +244,7 @@ export function useLufs(options: UseLufsOptions) {
         console.log(`[app] LUFS ${context} resolved immediately:`, result.lufs);
         patchSongLufs(song.id, result.lufs);
         if (isAndroidPlayer.value) {
+          // Keep the service queue metadata aligned with frontend LUFS updates.
           await syncAndroidQueueState();
         }
         return {
