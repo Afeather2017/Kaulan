@@ -28,9 +28,9 @@ The workflow uploads these packages to the GitHub Release:
 
 - Windows desktop bundles
 - Linux desktop bundles
-- Android APK/AAB bundles when the staged Android FFmpeg bundle is present
+- Android APK/AAB bundles
 
-The Android release job is present on the `migrate-ffmpeg` branch, but it checks for the staged FFmpeg bundle described in [`ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md) before setting up the Android toolchain. If the bundle is missing, the job exits successfully with a step-summary notice instead of failing desktop publishing.
+The Android release job builds and caches the staged FFmpeg bundle described in [`ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md) before running the Android packaging script. Manual recovery publishes can be started with `workflow_dispatch` by passing the existing GitHub release tag, such as `v0.1.4`.
 
 The root [`build-android.sh`](../build-android.sh) script performs the same staged-bundle preflight locally. Targeted builds such as `./build-android.sh --target aarch64` only require the matching target subtree plus `binding.rs`; the default multi-ABI build requires all four Android target subtrees.
 
@@ -40,7 +40,7 @@ The workflow installs FFmpeg 8.1.1 development dependencies before Rust builds:
 
 - Linux runs on `ubuntu-24.04`, builds FFmpeg 8.1.1 from the official source tarball, caches the installed output, and exposes it through `PKG_CONFIG_PATH`.
 - Windows downloads the Gyan FFmpeg 8.1.1 shared development package and exposes it through `FFMPEG_INCLUDE_DIR`, `FFMPEG_LIBS_DIR`, `FFMPEG_DLL_PATH`, and `FFMPEG_LINK_MODE=dynamic`. The workflow also copies the package `.lib` import libraries into the DLL directory because `rusty_ffmpeg` links from `FFMPEG_DLL_PATH` in dynamic mode.
-- Android uses the staged FFmpeg bundle under `build/android-ffmpeg/android/<target>`. The release job requires `binding.rs`, each target `lib` directory, and each target `prefix/include` directory before running `build-android.sh`.
+- Android uses the staged FFmpeg bundle under `build/android-ffmpeg/android/<target>`. The release job generates it with `scripts/build-android-ffmpeg.sh`, then `build-android.sh` verifies `binding.rs`, each target `lib` directory, and each target `prefix/include` directory before packaging.
 
 These match the backend dependency setup in `backend/Cargo.toml`:
 

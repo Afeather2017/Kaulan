@@ -102,7 +102,8 @@ The staged bundle can be generated locally with:
 ./scripts/build-android-ffmpeg.sh --target aarch64
 ```
 
-Omit `--target` to stage all Android ABIs that the release workflow expects.
+Omit `--target` to stage all Android ABIs. The release workflow runs this staging
+step automatically and caches `build/android-ffmpeg` for later Android releases.
 
 On Arch Linux, the desktop build currently relies on:
 

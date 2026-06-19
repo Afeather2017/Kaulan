@@ -114,7 +114,8 @@ The frontend will be available at `http://localhost:3000`
 ### Building for Android
 
 Android builds require a staged FFmpeg bundle for the target ABI before running the
-main packaging script.
+main packaging script. The release workflow builds and caches this bundle
+automatically before creating Android APK/AAB packages.
 
 Single-target example (`aarch64` / `arm64-v8a`):
 
