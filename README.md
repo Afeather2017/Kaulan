@@ -16,6 +16,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Real-time Search** - Search across all songs instantly
 - **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
+- **Standalone Web Hosting** - The backend can serve the built Vue app from `frontend/dist`
 
 ## Quick Start
 
@@ -66,6 +67,19 @@ KAULAN_MUSIC_DIR=/path/to/music cargo run -- run
 ```
 
 The backend API will start on `http://localhost:2080`
+
+To serve the production web app from the backend, build the frontend first:
+
+```bash
+cd frontend
+npm run build
+cd ../backend
+cargo run -- run /path/to/music
+```
+
+Then open `http://localhost:2080/`. The API remains available under
+`http://localhost:2080/api`. See `docs/static-frontend-serving.md` for the full
+request flow and custom `KAULAN_FRONTEND_DIST` deployment option.
 
 ### Standalone Online Search Auth
 
@@ -214,6 +228,19 @@ This command will:
 ```
 http://localhost:2080/api
 ```
+
+### Static Frontend
+
+The backend also serves the built Vue frontend when `frontend/dist/index.html`
+exists.
+
+- `GET /` - Serves the web player shell
+- `GET /assets/...` - Serves built frontend assets
+- `GET /<browser-route>` - Falls back to `index.html` for SPA navigation
+- `GET /api/...` - Reserved for JSON and streaming APIs
+
+Build with `cd frontend && npm run build`, then start the backend and open
+`http://localhost:2080/`. See `docs/static-frontend-serving.md`.
 
 ### Endpoints
 

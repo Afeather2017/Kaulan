@@ -94,6 +94,7 @@ npm run test        # Run tests (vitest)
 
 ### Full Stack Development
 - Backend API runs on `http://localhost:2080`
+- When `frontend/dist/index.html` exists, the backend also serves the built web app from `http://localhost:2080/`
 - Frontend dev server runs on `http://localhost:3000`
 - Vite proxy forwards `/api` requests to backend (see `frontend/vite.config.ts`)
 - On Android, the Tauri app starts the backend during app setup; the music notification foreground service reuses that server to keep it alive in background.
@@ -120,7 +121,7 @@ backend/src/
 │   ├── mod.rs       # Service exports
 │   └── scanner.rs   # Directory scanning and database operations
 ├── server/
-│   └── mod.rs       # Server startup logic
+│   └── mod.rs       # Server startup logic and static frontend hosting
 ├── database/mod.rs  # SQLite connection, table creation
 ├── entities/        # SeaORM entities
 │   ├── music.rs           # Music table (id, filename, file_path, lufs, created_at)
@@ -135,6 +136,7 @@ backend/src/
 - Uses SeaORM with SQLite for persistence
 - Database file: `music.db` (auto-created)
 - `music` table stores all audio files with LUFS values
+- Static frontend hosting serves `frontend/dist` at `/` after `npm run build`; `/api/...` remains reserved for backend routes
 - Backend scans music directory on startup via `initialize_database()`
 - Two view modes: folder-based playlists and user-defined collections
 - User-defined collections are frontend-only state stored in browser localStorage
@@ -266,6 +268,13 @@ frontend/src-tauri/src/
 ### Other Endpoints
 - `POST /api/generate-lufs` - Generate LUFS values via FFmpeg (debug mode only)
 - `POST /api/music/{id}/precache-lufs` - Pre-cache LUFS for next song (non-blocking)
+
+### Static Frontend Routes
+- `GET /` - Serve the built Vue app from `frontend/dist/index.html`
+- `GET /assets/...` - Serve production frontend assets
+- `GET /<browser-route>` - Fall back to `index.html` for SPA navigation
+- `GET /api/...` - Reserved for API routes and never handled by the SPA fallback
+- See [`docs/static-frontend-serving.md`](docs/static-frontend-serving.md)
 
 **Important: LUFS Pre-cache Non-blocking Behavior**
 - When LUFS value is already cached: returns `200 OK` immediately with the LUFS value

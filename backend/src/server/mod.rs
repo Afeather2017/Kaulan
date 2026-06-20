@@ -3,13 +3,14 @@
 //! This module provides the HTTP server startup functionality.
 
 use actix_cors::Cors;
-use actix_web::{web, App, HttpServer};
+use actix_files::NamedFile;
+use actix_web::{route, web, App, HttpRequest, HttpResponse, HttpServer};
 use std::env;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex as TokioMutex;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::config;
 use crate::database::establish_connection;
@@ -43,6 +44,16 @@ pub use playlists::{get_all_playlists, get_playlist};
 pub use settings::{get_media_types, get_music_directory, set_media_types, set_music_directory};
 pub use upload::{get_directory_tree, upload_files};
 
+/// Static frontend files served by the backend.
+///
+/// See docs/static-frontend-serving.md for the request flow and deployment
+/// layout. `dist_dir` is optional so API-only development can keep running
+/// before `frontend/npm run build` has produced `frontend/dist`.
+#[derive(Debug, Clone)]
+pub struct StaticFrontendConfig {
+    pub dist_dir: Option<PathBuf>,
+}
+
 /// Represents the server address information
 #[derive(Debug, Clone)]
 pub struct ServerInfo {
@@ -55,6 +66,101 @@ impl ServerInfo {
     pub fn url(&self) -> String {
         format!("{}:{}", self.ip, self.port)
     }
+}
+
+/// Resolve the Vue production build directory for backend static hosting.
+///
+/// The optional `KAULAN_FRONTEND_DIST` environment variable can point to a
+/// custom build output directory. Without it, the backend checks common
+/// development and release working directories.
+pub fn resolve_frontend_dist() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(path) = env::var("KAULAN_FRONTEND_DIST") {
+        candidates.push(PathBuf::from(path));
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        candidates.push(current_dir.join("frontend/dist"));
+        candidates.push(current_dir.join("../frontend/dist"));
+    }
+
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/dist"));
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.join("index.html").is_file())
+}
+
+fn static_frontend_file(dist_dir: &Path, requested_path: &str) -> Option<PathBuf> {
+    let requested_path = requested_path.trim_start_matches('/');
+    let mut relative_path = PathBuf::new();
+    let mut is_asset_path = false;
+
+    if requested_path.is_empty() {
+        relative_path.push("index.html");
+    } else {
+        for (index, component) in Path::new(requested_path).components().enumerate() {
+            match component {
+                Component::Normal(part) => {
+                    if index == 0 && part == "assets" {
+                        is_asset_path = true;
+                    }
+                    relative_path.push(part);
+                }
+                Component::CurDir => {}
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+            }
+        }
+    }
+
+    let candidate = dist_dir.join(relative_path);
+    if candidate.is_dir() {
+        let index_file = candidate.join("index.html");
+        if index_file.is_file() {
+            return Some(index_file);
+        }
+    }
+
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+
+    if is_asset_path || Path::new(requested_path).extension().is_some() {
+        return None;
+    }
+
+    let index_file = dist_dir.join("index.html");
+    index_file.is_file().then_some(index_file)
+}
+
+/// Serve the built Vue frontend from `frontend/dist`.
+///
+/// API routes are intentionally excluded so unknown `/api/...` requests still
+/// behave like API 404s instead of returning the SPA shell.
+#[route("/{path:.*}", method = "GET", method = "HEAD")]
+pub async fn serve_static_frontend(
+    request: HttpRequest,
+    path: web::Path<String>,
+    config: web::Data<StaticFrontendConfig>,
+) -> actix_web::Result<HttpResponse> {
+    let request_path = request.path();
+    if request_path == "/api" || request_path.starts_with("/api/") {
+        return Ok(HttpResponse::NotFound().finish());
+    }
+
+    let Some(dist_dir) = config.dist_dir.as_deref() else {
+        return Ok(HttpResponse::NotFound().body(
+            "Frontend build not found. Run `npm run build` in frontend/ or set KAULAN_FRONTEND_DIST.",
+        ));
+    };
+
+    let Some(file_path) = static_frontend_file(dist_dir, &path.into_inner()) else {
+        return Ok(HttpResponse::NotFound().finish());
+    };
+
+    let file = NamedFile::open_async(file_path).await?;
+    Ok(file.into_response(&request))
 }
 
 /// Starts the backend HTTP server
@@ -233,6 +339,15 @@ pub async fn start_server(
 
     // Also add discovery state as separate app_data for discovery handlers
     let discovery_data = web::Data::new((*discovery_state).clone());
+    let static_frontend_config = StaticFrontendConfig {
+        dist_dir: resolve_frontend_dist(),
+    };
+    match &static_frontend_config.dist_dir {
+        Some(dist_dir) => info!("Serving static frontend from {}", dist_dir.display()),
+        None => warn!(
+            "Static frontend build not found; backend API will still run. Build frontend/dist or set KAULAN_FRONTEND_DIST to serve the web app."
+        ),
+    }
 
     let ip = "0.0.0.0".to_string();
     let port = 2080;
@@ -253,6 +368,7 @@ pub async fn start_server(
                 .wrap(cors)
                 .app_data(app_state.clone())
                 .app_data(discovery_data.clone())
+                .app_data(web::Data::new(static_frontend_config.clone()))
                 // Music endpoints (ID-based first, then filename-based)
                 .service(get_music_cover)
                 .service(get_music_by_id)
@@ -293,6 +409,8 @@ pub async fn start_server(
                 // File upload endpoints
                 .service(get_directory_tree)
                 .service(upload_files)
+                // Static frontend endpoint. Keep this last so API routes take priority.
+                .service(serve_static_frontend)
         })
         .bind((ip_clone.clone(), port))
         {

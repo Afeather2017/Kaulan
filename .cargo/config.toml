@@ -1,0 +1,6 @@
+[env]
+PKG_CONFIG_PATH = { value = ".cache/ffmpeg-8.1.1/lib/pkgconfig", relative = true }
+LD_LIBRARY_PATH = { value = ".cache/ffmpeg-8.1.1/lib", relative = true }
+
+[target.'cfg(all(unix, not(target_os = "macos")))']
+rustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN/../../.cache/ffmpeg-8.1.1/lib"]
