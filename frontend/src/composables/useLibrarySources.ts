@@ -1,6 +1,10 @@
 import { computed, ref, type Ref } from "vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
-import { LOCALHOST_API_BASE, getLocalApiBase } from "@/utils/api";
+import {
+  LOCALHOST_API_BASE,
+  getLocalApiBase,
+  isSessionLocalApiBase,
+} from "@/utils/api";
 import {
   refreshDiscoveredDevices,
   refreshStoredManualDevices,
@@ -12,7 +16,7 @@ import {
   setDefaultOnlineSearchApiBase,
   setManualDevices,
 } from "@/utils/storage";
-import { isLocalhostApiBase } from "@/utils/platform";
+import { isCurrentOriginApiBase, isLocalhostApiBase } from "@/utils/platform";
 import type {
   LibrarySourceGroup,
   LibrarySourceGroupSummary,
@@ -172,7 +176,9 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
 
     try {
       const parsed = new URL(apiBase);
-      return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
+      return isSessionLocalApiBase(apiBase) ||
+        parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1"
         ? "This Device"
         : parsed.hostname;
     } catch {
@@ -189,7 +195,8 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
 
   const buildPlaylistRequestUrl = (apiBase: string): string => {
     const shouldRequestRawPlaybackPath =
-      supportsRawContentPlayback.value && isLocalhostApiBase(apiBase);
+      supportsRawContentPlayback.value &&
+      (isLocalhostApiBase(apiBase) || isCurrentOriginApiBase(apiBase));
     return shouldRequestRawPlaybackPath
       ? buildSongApiUrl(apiBase, "/playlists?stream=content")
       : buildSongApiUrl(apiBase, "/playlists");
@@ -197,23 +204,23 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
 
   const getSourceApiBases = (): string[] => {
     const manual = getManualDevices().map((device) => device.api_url);
-    return Array.from(new Set([LOCALHOST_API_BASE, ...manual]));
+    return Array.from(new Set([getLocalApiBase(), ...manual]));
   };
 
   const sortSourceGroups = (
     groups: LibrarySourceGroup[],
   ): LibrarySourceGroup[] =>
     [...groups].sort((left, right) => {
-      if (
-        isLocalhostApiBase(left.apiBase) &&
-        !isLocalhostApiBase(right.apiBase)
-      ) {
+      const leftIsLocal =
+        isSessionLocalApiBase(left.apiBase) || isLocalhostApiBase(left.apiBase);
+      const rightIsLocal =
+        isSessionLocalApiBase(right.apiBase) ||
+        isLocalhostApiBase(right.apiBase);
+
+      if (leftIsLocal && !rightIsLocal) {
         return -1;
       }
-      if (
-        isLocalhostApiBase(right.apiBase) &&
-        !isLocalhostApiBase(left.apiBase)
-      ) {
+      if (rightIsLocal && !leftIsLocal) {
         return 1;
       }
       if (left.isLoading && !right.isLoading) return -1;
@@ -236,7 +243,9 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     isCurrentOnlineSearchSource: onlineSearchApiBase.value === options.apiBase,
     canRetryConnection: options.canRetryConnection,
     canShowSourceDetails: true,
-    canDeleteSource: !isLocalhostApiBase(options.apiBase),
+    canDeleteSource:
+      !isSessionLocalApiBase(options.apiBase) &&
+      !isLocalhostApiBase(options.apiBase),
   });
 
   const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
@@ -603,7 +612,10 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
   };
 
   const deleteSource = (group: LibrarySourceGroup): boolean => {
-    if (isLocalhostApiBase(group.apiBase)) {
+    if (
+      isSessionLocalApiBase(group.apiBase) ||
+      isLocalhostApiBase(group.apiBase)
+    ) {
       alert("本机来源不能删除");
       return false;
     }

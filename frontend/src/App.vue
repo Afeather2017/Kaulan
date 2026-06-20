@@ -25,6 +25,16 @@
 
       <!-- Scanning Message -->
       <div v-if="isScanning" class="scanning-message">扫描中...</div>
+      <div v-if="startupStatusMessage" class="startup-message">
+        <span>{{ startupStatusMessage }}</span>
+        <button
+          v-if="showSharedPlayPrompt"
+          class="startup-play-btn"
+          @click="handleStartSharedPlayback"
+        >
+          播放
+        </button>
+      </div>
 
       <div class="main-area" :class="{ 'wide-layout': isWideLayout }">
         <div class="list-panel" v-show="!isPlayerPanelVisible || isWideLayout">
@@ -314,6 +324,8 @@ const {
   hasLyrics,
   selectedSourceMenuGroup,
   selectedSongListMenuTitle,
+  startupStatusMessage,
+  showSharedPlayPrompt,
   songMenuTab,
   showBackButton,
   showActionBar,
@@ -373,6 +385,7 @@ const {
   handleSongSelectionAction,
   handleLyricLineClick,
   handleShowActiveQueue,
+  handleStartSharedPlayback,
   togglePlayerPanelMode,
   showCoverPanel,
   showLyricsPanel,
@@ -480,6 +493,29 @@ const {
   height: 120px;
   font-size: 18px;
   color: #888;
+}
+
+.startup-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background-color: #fff4d6;
+  border-bottom: 1px solid #f1d08a;
+  color: #7c4a03;
+  font-size: 14px;
+}
+
+.startup-play-btn {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background-color: #d97706;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
 }
 
 .main-area {

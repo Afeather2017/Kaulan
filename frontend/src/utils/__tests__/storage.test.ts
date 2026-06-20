@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearSessionLocalApiBaseOverride,
+  getLocalApiBase,
+  setSessionLocalApiBaseOverride,
+} from "@/utils/api";
+import {
   DEFAULT_LUFS_PRECACHE_COUNT,
   MAX_LUFS_PRECACHE_COUNT,
   getDefaultOnlineSearchApiBase,
@@ -79,5 +84,21 @@ describe("LUFS pre-cache count storage", () => {
     expect(normalizeLufsPrecacheCount(Number.NaN)).toBe(
       DEFAULT_LUFS_PRECACHE_COUNT,
     );
+  });
+});
+
+describe("session local api base override", () => {
+  beforeEach(() => {
+    clearSessionLocalApiBaseOverride();
+  });
+
+  it("defaults to localhost when no session override exists", () => {
+    expect(getLocalApiBase()).toBe("http://localhost:2080/api");
+  });
+
+  it("uses the session override when one is applied", () => {
+    setSessionLocalApiBaseOverride("http://192.168.1.20:2080");
+
+    expect(getLocalApiBase()).toBe("http://192.168.1.20:2080/api");
   });
 });

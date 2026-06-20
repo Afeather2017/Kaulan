@@ -11,6 +11,8 @@
 
 export const LOCALHOST_API_BASE = "http://localhost:2080/api";
 
+let sessionLocalApiBaseOverride: string | null = null;
+
 function hasExplicitScheme(url: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(url);
 }
@@ -67,7 +69,19 @@ export function normalizeApiBase(input: string): string {
 }
 
 export function getLocalApiBase(): string {
-  return LOCALHOST_API_BASE;
+  return sessionLocalApiBaseOverride || LOCALHOST_API_BASE;
+}
+
+export function setSessionLocalApiBaseOverride(apiBase: string): void {
+  sessionLocalApiBaseOverride = normalizeApiBase(apiBase);
+}
+
+export function clearSessionLocalApiBaseOverride(): void {
+  sessionLocalApiBaseOverride = null;
+}
+
+export function isSessionLocalApiBase(apiBase: string): boolean {
+  return apiBase === getLocalApiBase();
 }
 
 export function isAbsoluteHttpApiBase(
@@ -88,5 +102,5 @@ export function isAbsoluteHttpApiBase(
 export function resolveSourceApiBase(
   sourceKey: string | null | undefined,
 ): string {
-  return isAbsoluteHttpApiBase(sourceKey) ? sourceKey! : LOCALHOST_API_BASE;
+  return isAbsoluteHttpApiBase(sourceKey) ? sourceKey! : getLocalApiBase();
 }

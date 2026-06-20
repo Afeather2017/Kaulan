@@ -35,6 +35,18 @@ export function isLocalhostApiBase(apiBase: string): boolean {
   }
 }
 
+export function isCurrentOriginApiBase(apiBase: string): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return new URL(apiBase).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export function buildRuntimeCapabilities(
   platform: RuntimePlatform,
 ): RuntimeCapabilities {

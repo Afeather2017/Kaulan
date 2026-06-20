@@ -17,6 +17,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
 - **Standalone Web Hosting** - The backend can serve the built Vue app from `frontend/dist`
+- **Shared Song Links** - Open `http://server_ip/?id={songId}` in a browser to load the player from that server and start the shared song
 
 ## Quick Start
 
@@ -80,6 +81,18 @@ cargo run -- run /path/to/music
 Then open `http://localhost:2080/`. The API remains available under
 `http://localhost:2080/api`. See `docs/static-frontend-serving.md` for the full
 request flow and custom `KAULAN_FRONTEND_DIST` deployment option.
+
+Shared song links use the same backend-served web app:
+
+```text
+http://localhost:2080/?id=42
+```
+
+When a browser opens this URL, the frontend uses `http://localhost:2080/api` as
+its session source, resolves song `42`, opens the player panel, and attempts to
+start playback immediately. If the browser blocks autoplay, the page stays on
+the selected song and shows a manual play button. See
+`docs/shared-song-links.md` for the flow details.
 
 ### Standalone Online Search Auth
 

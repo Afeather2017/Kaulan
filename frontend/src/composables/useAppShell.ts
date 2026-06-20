@@ -16,12 +16,21 @@ import {
 } from "@/composables/useSelection";
 import { useLyrics } from "@/composables/useLyrics";
 import { useLufs } from "@/composables/useLufs";
-import type { MusicInfo, PlayMode } from "@/composables/useAudioPlayer";
+import {
+  PlaybackStartError,
+  type MusicInfo,
+  type PlayMode,
+} from "@/composables/useAudioPlayer";
 import type {
   LibrarySourceGroup,
   LibrarySourceGroupSummary,
 } from "@/types/library";
 import { resolveSourceApiBase } from "@/utils/api";
+import {
+  applySharedLinkApiBase,
+  consumeSharedLinkQuery,
+  parseSharedLinkIntent,
+} from "@/utils/sharedLink";
 
 // Related documentation:
 // - `docs/runtime-platform-capabilities.md`
@@ -50,6 +59,8 @@ export function useAppShell() {
 
   const selectedSourceMenuGroup = ref<LibrarySourceGroup | null>(null);
   const selectedSongListMenuTitle = ref<string | null>(null);
+  const startupStatusMessage = ref("");
+  const showSharedPlayPrompt = ref(false);
   const songMenuTab = computed<"library" | "collections">(() =>
     ui.currentView.value === "search" ? "library" : ui.activeTab.value,
   );
@@ -171,6 +182,14 @@ export function useAppShell() {
     uiStore.showSearchResults(library.searchQuery.value);
   };
 
+  const setStartupStatusMessage = (message: string) => {
+    startupStatusMessage.value = message;
+  };
+
+  const clearStartupStatusMessage = () => {
+    startupStatusMessage.value = "";
+  };
+
   const openOnlineSearch = (query: string) => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
@@ -204,6 +223,99 @@ export function useAppShell() {
     ui.selectedPlaylist.value = playlist;
     playerStore.setPlaylistSongs(playlist.songs);
     playerStore.resetPlaybackSourceContext();
+  };
+
+  const openSharedSongPlayer = async () => {
+    const intent = parseSharedLinkIntent(window.location);
+    applySharedLinkApiBase(intent);
+
+    if (!intent.hasShareIntent) {
+      return;
+    }
+
+    consumeSharedLinkQuery();
+    clearStartupStatusMessage();
+    showSharedPlayPrompt.value = false;
+
+    if (intent.error) {
+      setStartupStatusMessage("分享链接无效。");
+      return;
+    }
+
+    const resolvedGroup = library.sourceGroups.value.find(
+      (group) =>
+        group.isOnline &&
+        group.playlists.some((playlist) =>
+          playlist.songs.some((song) => song.id === intent.songId),
+        ),
+    );
+
+    if (!resolvedGroup || intent.songId === null) {
+      setStartupStatusMessage("当前服务器上未找到这首分享歌曲。");
+      return;
+    }
+
+    const resolvedPlaylist = resolvedGroup.playlists.find((playlist) =>
+      playlist.songs.some((song) => song.id === intent.songId),
+    );
+    const songIndex =
+      resolvedPlaylist?.songs.findIndex((song) => song.id === intent.songId) ??
+      -1;
+    const resolvedSong =
+      songIndex >= 0 ? (resolvedPlaylist?.songs[songIndex] ?? null) : null;
+
+    if (!resolvedPlaylist || !resolvedSong || songIndex < 0) {
+      setStartupStatusMessage("当前服务器上未找到这首分享歌曲。");
+      return;
+    }
+
+    syncSelectedPlaylistIntoPlayer({
+      name: `曲库 / ${resolvedPlaylist.name} [${resolvedGroup.name}]`,
+      songs: resolvedPlaylist.songs,
+    });
+    library.selectedLibrarySourceKey.value = resolvedGroup.sourceKey;
+    library.selectedLibraryPlaylistName.value = resolvedPlaylist.name;
+    ui.activeTab.value = "library";
+    ui.currentView.value = "songs";
+    ui.playerPanelMode.value = "cover";
+
+    try {
+      await playerStore.playSongFromPlaylist(
+        resolvedSong,
+        resolvedPlaylist.songs.slice(),
+        songIndex,
+      );
+    } catch (error) {
+      if (error instanceof PlaybackStartError) {
+        showSharedPlayPrompt.value = true;
+        setStartupStatusMessage("浏览器阻止了自动播放，请点击播放按钮继续。");
+        return;
+      }
+
+      console.error("Failed to start shared song playback:", error);
+      setStartupStatusMessage("播放分享歌曲失败。");
+    }
+  };
+
+  const handleStartSharedPlayback = async () => {
+    if (!player.currentSong.value) {
+      return;
+    }
+
+    clearStartupStatusMessage();
+    showSharedPlayPrompt.value = false;
+    try {
+      await playerStore.play();
+    } catch (error) {
+      if (error instanceof PlaybackStartError) {
+        showSharedPlayPrompt.value = true;
+        setStartupStatusMessage("浏览器阻止了自动播放，请点击播放按钮继续。");
+        return;
+      }
+
+      console.error("Failed to resume shared playback:", error);
+      setStartupStatusMessage("播放分享歌曲失败。");
+    }
   };
 
   const handleSelectCollection = (name: string) => {
@@ -741,12 +853,22 @@ export function useAppShell() {
   });
 
   onMounted(async () => {
+    const sharedLinkIntent =
+      typeof window !== "undefined"
+        ? parseSharedLinkIntent(window.location)
+        : null;
+    if (sharedLinkIntent) {
+      applySharedLinkApiBase(sharedLinkIntent);
+    }
     await libraryStore.triggerDatabaseUpdate(ui.isScanning);
     await libraryStore.initRuntimeCapabilities();
     collectionsStore.loadLocalCollections(buildSongRowKey, inferMediaType);
     void libraryStore.refreshDiscoveryState();
     await libraryStore.refreshSourceGroups();
     await playerStore.initAudio();
+    if (sharedLinkIntent?.hasShareIntent) {
+      await openSharedSongPlayer();
+    }
     await androidBackNavigation.registerAndroidBackHandler();
     shellLayout.updateLayoutMode();
     window.addEventListener("resize", shellLayout.updateLayoutMode);
@@ -837,6 +959,8 @@ export function useAppShell() {
     hasLyrics,
     selectedSourceMenuGroup,
     selectedSongListMenuTitle,
+    startupStatusMessage,
+    showSharedPlayPrompt,
     songMenuTab,
     showBackButton: shellLayout.showBackButton,
     showActionBar: shellLayout.showActionBar,
@@ -902,6 +1026,7 @@ export function useAppShell() {
     handleSongSelectionAction,
     handleLyricLineClick,
     handleShowActiveQueue: uiStore.showActiveQueue,
+    handleStartSharedPlayback,
     togglePlayerPanelMode: shellLayout.togglePlayerPanelMode,
     showCoverPanel: shellLayout.showCoverPanel,
     showLyricsPanel: shellLayout.showLyricsPanel,

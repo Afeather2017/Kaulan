@@ -22,6 +22,16 @@ export type { MusicInfo } from "@/types/music";
 
 export type PlayMode = "sequential" | "shuffle" | "loop";
 
+export class PlaybackStartError extends Error {
+  readonly code: "autoplay_blocked";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "PlaybackStartError";
+    this.code = "autoplay_blocked";
+  }
+}
+
 interface UseAudioPlayerOptions {
   songs: () => MusicInfo[];
   onSongEnd?: () => void;
@@ -1170,6 +1180,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       } catch (error) {
         console.error("Failed to play audio:", error);
         isPlaying.value = false;
+        throw new PlaybackStartError("Autoplay was blocked by the browser");
       } finally {
         isPlayingInternal = false;
       }
