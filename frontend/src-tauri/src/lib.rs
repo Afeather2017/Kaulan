@@ -1414,7 +1414,7 @@ fn export_youtube_cookie_jar(_app: &tauri::AppHandle, path: &PathBuf) -> Result<
 
         fs::write(path, lines.join("\n") + "\n")
             .map_err(|e| format!("failed to write cookie jar: {e}"))?;
-        return Ok(());
+        Ok(())
     }
 }
 

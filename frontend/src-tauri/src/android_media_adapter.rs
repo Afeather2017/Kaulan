@@ -29,7 +29,8 @@ use std::sync::{
 };
 #[cfg(target_os = "android")]
 use tauri_plugin_android_mediastore::{
-    AndroidMediastoreExt, FileReaderCloseRequest, FileReaderOpenRequest, FileReaderReadRequest,
+    AndroidMediastoreExt, AvailabilityCheck, CheckMediaFileAvailabilityRequest,
+    FileReaderCloseRequest, FileReaderOpenRequest, FileReaderReadRequest,
     FileReaderReadToEndRequest, FileReaderSeekRequest, GetMediaFilesRequest, MediaFile,
     ResolveMediaPathRequest,
 };
@@ -808,6 +809,49 @@ impl FileReader for MediaStoreFileReader {
         file_size
     }
 
+    async fn exists(&self, path: &str) -> Result<bool, io::Error> {
+        log::debug!("MediaStoreFileReader::exists called with path: {}", path);
+
+        if !path.starts_with("content://") {
+            log::warn!(
+                "MediaStoreFileReader::exists called with non-content URI: {}",
+                path
+            );
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Expected content URI",
+            ));
+        }
+
+        let result = self
+            .app_handle
+            .android_mediastore()
+            .check_media_file_availability(CheckMediaFileAvailabilityRequest {
+                content_uri: path.to_string(),
+                availability_check: Some(AvailabilityCheck::Open),
+            })
+            .await;
+
+        match result {
+            Ok(response) => {
+                if !response.exists {
+                    log::info!(
+                        "MediaStore availability check reported missing content URI {}: {}",
+                        path,
+                        response
+                            .error
+                            .unwrap_or_else(|| "no error detail".to_string())
+                    );
+                }
+                Ok(response.exists)
+            }
+            Err(err) => Err(io::Error::other(format!(
+                "Plugin availability check error: {}",
+                err
+            ))),
+        }
+    }
+
     async fn open_seekable_reader(
         &self,
         path: &str,
@@ -1074,6 +1118,9 @@ impl MusicFileLister for MediaStoreMusicFileLister {
                     media_type: Some(android_media_type.to_string()),
                     exclude_suffixes: None,
                     mime_type_filter: None,
+                    // Filter stale MediaStore rows without opening every file during scans.
+                    availability_check: Some(AvailabilityCheck::Path),
+                    include_first_four_bytes: None,
                 })
                 .await;
 

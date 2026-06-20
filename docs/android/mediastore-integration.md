@@ -42,7 +42,7 @@ sequenceDiagram
     Backend->>Resolver: resolve("/storage")
     Resolver-->>Backend: AndroidMediaStoreContent
     Backend->>Adapter: list_music_files("/storage")
-    Adapter->>Plugin: get_audio_files()
+    Adapter->>Plugin: get_media_files()
     Plugin->>MediaStore: Query audio content
     MediaStore-->>Plugin: Return audio metadata
     Plugin-->>Adapter: Return AudioFile list
@@ -110,7 +110,7 @@ pub struct MusicFileInfo {
 
 ### Frontend: MediaStore Adapters
 
-**Source: [`frontend/src-tauri/src/mediastore_adapter.rs`](../../../frontend/src-tauri/src/mediastore_adapter.rs)**
+**Source: [`frontend/src-tauri/src/android_media_adapter.rs`](../../../frontend/src-tauri/src/android_media_adapter.rs)**
 
 The adapters are compiled only on Android and provide MediaStore-backed behavior that the backend registers into the source registry.
 
@@ -143,10 +143,11 @@ pub struct MediaStoreMusicFileLister {
 ```
 
 **Process:**
-1. Calls `get_audio_files()` on the MediaStore plugin
-2. Receives metadata (title, artist, album, duration, content URI)
-3. Generates safe filenames from metadata (e.g., `Artist_Title.mp3`)
-4. Returns `MusicFileInfo` list
+1. Calls `get_media_files()` on the MediaStore plugin
+2. Passes `availability_check = Path` so dead MediaStore rows are filtered during scans without opening every file
+3. Receives metadata (title, artist, album, duration, content URI)
+4. Generates safe filenames from metadata (e.g., `Artist_Title.mp3`)
+5. Returns `MusicFileInfo` list
 
 ### Desktop Stub Implementations
 
@@ -179,8 +180,8 @@ MediaStore adapters are registered before the backend server starts:
 {
     log::info!("Setting up MediaStore adapters for Android");
     let app_handle_for_adapter = app.handle().clone();
-    let _ = kaulan::set_file_reader(Box::new(mediastore_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())));
-    let _ = kaulan::set_music_file_lister(Box::new(mediastore_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter)));
+    let _ = kaulan::set_file_reader(Box::new(android_media_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())));
+    let _ = kaulan::set_music_file_lister(Box::new(android_media_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter)));
     log::info!("MediaStore adapters configured successfully");
 }
 ```
@@ -214,7 +215,7 @@ The source resolver normalizes each raw path according to the owning source befo
 
 When the app starts on Android:
 
-1. The MediaStoreMusicFileLister queries `get_audio_files()`
+1. The MediaStoreMusicFileLister queries `get_media_files()`
 2. Returns all audio files with metadata from MediaStore
 3. The scanner populates the database with content URIs
 4. The UI displays the music library
@@ -237,6 +238,16 @@ When LUFS pre-cache is triggered on Android:
 2. Backend opens a seekable reader via `MediaStoreFileReader` using the content URI
 3. LUFS is calculated directly from the reader and cached in the database
 
+### Deleting Stale MediaStore Rows
+
+During `POST /api/database/update`, Kaulan also checks existing database rows and removes songs whose stored `content://` URI is no longer valid.
+
+- The database still stores the raw MediaStore URI in `music.file_path`
+- `MediaStoreMusicFileLister` filters dead rows during scan with `availability_check = Path`
+- `MediaStoreFileReader::exists()` uses `check_media_file_availability(..., Open)` for per-row deletion checks
+
+This keeps scan-time filtering cheap while making database cleanup use the stricter "can Android still open this URI?" check.
+
 ## Related Source Files
 
 ### Backend
@@ -245,7 +256,7 @@ When LUFS pre-cache is triggered on Android:
 - **[`backend/src/handlers/music.rs`](../../../backend/src/handlers/music.rs)** - Music streaming endpoint using source-backed reader
 
 ### Frontend
-- **[`frontend/src-tauri/src/mediastore_adapter.rs`](../../../frontend/src-tauri/src/mediastore_adapter.rs)** - MediaStore adapter implementations
+- **[`frontend/src-tauri/src/android_media_adapter.rs`](../../../frontend/src-tauri/src/android_media_adapter.rs)** - MediaStore adapter implementations
 - **[`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs)** - App setup, MediaStore adapter initialization
 - **[`frontend/src-tauri/Cargo.toml`](../../../frontend/src-tauri/Cargo.toml)** - Plugin dependency
 
@@ -318,7 +329,7 @@ MediaStore/StdFileReader ──► Read Chunk (1MB) ──► Bytes ──► Ht
 
 - [`backend/src/handlers/music.rs`](../../../backend/src/handlers/music.rs) - Streams audio using `read_stream()`
 - [`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs) - Defines `read_stream()` on `FileReader`
-- [`frontend/src-tauri/src/mediastore_adapter.rs`](../../../frontend/src-tauri/src/mediastore_adapter.rs) - Uses `file_reader_read()` with 1MB chunks
+- [`frontend/src-tauri/src/android_media_adapter.rs`](../../../frontend/src-tauri/src/android_media_adapter.rs) - Uses `file_reader_read()` with 1MB chunks
 
 ## Build Configuration
 
@@ -328,7 +339,7 @@ MediaStore/StdFileReader ──► Read Chunk (1MB) ──► Bytes ──► Ht
 
 ```toml
 [dependencies]
-tauri-plugin-android-mediastore = "0.1.9"
+tauri-plugin-android-mediastore = "0.2.3"
 ```
 
 ### ACL Permissions

@@ -197,6 +197,7 @@ pub trait FileReader: Send + Sync {
         start_pos: u64,
     ) -> Result<ByteStream, std::io::Error>;
     async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error>;
+    async fn exists(&self, path: &str) -> Result<bool, std::io::Error>;
     async fn open_seekable_reader(
         &self,
         path: &str,
@@ -234,6 +235,10 @@ impl FileReader for SourceBackedFileReader {
 
     async fn get_file_size(&self, path: &str) -> Result<u64, std::io::Error> {
         resolve_source(path)?.source.get_file_size(path).await
+    }
+
+    async fn exists(&self, path: &str) -> Result<bool, std::io::Error> {
+        resolve_source(path)?.source.exists(path).await
     }
 
     async fn open_seekable_reader(
@@ -677,7 +682,10 @@ impl Source for CompatContentSource {
     }
 
     async fn exists(&self, path: &str) -> Result<bool, io::Error> {
-        self.get_file_size(path).await.map(|_| true)
+        match &self.file_reader {
+            Some(reader) => reader.exists(path).await,
+            None => Err(Self::unsupported()),
+        }
     }
 
     async fn create_dir_all(&self, _path: &str) -> Result<(), io::Error> {
@@ -791,5 +799,16 @@ mod tests {
     fn normalize_content_uri_is_stable() {
         let path = "content://media/external/audio/media/42";
         assert_eq!(normalize_path(path), path);
+    }
+
+    #[tokio::test]
+    async fn source_exists_reports_existing_and_missing_std_fs_paths() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let existing = temp_dir.path().join("exists.txt");
+        let missing = temp_dir.path().join("missing.txt");
+        fs::write(&existing, b"ok").unwrap();
+
+        assert!(source_exists(existing.to_str().unwrap()).await.unwrap());
+        assert!(!source_exists(missing.to_str().unwrap()).await.unwrap());
     }
 }
