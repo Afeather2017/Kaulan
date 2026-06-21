@@ -1,0 +1,36 @@
+#!/bin/sh
+# Pre-push hook: refuse push if any submodule's current HEAD is not
+# reachable from a remote-tracking branch. Catches the case where the parent
+# records a submodule SHA that was never published — anyone cloning the
+# parent would then be unable to fetch the submodule at that SHA.
+#
+# Works for both branch-tracked and detached-HEAD submodules.
+
+# Drain stdin — pre-push receives pending ref updates on stdin.
+cat >/dev/null
+
+cd "$(git rev-parse --show-toplevel)"
+
+subs=$(sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*//p' .gitmodules 2>/dev/null)
+unpushed=""
+for sub in $subs; do
+    [ ! -d "$sub" ] && continue
+    head=$(git -C "$sub" rev-parse HEAD 2>/dev/null) || continue
+    contains=$(git -C "$sub" branch -r --contains "$head" 2>/dev/null)
+    if [ -z "$contains" ]; then
+        short=$(git -C "$sub" rev-parse --short HEAD 2>/dev/null)
+        unpushed="${unpushed:+$unpushed
+}$sub @ ${short:-$head}"
+    fi
+done
+
+if [ -n "$unpushed" ]; then
+    echo "" >&2
+    echo "ERROR: Submodule HEADs not on any remote:" >&2
+    echo "$unpushed" | sed 's/^/  /' >&2
+    echo "" >&2
+    echo "Push each submodule to its remote first, or bypass with --no-verify." >&2
+    exit 1
+fi
+
+exit 0
