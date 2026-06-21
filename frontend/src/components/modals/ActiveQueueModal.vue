@@ -7,6 +7,17 @@
           返回
         </button>
         <h3 class="modal-title">当前播放列表</h3>
+        <button
+          v-if="showShareButton"
+          type="button"
+          class="top-action-btn"
+          title="复制分享链接"
+          aria-label="复制分享链接"
+          @click="$emit('share')"
+        >
+          <i class="fas fa-share-nodes"></i>
+        </button>
+        <div v-else class="top-action-placeholder" aria-hidden="true"></div>
       </div>
       <div class="modal-body">
         <div v-if="songs.length > 0" class="song-list">
@@ -45,11 +56,13 @@ import type { MusicInfo } from "@/composables/useAudioPlayer";
 defineProps<{
   songs: MusicInfo[];
   currentSongName?: string;
+  showShareButton?: boolean;
 }>();
 
 defineEmits<{
   (e: "close"): void;
   (e: "play", song: MusicInfo, index: number): void;
+  (e: "share"): void;
 }>();
 </script>
 
@@ -120,6 +133,30 @@ defineEmits<{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.top-action-btn,
+.top-action-placeholder {
+  width: 38px;
+  height: 38px;
+  flex: none;
+}
+
+.top-action-btn {
+  border: 1px solid #ddd;
+  background-color: #f8f8f8;
+  color: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.top-action-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #ccc;
 }
 
 .modal-body {

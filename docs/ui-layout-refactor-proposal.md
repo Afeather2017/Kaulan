@@ -1,6 +1,7 @@
 # UI Layout Refactor Proposal
 
 Related source files:
+
 - `frontend/src/App.vue`
 - `frontend/src/components/modals/AddDeviceModal.vue`
 - `frontend/src/components/modals/SettingsModal.vue`
@@ -132,15 +133,15 @@ Not:
 
 Recommended user-facing labels:
 
-| Technical Term | User-facing Label |
-|---|---|
-| Server | Music Source or Device |
-| Active Server | Remove from normal UI and internal architecture |
-| Source List | Music Sources |
-| Database Update | Refresh Library |
-| Collection | My Collection |
-| Shared Collection | Avoid by default |
-| LUFS | Hide in advanced settings |
+| Technical Term    | User-facing Label                               |
+| ----------------- | ----------------------------------------------- |
+| Server            | Music Source or Device                          |
+| Active Server     | Remove from normal UI and internal architecture |
+| Source List       | Music Sources                                   |
+| Database Update   | Refresh Library                                 |
+| Collection        | My Collection                                   |
+| Shared Collection | Avoid by default                                |
+| LUFS              | Hide in advanced settings                       |
 
 ## Narrow Mode
 
@@ -245,6 +246,7 @@ Lyric state:
 - only one of these is active at a time
 - lyrics should open in the expandable upper player panel
 - the lower player block should keep the same layout in cover and lyric states
+- song sharing should live in the current queue sheet header, not in a narrow-only top action bar
 
 ### Mobile Offline Example
 
@@ -623,6 +625,11 @@ Recommended badge behavior:
 - optional in queue and now playing
 - tap or click badge to filter by that source
 
+Recommended playback-utility placement:
+
+- current-queue-specific actions such as song sharing belong in the queue sheet header
+- the trigger should use a share icon instead of a raw link icon because the user intent is an action, not URL inspection
+
 ### Source Capability Rules
 
 Per-source menu actions should be capability-driven.
@@ -899,6 +906,7 @@ Keep visible in normal use:
 - personal collections
 - search
 - queue
+- song sharing from the queue / now playing context
 - lyrics entry
 - source-group `⋮` actions
 - header-based batch song actions
@@ -938,7 +946,6 @@ It should no longer directly mix:
   - split into normal settings and advanced settings
 - `SearchBar.vue`
   - keep as a search entry, but use global cross-server semantics
-
 
 ## Summary
 

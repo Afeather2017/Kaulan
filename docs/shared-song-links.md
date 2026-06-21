@@ -40,13 +40,13 @@ Song sharing is id-based only. There is no filename fallback contract.
 
 ## Creating a Link
 
-The narrow action bar shows a link button on the right whenever a song is
-selected and the action bar is visible. The button is not part of the search bar
-or mini player.
+Open the "当前播放列表" panel from the player controls. The queue header shows a
+share button whenever the current song can produce a share URL, so the same entry
+point is available in both narrow and wide layouts.
 
 ```text
 +--------------------------------------------------+
-| [Back]                                    [Link] |
+| [Back]                       当前播放列表 [Link] |
 +--------------------------------------------------+
 |              [ Cover ]                           |
 |              [ Cover ]                           |

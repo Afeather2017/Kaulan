@@ -21,16 +21,6 @@
           返回
         </button>
         <div class="action-spacer"></div>
-        <button
-          v-if="currentSongShareUrl"
-          type="button"
-          class="action-icon-btn"
-          title="复制分享链接"
-          aria-label="复制分享链接"
-          @click="openShareModal"
-        >
-          <i class="fas fa-link"></i>
-        </button>
       </div>
 
       <!-- Scanning Message -->
@@ -262,8 +252,10 @@
       v-if="showActiveQueueModal"
       :songs="activeQueue"
       :current-song-name="currentSong?.name"
+      :show-share-button="Boolean(currentSongShareUrl)"
       @close="showActiveQueueModal = false"
       @play="handlePlayQueueSong"
+      @share="openShareModal"
     />
 
     <AppActionSheets
@@ -568,27 +560,6 @@ const copyShareUrl = async () => {
 
 .action-spacer {
   flex: 1;
-}
-
-.action-icon-btn {
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 8px;
-  background: #f0f0f0;
-  color: #31414f;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  font-size: 15px;
-}
-
-.action-icon-btn:hover,
-.action-icon-btn:focus-visible {
-  background: #e6e6e6;
-  outline: none;
 }
 
 .action-btn {
