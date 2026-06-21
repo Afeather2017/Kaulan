@@ -4,6 +4,8 @@
  * @module utils/storage
  */
 
+import { getLocalApiBase } from "@/utils/api";
+
 /**
  * Storage keys used throughout the application
  */
@@ -258,14 +260,14 @@ export function setManualDevices(devices: ManualDevice[]): void {
 
 export function getDefaultOnlineSearchApiBase(): string {
   const stored = getStorageValue(STORAGE_KEYS.DEFAULT_ONLINE_SEARCH_API_BASE);
-  return stored || "http://localhost:2080/api";
+  return stored || getLocalApiBase();
 }
 
 export function setDefaultOnlineSearchApiBase(apiBase: string): void {
   const trimmed = apiBase.trim();
   setStorageValue(
     STORAGE_KEYS.DEFAULT_ONLINE_SEARCH_API_BASE,
-    trimmed || "http://localhost:2080/api",
+    trimmed || getLocalApiBase(),
   );
 }
 

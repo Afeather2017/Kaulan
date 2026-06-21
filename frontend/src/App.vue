@@ -21,6 +21,16 @@
           返回
         </button>
         <div class="action-spacer"></div>
+        <button
+          v-if="currentSongShareUrl"
+          type="button"
+          class="action-icon-btn"
+          title="复制分享链接"
+          aria-label="复制分享链接"
+          @click="openShareModal"
+        >
+          <i class="fas fa-link"></i>
+        </button>
       </div>
 
       <!-- Scanning Message -->
@@ -108,6 +118,40 @@
           @show-active-queue="handleShowActiveQueue"
           @toggle-panel-mode="togglePlayerPanelMode"
         />
+      </div>
+    </div>
+
+    <div
+      v-if="isShareModalVisible"
+      class="share-modal-overlay"
+      @click="closeShareModal"
+    >
+      <div class="share-modal" @click.stop>
+        <div class="share-modal-header">
+          <h2>分享歌曲</h2>
+          <button
+            type="button"
+            class="share-close-btn"
+            aria-label="关闭"
+            @click="closeShareModal"
+          >
+            <i class="fas fa-xmark"></i>
+          </button>
+        </div>
+        <div class="share-song-name">{{ currentSong?.name }}</div>
+        <input
+          ref="shareInputRef"
+          class="share-url-input"
+          :value="currentSongShareUrl"
+          readonly
+          @focus="selectShareUrl"
+        />
+        <div class="share-modal-footer">
+          <span class="share-copy-status">{{ shareCopyStatus }}</span>
+          <button type="button" class="share-copy-btn" @click="copyShareUrl">
+            复制链接
+          </button>
+        </div>
       </div>
     </div>
 
@@ -246,6 +290,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import SearchBar from "@/components/SearchBar.vue";
 import AppActionSheets from "@/components/AppActionSheets.vue";
 import AppContentView from "@/components/AppContentView.vue";
@@ -260,6 +305,8 @@ import LyricSearchModal from "@/components/modals/LyricSearchModal.vue";
 import OnlineSearchModal from "@/components/modals/OnlineSearchModal.vue";
 import UploadModal from "@/components/modals/UploadModal.vue";
 import { useAppShell } from "@/composables/useAppShell";
+
+// Related documentation: `docs/shared-song-links.md`
 
 const {
   searchQuery,
@@ -288,6 +335,7 @@ const {
   activeQueue,
   currentSong,
   currentSongLyricApiBase,
+  currentSongShareUrl,
   isPlaying,
   currentTime,
   duration,
@@ -409,6 +457,57 @@ const {
   applyLibraryFilter,
   resetLibraryFilter,
 } = useAppShell();
+
+const shareInputRef = ref<HTMLInputElement | null>(null);
+const isShareModalVisible = ref(false);
+const shareCopyStatus = ref("");
+
+const copyTextToClipboard = async (text: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+};
+
+const openShareModal = () => {
+  shareCopyStatus.value = "";
+  isShareModalVisible.value = true;
+  setTimeout(() => shareInputRef.value?.select(), 0);
+};
+
+const closeShareModal = () => {
+  isShareModalVisible.value = false;
+};
+
+const selectShareUrl = () => {
+  shareInputRef.value?.select();
+};
+
+const copyShareUrl = async () => {
+  if (!currentSongShareUrl.value) {
+    return;
+  }
+
+  try {
+    await copyTextToClipboard(currentSongShareUrl.value);
+    shareCopyStatus.value = "已复制分享链接";
+  } catch (error) {
+    console.error("Failed to copy shared song link:", error);
+    shareCopyStatus.value = "复制失败，请手动复制";
+  }
+};
 </script>
 
 <style scoped>
@@ -471,6 +570,27 @@ const {
   flex: 1;
 }
 
+.action-icon-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: #f0f0f0;
+  color: #31414f;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-size: 15px;
+}
+
+.action-icon-btn:hover,
+.action-icon-btn:focus-visible {
+  background: #e6e6e6;
+  outline: none;
+}
+
 .action-btn {
   background: none;
   border: none;
@@ -484,6 +604,107 @@ const {
   font-size: 22px;
   line-height: 1;
   color: #31414f;
+}
+
+.share-modal-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.share-modal {
+  width: 100%;
+  max-width: 520px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
+  padding: 18px;
+  box-sizing: border-box;
+}
+
+.share-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.share-modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #20252a;
+}
+
+.share-close-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: #f1f3f4;
+  color: #31414f;
+  cursor: pointer;
+}
+
+.share-song-name {
+  margin-bottom: 10px;
+  color: #31414f;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.share-url-input {
+  width: 100%;
+  height: 40px;
+  border: 1px solid #ccd6dd;
+  border-radius: 6px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  color: #20252a;
+  font-size: 14px;
+}
+
+.share-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.share-copy-status {
+  min-width: 0;
+  color: #176b3a;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.share-copy-btn {
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: #176b3a;
+  color: #fff;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.share-copy-btn:hover,
+.share-copy-btn:focus-visible {
+  background: #145a31;
+  outline: none;
 }
 
 .scanning-message {

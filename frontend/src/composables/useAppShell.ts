@@ -28,6 +28,7 @@ import type {
 import { resolveSourceApiBase } from "@/utils/api";
 import {
   applySharedLinkApiBase,
+  buildSharedSongUrl,
   consumeSharedLinkQuery,
   parseSharedLinkIntent,
 } from "@/utils/sharedLink";
@@ -213,6 +214,11 @@ export function useAppShell() {
 
   const currentSongLyricApiBase = computed(() =>
     resolveSourceApiBase(player.currentSong.value?.source_key),
+  );
+  const currentSongShareUrl = computed(() =>
+    player.currentSong.value
+      ? buildSharedSongUrl(player.currentSong.value)
+      : "",
   );
 
   const handleLyricApplied = async () => {
@@ -921,6 +927,7 @@ export function useAppShell() {
     activeQueue: player.activeQueue,
     currentSong: player.currentSong,
     currentSongLyricApiBase,
+    currentSongShareUrl,
     isPlaying: player.isPlaying,
     currentTime: player.currentTime,
     duration: player.duration,

@@ -1,10 +1,6 @@
 import { computed, ref, type Ref } from "vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
-import {
-  LOCALHOST_API_BASE,
-  getLocalApiBase,
-  isSessionLocalApiBase,
-} from "@/utils/api";
+import { getLocalApiBase, isSessionLocalApiBase } from "@/utils/api";
 import {
   refreshDiscoveredDevices,
   refreshStoredManualDevices,
@@ -406,8 +402,8 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     syncSourceGroupCapabilities();
   };
 
-  const resetOnlineSearchSourceToLocalhost = () => {
-    setOnlineSearchSource(LOCALHOST_API_BASE);
+  const resetOnlineSearchSourceToLocal = () => {
+    setOnlineSearchSource(getLocalApiBase());
   };
 
   const ensureOnlineSearchSourceExists = () => {
@@ -417,7 +413,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     ]);
 
     if (!knownApiBases.has(onlineSearchApiBase.value)) {
-      resetOnlineSearchSourceToLocalhost();
+      resetOnlineSearchSourceToLocal();
       return;
     }
 
@@ -624,7 +620,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       onlineSearchApiBase.value === group.apiBase;
     const confirmed = window.confirm(
       isCurrentOnlineSearchSource
-        ? `删除来源 “${group.name}” 吗？\n\n它当前用于在线搜索。删除后会自动切换回本机来源。`
+        ? `删除来源 “${group.name}” 吗？\n\n它当前用于在线搜索。删除后会自动切换回当前本机来源。`
         : `删除来源 “${group.name}” 吗？`,
     );
     if (!confirmed) {
@@ -640,7 +636,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     );
 
     if (isCurrentOnlineSearchSource) {
-      resetOnlineSearchSourceToLocalhost();
+      resetOnlineSearchSourceToLocal();
     } else {
       ensureOnlineSearchSourceExists();
     }
@@ -730,7 +726,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     buildSourceLabel,
     ensureOnlineSearchSourceExists,
     setOnlineSearchSource,
-    resetOnlineSearchSourceToLocalhost,
+    resetOnlineSearchSourceToLocal,
     refreshSourceGroups,
     refreshSingleSource,
     refreshDiscoveryState,

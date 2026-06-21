@@ -1,6 +1,7 @@
 # Source API Routing
 
 Related source files:
+
 - `frontend/src/utils/api.ts`
 - `frontend/src/App.vue`
 - `frontend/src/components/modals/AddDeviceModal.vue`
@@ -15,7 +16,8 @@ Kaulan no longer uses a single saved "server URL" as the app-wide backend target
 
 The frontend now routes requests with two explicit rules:
 
-- local maintenance actions always use `http://localhost:2080/api`
+- local maintenance actions use the current HTTP page origin plus `/api`, with
+  `http://localhost:2080/api` as the non-HTTP/non-browser fallback
 - source-bound actions use the source URL carried by the selected source, playlist, or song
 
 This matches the multi-source library model. Adding a device adds a source to the library. It does not replace a global active server.
@@ -24,7 +26,7 @@ This matches the multi-source library model. Adding a device adds a source to th
 
 ### Local-only actions
 
-These always target localhost:
+These target the backend that served the current web page:
 
 - startup scan
 - local discovery scan
@@ -33,6 +35,7 @@ These always target localhost:
 - default local upload target
 
 Implementation entry point:
+
 - `getLocalApiBase()` in `frontend/src/utils/api.ts`
 
 ### Source-bound actions
@@ -46,12 +49,13 @@ These resolve from the item being acted on:
 - LUFS precache requests
 
 Implementation entry point:
+
 - `resolveSourceApiBase(sourceKey)`
 
 Resolution rule:
 
 - absolute `http://` or `https://` source key -> use that URL directly
-- any non-HTTP source key or missing source key -> fall back to localhost
+- any non-HTTP source key or missing source key -> fall back to `getLocalApiBase()`
 
 ## Add Device Behavior
 
@@ -78,7 +82,7 @@ sequenceDiagram
     participant Remote as Remote Source
 
     App->>Api: getLocalApiBase()
-    Api-->>App: http://localhost:2080/api
+    Api-->>App: window.location.origin + /api
     App->>Local: POST /database/update?startup=true
 
     App->>Api: resolveSourceApiBase(song.source_key)
@@ -86,7 +90,7 @@ sequenceDiagram
         Api-->>App: http://192.168.1.20:2080/api
         App->>Remote: GET /lyrics/id/{id}
     else local or missing source key
-        Api-->>App: http://localhost:2080/api
+        Api-->>App: getLocalApiBase()
         App->>Local: GET /lyrics/id/{id}
     end
 ```
@@ -94,5 +98,7 @@ sequenceDiagram
 ## Notes
 
 - `normalizeApiBase()` is still used for manual device input normalization.
+- `getLocalApiBase()` falls back to `http://localhost:2080/api` when the page is
+  not served from an HTTP or HTTPS origin.
 - The old single-server storage key `kaulan_server_url` is no longer part of active frontend routing.
 - The old `getApiBase()` model has been removed from runtime source selection.

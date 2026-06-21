@@ -30,13 +30,53 @@ Related source files:
 
 ## Link Format
 
-| URL | Result |
-| --- | --- |
-| `/?id=42` | Load song `42` from the current server and try to play it |
-| `/?id=abc` | Show invalid-link message and keep the app usable |
-| `/` | Normal app startup without shared playback intent |
+| URL        | Result                                                    |
+| ---------- | --------------------------------------------------------- |
+| `/?id=42`  | Load song `42` from the current server and try to play it |
+| `/?id=abc` | Show invalid-link message and keep the app usable         |
+| `/`        | Normal app startup without shared playback intent         |
 
 Song sharing is id-based only. There is no filename fallback contract.
+
+## Creating a Link
+
+The narrow action bar shows a link button on the right whenever a song is
+selected and the action bar is visible. The button is not part of the search bar
+or mini player.
+
+```text
++--------------------------------------------------+
+| [Back]                                    [Link] |
++--------------------------------------------------+
+|              [ Cover ]                           |
+|              [ Cover ]                           |
+|              [ Cover ]                           |
++--------------------------------------------------+
+| [Cover] Song Name                                |
+| [Cover]      progress bar                        |
+| [Shuffle] [Prev] [Play/Pause] [Next] [Queue]     |
++--------------------------------------------------+
+```
+
+Clicking the button opens a compact share dialog:
+
+```text
++------------------------------------------------------+
+| Share Song                                      [x]  |
++------------------------------------------------------+
+| Song Name                                             |
+| http://192.168.1.20:2080/?id=42                      |
+|                                                      |
+|                                  [Copy Link]         |
++------------------------------------------------------+
+```
+
+The generated link uses the selected song's source API base. For example, a song
+loaded from `http://192.168.1.20:2080/api` creates
+`http://192.168.1.20:2080/?id=42`, even if the browser is currently open on a
+different Kaulan source. If a song does not carry a source key, the frontend
+uses the current page origin plus `/api`, falling back to
+`http://localhost:2080/api` only outside normal HTTP/HTTPS browser origins.
 
 ## Request Flow
 

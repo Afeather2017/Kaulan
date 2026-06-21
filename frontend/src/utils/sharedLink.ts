@@ -1,7 +1,11 @@
 import {
   clearSessionLocalApiBaseOverride,
+  resolveSourceApiBase,
   setSessionLocalApiBaseOverride,
 } from "@/utils/api";
+import type { MusicInfo } from "@/types/music";
+
+// Related documentation: `docs/shared-song-links.md`
 
 export type SharedLinkError = "invalid_id";
 
@@ -71,4 +75,20 @@ export function consumeSharedLinkQuery(): void {
   const nextSearch = url.searchParams.toString();
   const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`;
   window.history.replaceState({}, "", nextUrl);
+}
+
+export function buildSharedSongUrl(
+  song: Pick<MusicInfo, "id" | "source_key" | "is_temporary">,
+): string {
+  if (song.is_temporary) {
+    return "";
+  }
+
+  const apiBase = resolveSourceApiBase(song.source_key);
+  const url = new URL(apiBase);
+  url.pathname = url.pathname.replace(/\/api\/?$/, "/") || "/";
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("id", String(song.id));
+  return url.toString();
 }

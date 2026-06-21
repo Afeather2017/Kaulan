@@ -18,6 +18,7 @@ import {
 
 describe("online search source storage", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
     const store = new Map<string, string>();
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => store.get(key) ?? null,
@@ -31,11 +32,20 @@ describe("online search source storage", () => {
         store.clear();
       },
     });
+    vi.stubGlobal("window", {
+      ...window,
+      location: {
+        ...window.location,
+        origin: "http://192.168.1.20:2080",
+      },
+    });
     removeDefaultOnlineSearchApiBase();
   });
 
-  it("defaults to localhost when unset", () => {
-    expect(getDefaultOnlineSearchApiBase()).toBe("http://localhost:2080/api");
+  it("defaults to the current browser origin when unset", () => {
+    expect(getDefaultOnlineSearchApiBase()).toBe(
+      "http://192.168.1.20:2080/api",
+    );
   });
 
   it("persists a selected online search source", () => {
@@ -46,10 +56,12 @@ describe("online search source storage", () => {
     );
   });
 
-  it("falls back to localhost when saving an empty value", () => {
+  it("falls back to the current browser origin when saving an empty value", () => {
     setDefaultOnlineSearchApiBase("   ");
 
-    expect(getDefaultOnlineSearchApiBase()).toBe("http://localhost:2080/api");
+    expect(getDefaultOnlineSearchApiBase()).toBe(
+      "http://192.168.1.20:2080/api",
+    );
   });
 });
 
@@ -89,10 +101,31 @@ describe("LUFS pre-cache count storage", () => {
 
 describe("session local api base override", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
     clearSessionLocalApiBaseOverride();
   });
 
-  it("defaults to localhost when no session override exists", () => {
+  it("defaults to the current browser origin when no session override exists", () => {
+    vi.stubGlobal("window", {
+      ...window,
+      location: {
+        ...window.location,
+        origin: "http://192.168.1.20:2080",
+      },
+    });
+
+    expect(getLocalApiBase()).toBe("http://192.168.1.20:2080/api");
+  });
+
+  it("falls back to localhost for non-http browser origins", () => {
+    vi.stubGlobal("window", {
+      ...window,
+      location: {
+        ...window.location,
+        origin: "tauri://localhost",
+      },
+    });
+
     expect(getLocalApiBase()).toBe("http://localhost:2080/api");
   });
 

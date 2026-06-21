@@ -48,6 +48,7 @@ cargo build
 ### Running the Application
 
 The music directory can be provided via:
+
 1. **CLI argument** (highest priority) - `cargo run -- run /path/to/music`
 2. **Config file** - `~/.config/kaulan/config.json`
 3. **Environment variable** - `KAULAN_MUSIC_DIR`
@@ -88,10 +89,11 @@ Shared song links use the same backend-served web app:
 http://localhost:2080/?id=42
 ```
 
-When a browser opens this URL, the frontend uses `http://localhost:2080/api` as
-its session source, resolves song `42`, opens the player panel, and attempts to
-start playback immediately. If the browser blocks autoplay, the page stays on
-the selected song and shows a manual play button. See
+When a browser opens this URL, the frontend uses the page origin plus `/api` as
+its session source, so `http://192.168.1.20:2080/?id=42` resolves from
+`http://192.168.1.20:2080/api`. It opens the player panel and attempts to start
+playback immediately. If the browser blocks autoplay, the page stays on the
+selected song and shows a manual play button. See
 `docs/shared-song-links.md` for the flow details.
 
 ### Standalone Online Search Auth
@@ -208,6 +210,7 @@ cargo run -- run /path/to/music
 ```
 
 On first run, the server will:
+
 - Create `music.db` SQLite database in your music directory
 - Scan all audio files recursively
 - Insert new files into the database
@@ -222,6 +225,7 @@ cargo run update ~/Music
 ```
 
 This command will:
+
 - Scan for new files and add them to the database
 - Calculate LUFS values for files without proper values
 - Remove database entries for deleted files
@@ -280,11 +284,13 @@ Get all music files from the database.
 Stream an audio file by filename.
 
 **Parameters:**
+
 - `filename` (path parameter) - The filename to stream
 
 **Response:** Audio file binary data (audio/mpeg)
 
 **Headers:**
+
 - `Content-Type: audio/mpeg`
 - `Cache-Control: public, max-age=86400, must-revalidate`
 
@@ -309,9 +315,9 @@ Search Netease lyric candidates for any selected result.
 Download the selected provider track into the configured online download root and optionally save a matching `.lrc` file beside it.
 
 **Parameters:**
+
 - `id` (path parameter) - The music ID to stream
 - `position` (query parameter, optional) - Position in file (0.0 to 1.0)
-
   - `0.0` = Start of file
   - `0.5` = Middle of file
   - `1.0` = End of file
@@ -319,6 +325,7 @@ Download the selected provider track into the configured online download root an
 **Response:** Audio file binary data (audio/mpeg)
 
 **Without position parameter (HTTP 200 OK):**
+
 ```http
 HTTP/1.1 200 OK
 Content-Type: audio/mpeg
@@ -328,6 +335,7 @@ Cache-Control: public, max-age=86400, must-revalidate
 ```
 
 **With position parameter (HTTP 206 Partial Content):**
+
 ```http
 HTTP/1.1 206 Partial Content
 Content-Type: audio/mpeg
@@ -343,16 +351,19 @@ X-Seek-Position: 0.1
 Get embedded cover art for a music file by ID.
 
 **Parameters:**
+
 - `id` (path parameter) - The music ID
 
 **Response:** Embedded image binary data with the detected image content type
 
 **Behavior:**
+
 - Returns `200 OK` when cover art is embedded in the audio metadata
 - Returns `404 Not Found` when the file has no embedded cover art
 - Used by the Android playback notification to show album artwork when available
 
 **Example:** Stream from 10% position (saves bandwidth for large seeks)
+
 ```bash
 curl "http://localhost:2080/api/music/id/25?position=0.1"
 ```
@@ -393,6 +404,7 @@ See [`docs/streaming-flow.md`](docs/streaming-flow.md) for how playlist metadata
 Get a specific playlist by name.
 
 **Parameters:**
+
 - `name` (path parameter) - The playlist name (folder name or "所有音乐")
 
 **Response:** `Playlist`
@@ -427,6 +439,7 @@ Get the current music directory path.
 Set the music directory path. The change is saved to a config file and takes effect on the next application restart.
 
 **Request:**
+
 ```json
 {
   "path": "/new/path/to/music"
@@ -434,6 +447,7 @@ Set the music directory path. The change is saved to a config file and takes eff
 ```
 
 **Response (Success):**
+
 ```json
 {
   "success": true,
@@ -442,6 +456,7 @@ Set the music directory path. The change is saved to a config file and takes eff
 ```
 
 **Response (Error):**
+
 ```json
 {
   "success": false,
@@ -497,6 +512,7 @@ Get this device's information.
 Set this device's name.
 
 **Request:**
+
 ```json
 {
   "name": "My New Device Name"
@@ -504,6 +520,7 @@ Set this device's name.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -516,6 +533,7 @@ Set this device's name.
 Start a manual discovery scan transaction.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -528,6 +546,7 @@ Start a manual discovery scan transaction.
 Send one UDP discovery request packet. The frontend calls this every 1 second for 10 seconds after pressing "刷新设备".
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -540,6 +559,7 @@ Send one UDP discovery request packet. The frontend calls this every 1 second fo
 Finish a manual discovery scan transaction and commit or rollback scan results.
 
 **Request:**
+
 ```json
 {
   "success": true
@@ -547,6 +567,7 @@ Finish a manual discovery scan transaction and commit or rollback scan results.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -563,7 +584,7 @@ interface MusicResponse {
   filename: string;
   file_path: string;
   lufs: number | null;
-  created_at: string;  // ISO 8601 datetime
+  created_at: string; // ISO 8601 datetime
 }
 
 // Music info for playback
@@ -586,13 +607,13 @@ interface Playlist {
 
 The application uses SQLite with SeaORM. The database file (`music.db`) is created in your music directory.
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `id` | INTEGER | PRIMARY KEY, AUTO INCREMENT | Unique identifier |
-| `filename` | TEXT | NOT NULL | Original filename |
-| `file_path` | TEXT | UNIQUE, NOT NULL | Relative path from music directory |
-| `lufs` | REAL | NULLABLE | LUFS value for volume normalization |
-| `created_at` | TEXT | NOT NULL | ISO 8601 timestamp (UTC) |
+| Column       | Type    | Constraints                 | Description                         |
+| ------------ | ------- | --------------------------- | ----------------------------------- |
+| `id`         | INTEGER | PRIMARY KEY, AUTO INCREMENT | Unique identifier                   |
+| `filename`   | TEXT    | NOT NULL                    | Original filename                   |
+| `file_path`  | TEXT    | UNIQUE, NOT NULL            | Relative path from music directory  |
+| `lufs`       | REAL    | NULLABLE                    | LUFS value for volume normalization |
+| `created_at` | TEXT    | NOT NULL                    | ISO 8601 timestamp (UTC)            |
 
 ### Database Location
 
@@ -625,13 +646,14 @@ The application uses a JSON configuration file to persist the music directory pa
 
 **Config File Locations:**
 
-| Platform | Standalone Mode | Tauri Mode |
-|----------|----------------|------------|
-| Linux | `~/.config/kaulan/config.json` | `~/.config/<app-name>/config.json` |
-| macOS | `~/Library/Application Support/kaulan/config.json` | `~/Library/Application Support/<app-name>/config.json` |
-| Windows | `%APPDATA%\kaulan\config.json` | `%APPDATA%\<app-name>\config.json` |
+| Platform | Standalone Mode                                    | Tauri Mode                                             |
+| -------- | -------------------------------------------------- | ------------------------------------------------------ |
+| Linux    | `~/.config/kaulan/config.json`                     | `~/.config/<app-name>/config.json`                     |
+| macOS    | `~/Library/Application Support/kaulan/config.json` | `~/Library/Application Support/<app-name>/config.json` |
+| Windows  | `%APPDATA%\kaulan\config.json`                     | `%APPDATA%\<app-name>\config.json`                     |
 
 **Config Format:**
+
 ```json
 {
   "music_directory": "/path/to/music",
@@ -641,6 +663,7 @@ The application uses a JSON configuration file to persist the music directory pa
 ```
 
 **Music Directory Priority (highest to lowest):**
+
 1. CLI argument (if provided) - **Overrides config file**
 2. Config file (if exists)
 3. Environment variable `KAULAN_MUSIC_DIR`
@@ -650,13 +673,13 @@ The application uses a JSON configuration file to persist the music directory pa
 
 ### Backend Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| HTTP Port | 2080 | HTTP API server port |
-| Discovery Port | 2082 | UDP device discovery request/reply |
-| Bind Address | 0.0.0.0 | Server bind address |
-| Music Directory | `~/Music` or `./music` | Path to music files |
-| Database | `music.db` | SQLite database in music directory |
+| Setting         | Default                | Description                        |
+| --------------- | ---------------------- | ---------------------------------- |
+| HTTP Port       | 2080                   | HTTP API server port               |
+| Discovery Port  | 2082                   | UDP device discovery request/reply |
+| Bind Address    | 0.0.0.0                | Server bind address                |
+| Music Directory | `~/Music` or `./music` | Path to music files                |
+| Database        | `music.db`             | SQLite database in music directory |
 
 ### Frontend Configuration
 
@@ -799,6 +822,7 @@ frontend/src/
 LUFS (Loudness Units Full Scale) values are calculated using FFmpeg and stored in the database. The application uses these values to normalize playback volume across tracks with different mastering levels.
 
 During the `update` command, LUFS is calculated for:
+
 - New files being added to the database
 - Existing files with missing or default (0.5) LUFS values
 

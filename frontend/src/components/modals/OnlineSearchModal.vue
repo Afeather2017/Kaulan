@@ -266,6 +266,7 @@
 import { computed, reactive, ref, onMounted, watch } from "vue";
 import LyricSearchModal from "@/components/modals/LyricSearchModal.vue";
 import { type LyricCandidate } from "@/components/LyricSearchPanel.vue";
+import { getLocalApiBase } from "@/utils/api";
 
 type DownloadSource = "youtube" | "netease" | "bilibili";
 type OnlineProvider = DownloadSource;
@@ -363,11 +364,9 @@ const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   },
 });
 
-const LOCALHOST_API_BASE = "http://localhost:2080/api";
-
 const resolvedApiBase = (): string => {
   const candidate = props.apiBase?.trim();
-  return candidate && candidate.length > 0 ? candidate : LOCALHOST_API_BASE;
+  return candidate && candidate.length > 0 ? candidate : getLocalApiBase();
 };
 
 const sourceNameLabel = computed(() => props.sourceName?.trim() || "本机来源");
@@ -423,7 +422,7 @@ watch(
 
 onMounted(async () => {
   supportsProviderAccountActions.value =
-    resolvedApiBase() === LOCALHOST_API_BASE &&
+    resolvedApiBase() === getLocalApiBase() &&
     typeof window !== "undefined" &&
     typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
       .__TAURI_INTERNALS__ !== "undefined";
@@ -435,7 +434,7 @@ watch(
   () => props.apiBase,
   async () => {
     supportsProviderAccountActions.value =
-      resolvedApiBase() === LOCALHOST_API_BASE &&
+      resolvedApiBase() === getLocalApiBase() &&
       typeof window !== "undefined" &&
       typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
         .__TAURI_INTERNALS__ !== "undefined";
@@ -790,7 +789,7 @@ const confirmDownload = async () => {
   try {
     const selectedLyric = selectedLyrics[resultKey(result)];
     const shouldAlsoSaveLocal =
-      resolvedApiBase() !== LOCALHOST_API_BASE &&
+      resolvedApiBase() !== getLocalApiBase() &&
       window.confirm(
         "是否同时保存一份到本机？\n\n选择“确定”会同时保存到当前来源曲库和本机。\n选择“取消”则只保存到当前来源曲库。",
       );
@@ -807,7 +806,7 @@ const confirmDownload = async () => {
     if (shouldAlsoSaveLocal) {
       try {
         await downloadTrackToApiBase(
-          LOCALHOST_API_BASE,
+          getLocalApiBase(),
           result,
           requestedFileName,
           selectedLyric?.id ?? null,

@@ -28,6 +28,25 @@ function appendApiPath(pathname: string): string {
   return `${trimmedPath}/api`;
 }
 
+function getBrowserOriginApiBase(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const url = new URL(window.location.origin);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    url.pathname = "/api";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Normalize user input into a full API base URL.
  *
@@ -69,7 +88,11 @@ export function normalizeApiBase(input: string): string {
 }
 
 export function getLocalApiBase(): string {
-  return sessionLocalApiBaseOverride || LOCALHOST_API_BASE;
+  return (
+    sessionLocalApiBaseOverride ||
+    getBrowserOriginApiBase() ||
+    LOCALHOST_API_BASE
+  );
 }
 
 export function setSessionLocalApiBaseOverride(apiBase: string): void {

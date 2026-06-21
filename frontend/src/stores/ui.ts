@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
-import { LOCALHOST_API_BASE } from "@/utils/api";
+import { getLocalApiBase } from "@/utils/api";
 
 export type MainView = "playlists" | "songs" | "search";
 export type MainTab = "library" | "collections";
@@ -24,7 +24,7 @@ export const useUiStore = defineStore("ui", () => {
   const showActiveQueueModal = ref(false);
   const playerPanelMode = ref<PlayerPanelMode>("collapsed");
   const isScanning = ref(false);
-  const uploadTargetApiBase = ref<string>(LOCALHOST_API_BASE);
+  const uploadTargetApiBase = ref<string>(getLocalApiBase());
 
   const isPlaylistView = computed(() => currentView.value === "playlists");
 

@@ -2,9 +2,6 @@
   <template v-if="isPlayerPanelVisible">
     <div class="right-panel">
       <div class="right-panel-content">
-        <div v-if="isWideLayout" class="right-panel-header">
-          {{ isLyricPanelVisible ? "正在播放 / 歌词" : "正在播放" }}
-        </div>
         <div
           v-if="isLyricPanelVisible"
           class="lyric-panel"
@@ -181,15 +178,6 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
-}
-
-.right-panel-header {
-  padding: 14px 18px 10px;
-  border-bottom: 1px solid #eee;
-  background: #fafafa;
-  color: #31414f;
-  font-size: 14px;
-  font-weight: 700;
 }
 
 .lyric-panel {
