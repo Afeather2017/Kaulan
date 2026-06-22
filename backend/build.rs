@@ -41,6 +41,6 @@ fn main() {
     };
 
     for hook in ["pre-commit", "pre-push"] {
-        install_hook(&repo_root, hook);
+        install_hook(repo_root, hook);
     }
 }
