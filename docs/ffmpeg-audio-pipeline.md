@@ -127,5 +127,6 @@ cargo check
 - Online download cover-art embedding now also runs through the same in-process FFmpeg path, so YouTube, Netease, and Bilibili share one artwork muxer.
 - Embedded cover-art payloads are capped at 10 MiB during extraction and embedding to avoid unbounded memory allocation on malformed media.
 - FFmpeg export and cover replacement use UUID-suffixed output paths for temporary/intermediate files. When an unknown audio codec falls back to MP3 transcoding, the backend emits a warning log so support can be added later.
+- Minimal FFmpeg builds used by CI must include both the `ebur128` and `aresample` filters. `ebur128` requires double-precision samples, and common decoded MP3 frames may need `aresample` for filter-graph format conversion before LUFS analysis can run.
 - Vorbis outputs remain a documented exception: Kaulan still exports Vorbis downloads as `.ogg`, but the current attached-picture muxing path does not work for that container, so those files are expected to remain without embedded artwork.
 - The next Android step is packaging or bundling FFmpeg in a way that works for the Tauri Android runtime.

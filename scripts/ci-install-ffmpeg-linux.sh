@@ -101,6 +101,7 @@ pushd "$SOURCE_ROOT" >/dev/null
     --enable-parser=vorbis \
     --enable-bsf=aac_adtstoasc \
     --disable-filters \
+    --enable-filter=aresample \
     --enable-filter=ebur128
 make -j"$(nproc)"
 make install
