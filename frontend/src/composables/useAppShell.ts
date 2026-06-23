@@ -900,6 +900,7 @@ export function useAppShell() {
     libraryGroupSummaries: library.libraryGroupSummaries,
     searchResults: library.searchResults,
     filterSources: library.filterSources,
+    onlineSearchSources: library.onlineSearchSources,
     trimmedSearchQuery: library.trimmedSearchQuery,
     onlineSearchSourceName: library.onlineSearchSourceName,
     ensureOnlineSearchSourceExists: libraryStore.ensureOnlineSearchSourceExists,

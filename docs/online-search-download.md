@@ -85,8 +85,15 @@ Current provider availability checks:
 
 For YouTube, "saved cookies exist" is only a coarse gate. A provider can still fail later if the saved cookies are stale or no longer satisfy YouTube bot checks.
 
+### Provider account management
+
+- The modal only exposes `登录`, `同步登录`, and `退出` when the selected search source is the local `http://localhost:2080/api` backend running inside the Tauri shell.
+- Remote sources still report provider availability through `/api/download/providers`, but their account state must be managed on the remote device itself.
+
 ### Search behavior
 
+- The modal includes a backend source selector so users can switch the online-search server without leaving the panel.
+- Only sources with at least one usable provider can be selected for online search.
 - Search is merged across the selected enabled providers.
 - Backend provider requests are fanned out concurrently, not serially.
 - Result rows show:
@@ -428,6 +435,7 @@ The current backend behavior intentionally ignores logged-out providers instead 
 
 - `frontend/src/components/modals/OnlineSearchModal.vue`
 - `frontend/src/App.vue`
+- `frontend/src/composables/useLibrarySources.ts`
 - `frontend/src/composables/useAudioPlayer.ts`
 - `frontend/src-tauri/build.rs`
 - `frontend/src-tauri/src/lib.rs`

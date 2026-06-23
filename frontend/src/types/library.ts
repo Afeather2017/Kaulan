@@ -36,6 +36,13 @@ export interface OnlineProviderStatus {
   summary: string;
 }
 
+export interface OnlineSearchSourceOption {
+  apiBase: string;
+  name: string;
+  canUseForOnlineSearch: boolean;
+  isOnline: boolean;
+}
+
 export interface LibrarySourceGroup {
   apiBase: string;
   sourceKey: string;

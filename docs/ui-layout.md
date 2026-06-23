@@ -1,4 +1,4 @@
-# UI Layout Refactor Proposal
+# UI Layout
 
 Related source files:
 
@@ -407,7 +407,9 @@ Rules:
 - only providers already usable on the selected search source can be checked
 - unavailable providers stay visible but disabled
 - the search button stays disabled until at least one enabled provider is selected
-- the selected source still comes from the source-group `⋮` menu, not from this panel
+- the panel includes its own source selector for switching the active online-search backend
+- source options without any usable providers stay visible but disabled
+- provider account-management actions only appear when the selected source is the local `localhost` backend
 
 Expanded provider status:
 
@@ -433,6 +435,8 @@ Provider-specific management sheet:
 | [Logout]                                         |
 +--------------------------------------------------+
 ```
+
+Remote sources should not expose this account-management sheet inside the panel. They only report provider availability; login state must be managed on the remote device itself.
 
 Default rules:
 

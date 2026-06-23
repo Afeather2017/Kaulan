@@ -4,6 +4,31 @@
       <h3>在线查找</h3>
       <p class="source-caption">当前来源：{{ sourceNameLabel }}</p>
 
+      <div v-if="sourceOptions.length > 0" class="search-source-selector">
+        <label class="setting-label" for="online-search-source-select">
+          搜索来源
+        </label>
+        <select
+          id="online-search-source-select"
+          class="source-select"
+          :value="resolvedApiBase()"
+          @change="handleSourceChange"
+        >
+          <option
+            v-for="option in sourceOptions"
+            :key="option.apiBase"
+            :value="option.apiBase"
+            :disabled="!option.canUseForOnlineSearch"
+          >
+            {{
+              option.canUseForOnlineSearch
+                ? option.name
+                : `${option.name}（不可用于在线搜索）`
+            }}
+          </option>
+        </select>
+      </div>
+
       <div class="search-section">
         <div class="search-input-row">
           <input
@@ -101,6 +126,13 @@
                 退出
               </button>
             </div>
+          </div>
+          <div
+            v-if="!supportsProviderAccountActions"
+            class="provider-management-note"
+          >
+            这里只支持管理本机 localhost
+            来源的登录状态。远程来源请在对应设备上登录。
           </div>
         </div>
       </div>
@@ -267,6 +299,8 @@ import { computed, reactive, ref, onMounted, watch } from "vue";
 import LyricSearchModal from "@/components/modals/LyricSearchModal.vue";
 import { type LyricCandidate } from "@/components/LyricSearchPanel.vue";
 import { getLocalApiBase } from "@/utils/api";
+import { isLocalhostApiBase } from "@/utils/platform";
+import type { OnlineSearchSourceOption } from "@/types/library";
 
 type DownloadSource = "youtube" | "netease" | "bilibili";
 type OnlineProvider = DownloadSource;
@@ -309,6 +343,7 @@ interface DirectoryNode {
 
 const emit = defineEmits<{
   (e: "close"): void;
+  (e: "changeSource", apiBase: string): void;
   (e: "downloadComplete"): void;
   (e: "previewTrack", song: PreviewSong): void;
 }>();
@@ -317,6 +352,7 @@ const props = defineProps<{
   initialQuery?: string;
   apiBase?: string;
   sourceName?: string;
+  sourceOptions?: OnlineSearchSourceOption[];
 }>();
 
 const providerOptions: Array<{ value: OnlineProvider; label: string }> = [
@@ -364,6 +400,8 @@ const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   },
 });
 
+const sourceOptions = computed(() => props.sourceOptions ?? []);
+
 const resolvedApiBase = (): string => {
   const candidate = props.apiBase?.trim();
   return candidate && candidate.length > 0 ? candidate : getLocalApiBase();
@@ -410,6 +448,14 @@ const enabledSources = computed<DownloadSource[]>(() =>
 
 const hasEnabledProvider = computed(() => enabledSources.value.length > 0);
 
+const updateProviderAccountActionsSupport = () => {
+  supportsProviderAccountActions.value =
+    isLocalhostApiBase(resolvedApiBase()) &&
+    typeof window !== "undefined" &&
+    typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__ !== "undefined";
+};
+
 watch(
   () => props.initialQuery,
   (value) => {
@@ -421,11 +467,7 @@ watch(
 );
 
 onMounted(async () => {
-  supportsProviderAccountActions.value =
-    resolvedApiBase() === getLocalApiBase() &&
-    typeof window !== "undefined" &&
-    typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
-      .__TAURI_INTERNALS__ !== "undefined";
+  updateProviderAccountActionsSupport();
 
   await Promise.all([loadDownloadDirectoryTree(), loadProviderStatuses()]);
 });
@@ -433,14 +475,19 @@ onMounted(async () => {
 watch(
   () => props.apiBase,
   async () => {
-    supportsProviderAccountActions.value =
-      resolvedApiBase() === getLocalApiBase() &&
-      typeof window !== "undefined" &&
-      typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
-        .__TAURI_INTERNALS__ !== "undefined";
+    updateProviderAccountActionsSupport();
+    managingProvider.value = null;
     await Promise.all([loadDownloadDirectoryTree(), loadProviderStatuses()]);
   },
 );
+
+const handleSourceChange = (event: Event) => {
+  const nextApiBase = (event.target as HTMLSelectElement).value;
+  if (!nextApiBase || nextApiBase === resolvedApiBase()) {
+    return;
+  }
+  emit("changeSource", nextApiBase);
+};
 
 const resultKey = (result: SearchResult): string =>
   `${result.source}:${result.id}`;
@@ -870,6 +917,19 @@ const confirmDownload = async () => {
   font-size: 14px;
 }
 
+.search-source-selector {
+  margin-bottom: 18px;
+}
+
+.source-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+  color: #223;
+}
+
 .search-section,
 .results-section {
   margin-bottom: 18px;
@@ -1072,6 +1132,13 @@ const confirmDownload = async () => {
   flex-wrap: wrap;
   width: 100%;
   padding-top: 4px;
+}
+
+.provider-management-note {
+  width: 100%;
+  padding-top: 8px;
+  font-size: 13px;
+  color: #556372;
 }
 
 .setting-label {

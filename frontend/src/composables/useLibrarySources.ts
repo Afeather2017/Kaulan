@@ -16,6 +16,7 @@ import { isCurrentOriginApiBase, isLocalhostApiBase } from "@/utils/platform";
 import type {
   LibrarySourceGroup,
   LibrarySourceGroupSummary,
+  OnlineSearchSourceOption,
   OnlineProviderStatus,
   SourceCapabilities,
 } from "@/types/library";
@@ -157,6 +158,15 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     sourceGroups.value.map((group) => ({
       sourceKey: group.sourceKey,
       name: group.name,
+    })),
+  );
+
+  const onlineSearchSources = computed<OnlineSearchSourceOption[]>(() =>
+    sourceGroups.value.map((group) => ({
+      apiBase: group.apiBase,
+      name: group.name,
+      canUseForOnlineSearch: group.capabilities.canUseForOnlineSearch,
+      isOnline: group.isOnline,
     })),
   );
 
@@ -721,6 +731,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     libraryGroupSummaries,
     searchResults,
     filterSources,
+    onlineSearchSources,
     trimmedSearchQuery,
     onlineSearchSourceName,
     buildSourceLabel,

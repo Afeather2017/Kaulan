@@ -232,7 +232,9 @@
       :initial-query="onlineSearchInitialQuery"
       :api-base="onlineSearchApiBase"
       :source-name="onlineSearchSourceName"
+      :source-options="onlineSearchSources"
       @close="showOnlineSearchModal = false"
+      @change-source="setOnlineSearchSource"
       @download-complete="handleOnlineDownloadComplete"
       @preview-track="handlePreviewTrack"
     />
@@ -310,6 +312,7 @@ const {
   libraryGroupSummaries,
   searchResults,
   filterSources,
+  onlineSearchSources,
   trimmedSearchQuery,
   onlineSearchSourceName,
   currentView,
@@ -398,6 +401,7 @@ const {
   handleOnlineDownloadComplete,
   handleLyricApplied,
   handlePreviewTrack,
+  setOnlineSearchSource,
   handlePlayQueueSong,
   handleUpdateSourceDatabase,
   handleSetOnlineSearchSourceFromMenu,
