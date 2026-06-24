@@ -20,7 +20,11 @@ Related source files:
 - The backend serves the same `index.html` shell at `/`.
 - The frontend reads `window.location.search` and parses `id`.
 - The frontend treats `window.location.origin + "/api"` as the session-local
-  source for this page load.
+  source for this page load. This lookup is skipped inside Tauri webviews
+  (Android/iOS/native desktop), where the page origin is a virtual host such
+  as `http(s)://tauri.localhost` rather than the backend HTTP server; those
+  builds keep using the configured server URL or the `http://localhost:2080/api`
+  fallback.
 - The app refreshes library sources, finds the requested song id, opens the
   containing playlist, shows the player panel, and attempts playback.
 - If the browser blocks autoplay, the song stays selected and the page shows a
@@ -76,7 +80,9 @@ loaded from `http://192.168.1.20:2080/api` creates
 `http://192.168.1.20:2080/?id=42`, even if the browser is currently open on a
 different Kaulan source. If a song does not carry a source key, the frontend
 uses the current page origin plus `/api`, falling back to
-`http://localhost:2080/api` only outside normal HTTP/HTTPS browser origins.
+`http://localhost:2080/api` only outside normal HTTP/HTTPS browser origins or
+inside a Tauri webview (where the page origin is the virtual `tauri.localhost`
+host, not the backend).
 
 ## Request Flow
 

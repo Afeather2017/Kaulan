@@ -28,8 +28,27 @@ function appendApiPath(pathname: string): string {
   return `${trimmedPath}/api`;
 }
 
+function isTauriWebview(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return (
+    typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__ !== "undefined"
+  );
+}
+
 function getBrowserOriginApiBase(): string | null {
   if (typeof window === "undefined") {
+    return null;
+  }
+
+  // Inside a Tauri webview (Android/iOS/native desktop) the page loads from a
+  // virtual origin such as `http(s)://tauri.localhost`, not from the backend
+  // HTTP server. The session override or LOCALHOST_API_BASE fallback must be
+  // used in that case; otherwise every API call is misrouted to tauri.localhost.
+  if (isTauriWebview()) {
     return null;
   }
 
