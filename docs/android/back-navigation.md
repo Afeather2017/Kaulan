@@ -14,8 +14,8 @@ The implementation is Android-only. Desktop browsers and non-Android Tauri targe
 Kaulan's main UI is mostly a single-page Vue app driven by reactive state:
 
 - modal visibility flags such as `showSettings`
-- panel visibility flags such as `showLyric`
 - mode flags such as `selectMode`
+- a narrow-layout panel stack that tracks the last visible content or player panel
 - view state such as `currentView`
 
 Without custom handling, Android back exits the Tauri webview directly. That skips the app's own UI state transitions.
@@ -38,9 +38,9 @@ sequenceDiagram
         App->>App: disable selectMode
     else collection selection mode is active
         App->>App: disable collectionSelectMode
-    else mobile lyric panel is open
-        App->>App: hide lyric panel
-    else current view is not playlists
+    else narrow panel stack can pop
+        App->>App: goBack()
+    else app is not in playlist root
         App->>App: back to playlists
     else webview has history
         App->>App: window.history.back()
@@ -68,8 +68,8 @@ Current priority in [`frontend/src/App.vue`](../../frontend/src/App.vue):
 11. Settings modal
 12. Song selection mode
 13. Collection selection mode
-14. Mobile player panel
-15. Non-playlist view back to playlist view
+14. Narrow panel stack pop
+15. Fallback reset to playlist root
 16. Browser history back
 17. Close Tauri window
 
@@ -82,76 +82,79 @@ Modal overlays are handled by a dedicated helper:
 ```ts
 const closeTopOverlay = () => {
   if (showFilterSheet.value) {
-    showFilterSheet.value = false
-    return true
+    showFilterSheet.value = false;
+    return true;
   }
 
   if (selectedSourceMenuGroup.value) {
-    closeSourceMenu()
-    return true
+    closeSourceMenu();
+    return true;
   }
 
   if (selectedCollectionMenuName.value) {
-    closeCollectionMenu()
-    return true
+    closeCollectionMenu();
+    return true;
   }
 
   if (selectedSongMenuSong.value) {
-    closeSongMenu()
-    return true
+    closeSongMenu();
+    return true;
   }
 
   if (showActiveQueueModal.value) {
-    showActiveQueueModal.value = false
-    return true
+    showActiveQueueModal.value = false;
+    return true;
   }
 
   if (showAddDeviceModal.value) {
-    showAddDeviceModal.value = false
-    return true
+    showAddDeviceModal.value = false;
+    return true;
   }
 
   if (showUploadModal.value) {
-    showUploadModal.value = false
-    return true
+    showUploadModal.value = false;
+    return true;
   }
 
   if (showOnlineSearchModal.value) {
-    showOnlineSearchModal.value = false
-    return true
+    showOnlineSearchModal.value = false;
+    return true;
   }
 
   if (showCreateCollection.value) {
-    hideCreateCollectionModal()
-    return true
+    hideCreateCollectionModal();
+    return true;
   }
 
   if (showAddToCollection.value) {
-    hideAddToCollectionModal()
-    return true
+    hideAddToCollectionModal();
+    return true;
   }
 
   if (showSettings.value) {
-    hideSettingsModal()
-    return true
+    hideSettingsModal();
+    return true;
   }
 
-  return false
-}
+  return false;
+};
 ```
 
 The important rule is: check from topmost overlay to lowest overlay, and stop after the first match.
 
-## State-Based Page Handling Pattern
+## Stack-Based Page Handling Pattern
 
-For non-modal pages, the app uses boolean flags and `currentView` instead of full route navigation.
+For non-modal pages in narrow layout, the app uses a small panel stack instead of hardcoded "collapse player, then go playlists" rules.
 
 Examples:
 
 - `selectMode.value = false` exits song multi-select state
 - `collectionSelectMode.value = false` exits collection multi-select state
-- `showLyric.value = false` closes the mobile lyric panel
-- `handleBackToPlaylists()` returns from songs or search to the playlist list
+- opening search pushes a `search` content panel
+- opening the player pushes a `player` panel
+- Android back pops the last visible panel before falling back to playlist root
+
+Wide layout does not use player entries in this stack. When the app switches to wide mode, player panels are removed from back history and only left-side content history remains. When the app returns to narrow mode, the player panel is restored as the top mobile panel.
 
 This is a good fit for mobile UIs with stacked panels inside one Vue page.
 

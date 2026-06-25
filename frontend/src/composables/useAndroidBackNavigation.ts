@@ -20,7 +20,6 @@ interface UseAndroidBackNavigationOptions {
   collectionSelectMode: Ref<boolean>;
   selectedCollectionsList: Ref<Set<string>>;
   playerPanelMode: Ref<PlayerPanelMode>;
-  isWideLayout: Ref<boolean>;
   currentView: Ref<MainView>;
   closeSourceMenu: () => void;
   closeSongListMenu: () => void;
@@ -28,6 +27,7 @@ interface UseAndroidBackNavigationOptions {
   hideCreateCollectionModal: () => void;
   hideAddToCollectionModal: () => void;
   closeSettings: () => void;
+  goBack: () => boolean;
   backToPlaylists: () => void;
 }
 
@@ -52,7 +52,6 @@ export function useAndroidBackNavigation(
     collectionSelectMode,
     selectedCollectionsList,
     playerPanelMode,
-    isWideLayout,
     currentView,
     closeSourceMenu,
     closeSongListMenu,
@@ -60,6 +59,7 @@ export function useAndroidBackNavigation(
     hideCreateCollectionModal,
     hideAddToCollectionModal,
     closeSettings,
+    goBack,
     backToPlaylists,
   } = options;
 
@@ -145,12 +145,14 @@ export function useAndroidBackNavigation(
       return true;
     }
 
-    if (playerPanelMode.value !== "collapsed" && !isWideLayout.value) {
-      playerPanelMode.value = "collapsed";
+    if (goBack()) {
       return true;
     }
 
-    if (currentView.value !== "playlists") {
+    if (
+      currentView.value !== "playlists" ||
+      playerPanelMode.value !== "collapsed"
+    ) {
       backToPlaylists();
       return true;
     }
@@ -159,8 +161,7 @@ export function useAndroidBackNavigation(
   };
 
   const handleActionBack = () => {
-    if (playerPanelMode.value !== "collapsed" && !isWideLayout.value) {
-      playerPanelMode.value = "collapsed";
+    if (goBack()) {
       return;
     }
     backToPlaylists();

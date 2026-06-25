@@ -1,26 +1,23 @@
 import { computed, ref, type Ref } from "vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
-import type { MainView, PlayerPanelMode } from "@/stores/ui";
+import type { PlayerPanelMode } from "@/stores/ui";
 import { resolveSourceApiBase } from "@/utils/api";
 
 interface UseAppShellLayoutOptions {
   currentSong: Ref<MusicInfo | null>;
-  currentView: Ref<MainView>;
   playerPanelMode: Ref<PlayerPanelMode>;
+  canGoBack: Ref<boolean>;
 }
 
 export function useAppShellLayout(options: UseAppShellLayoutOptions) {
-  const { currentSong, currentView, playerPanelMode } = options;
+  const { currentSong, playerPanelMode, canGoBack } = options;
 
   const isWideLayout = ref(false);
   const hasUserToggledLyric = ref(false);
   const failedCoverUrls = ref<Set<string>>(new Set());
 
   const showBackButton = computed(() => {
-    return (
-      currentView.value === "search" ||
-      (playerPanelMode.value !== "collapsed" && !isWideLayout.value)
-    );
+    return !isWideLayout.value && canGoBack.value;
   });
 
   const showActionBar = computed(() => showBackButton.value);

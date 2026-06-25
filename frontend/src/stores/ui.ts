@@ -12,6 +12,20 @@ export interface PlaylistSelection {
   songs: MusicInfo[];
 }
 
+type ContentPanelState = {
+  kind: "content";
+  view: MainView;
+  activeTab: MainTab;
+  selectedPlaylist: PlaylistSelection | null;
+};
+
+type PlayerPanelState = {
+  kind: "player";
+  mode: PlayerPanelMode;
+};
+
+type NavigationState = ContentPanelState | PlayerPanelState;
+
 export const useUiStore = defineStore("ui", () => {
   const currentView = ref<MainView>("playlists");
   const activeTab = ref<MainTab>("library");
@@ -25,24 +39,123 @@ export const useUiStore = defineStore("ui", () => {
   const playerPanelMode = ref<PlayerPanelMode>("collapsed");
   const isScanning = ref(false);
   const uploadTargetApiBase = ref<string>(getLocalApiBase());
+  const navigationStack = ref<NavigationState[]>([
+    {
+      kind: "content",
+      view: "playlists",
+      activeTab: "library",
+      selectedPlaylist: null,
+    },
+  ]);
 
   const isPlaylistView = computed(() => currentView.value === "playlists");
+  const canGoBack = computed(() => navigationStack.value.length > 1);
+
+  const syncCurrentStateFromTop = () => {
+    const topState = navigationStack.value[navigationStack.value.length - 1];
+    if (!topState) {
+      currentView.value = "playlists";
+      activeTab.value = "library";
+      selectedPlaylist.value = null;
+      playerPanelMode.value = "collapsed";
+      return;
+    }
+
+    if (topState.kind === "content") {
+      currentView.value = topState.view;
+      activeTab.value = topState.activeTab;
+      selectedPlaylist.value = topState.selectedPlaylist;
+      if (topState.view !== "songs" && topState.view !== "search") {
+        selectedPlaylist.value = null;
+      }
+      playerPanelMode.value = "collapsed";
+      return;
+    }
+
+    playerPanelMode.value = topState.mode;
+  };
+
+  const pushContentState = (view: MainView, activeTabValue?: MainTab) => {
+    navigationStack.value.push({
+      kind: "content",
+      view,
+      activeTab: activeTabValue ?? activeTab.value,
+      selectedPlaylist: selectedPlaylist.value,
+    });
+    currentView.value = view;
+    if (activeTabValue) {
+      activeTab.value = activeTabValue;
+    }
+    if (view !== "songs" && view !== "search") {
+      selectedPlaylist.value = null;
+    }
+    playerPanelMode.value = "collapsed";
+  };
+
+  const pushPlayerState = (mode: PlayerPanelMode) => {
+    navigationStack.value.push({
+      kind: "player",
+      mode,
+    });
+    playerPanelMode.value = mode;
+  };
+
+  const replaceTopContentState = (view: MainView, activeTabValue?: MainTab) => {
+    const topState = navigationStack.value[navigationStack.value.length - 1];
+    if (topState?.kind === "content") {
+      topState.view = view;
+      topState.activeTab = activeTabValue ?? topState.activeTab;
+      topState.selectedPlaylist = selectedPlaylist.value;
+    } else {
+      navigationStack.value.push({
+        kind: "content",
+        view,
+        activeTab: activeTabValue ?? activeTab.value,
+        selectedPlaylist: selectedPlaylist.value,
+      });
+    }
+
+    currentView.value = view;
+    if (activeTabValue) {
+      activeTab.value = activeTabValue;
+    }
+    if (view !== "songs" && view !== "search") {
+      selectedPlaylist.value = null;
+    }
+    playerPanelMode.value = "collapsed";
+  };
+
+  const setPlayerPanelMode = (mode: PlayerPanelMode) => {
+    const topState = navigationStack.value[navigationStack.value.length - 1];
+    if (topState?.kind === "player") {
+      topState.mode = mode;
+      playerPanelMode.value = mode;
+      return;
+    }
+
+    if (mode === "collapsed") {
+      playerPanelMode.value = "collapsed";
+      return;
+    }
+
+    pushPlayerState(mode);
+  };
 
   const openLibraryPlaylist = (playlist: PlaylistSelection) => {
     selectedPlaylist.value = playlist;
-    currentView.value = "songs";
+    pushContentState("songs");
   };
 
   const openCollectionPlaylist = (playlist: PlaylistSelection) => {
     selectedPlaylist.value = playlist;
-    currentView.value = "songs";
+    pushContentState("songs");
   };
 
   const showSearchResults = (searchQuery: string) => {
     if (!searchQuery.trim()) {
       return;
     }
-    currentView.value = "search";
+    pushContentState("search");
   };
 
   const resetSelectedPlaylist = () => {
@@ -50,8 +163,61 @@ export const useUiStore = defineStore("ui", () => {
   };
 
   const backToPlaylists = () => {
+    navigationStack.value = [
+      {
+        kind: "content",
+        view: "playlists",
+        activeTab: activeTab.value,
+        selectedPlaylist: null,
+      },
+    ];
     currentView.value = "playlists";
     resetSelectedPlaylist();
+    playerPanelMode.value = "collapsed";
+  };
+
+  const goBack = () => {
+    if (navigationStack.value.length <= 1) {
+      return false;
+    }
+
+    navigationStack.value.pop();
+    syncCurrentStateFromTop();
+    return true;
+  };
+
+  const enterPlayerPanel = (mode: PlayerPanelMode) => {
+    setPlayerPanelMode(mode);
+  };
+
+  const normalizeForLayout = (isWideLayout: boolean) => {
+    if (isWideLayout) {
+      navigationStack.value = navigationStack.value.filter(
+        (state) => state.kind === "content",
+      );
+      if (navigationStack.value.length === 0) {
+        navigationStack.value.push({
+          kind: "content",
+          view: "playlists",
+          activeTab: activeTab.value,
+          selectedPlaylist: null,
+        });
+      }
+      syncCurrentStateFromTop();
+      return;
+    }
+
+    const topState = navigationStack.value[navigationStack.value.length - 1];
+    if (topState?.kind === "player") {
+      return;
+    }
+
+    if (playerPanelMode.value !== "collapsed") {
+      pushPlayerState(playerPanelMode.value);
+      return;
+    }
+
+    pushPlayerState("cover");
   };
 
   const openSettings = () => {
@@ -68,7 +234,7 @@ export const useUiStore = defineStore("ui", () => {
 
   const resetLibrarySelection = () => {
     resetSelectedPlaylist();
-    currentView.value = "playlists";
+    replaceTopContentState("playlists");
   };
 
   const openUploadForSource = (apiBase: string) => {
@@ -90,11 +256,16 @@ export const useUiStore = defineStore("ui", () => {
     isScanning,
     uploadTargetApiBase,
     isPlaylistView,
+    canGoBack,
     openLibraryPlaylist,
     openCollectionPlaylist,
     showSearchResults,
     resetSelectedPlaylist,
     backToPlaylists,
+    goBack,
+    enterPlayerPanel,
+    setPlayerPanelMode,
+    normalizeForLayout,
     openSettings,
     closeSettings,
     showActiveQueue,

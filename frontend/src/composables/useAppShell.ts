@@ -114,9 +114,17 @@ export function useAppShell() {
 
   const shellLayout = useAppShellLayout({
     currentSong: player.currentSong,
-    currentView: ui.currentView,
     playerPanelMode: ui.playerPanelMode,
+    canGoBack: ui.canGoBack,
   });
+
+  watch(
+    () => shellLayout.isWideLayout.value,
+    (isWide) => {
+      uiStore.normalizeForLayout(isWide);
+    },
+    { immediate: true },
+  );
 
   const clearLibrarySelection = () => {
     library.selectedLibrarySourceKey.value = null;
@@ -164,7 +172,6 @@ export function useAppShell() {
     collectionSelectMode: selection.collectionSelectMode,
     selectedCollectionsList: selection.selectedCollectionsList,
     playerPanelMode: ui.playerPanelMode,
-    isWideLayout: shellLayout.isWideLayout,
     currentView: ui.currentView,
     closeSourceMenu: () => {
       selectedSourceMenuGroup.value = null;
@@ -176,11 +183,16 @@ export function useAppShell() {
     hideCreateCollectionModal: collectionsStore.hideCreateCollectionModal,
     hideAddToCollectionModal: collectionsStore.hideAddToCollectionModal,
     closeSettings: uiStore.closeSettings,
+    goBack: uiStore.goBack,
     backToPlaylists: handleBackToPlaylists,
   });
 
   const handleSearch = () => {
-    uiStore.showSearchResults(library.searchQuery.value);
+    const trimmedQuery = library.searchQuery.value.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+    uiStore.showSearchResults(trimmedQuery);
   };
 
   const setStartupStatusMessage = (message: string) => {
@@ -223,6 +235,35 @@ export function useAppShell() {
 
   const handleLyricApplied = async () => {
     await reloadLyrics();
+  };
+
+  const setVisiblePlayerPanel = (mode: "cover" | "lyrics") => {
+    if (!player.currentSong.value) {
+      return;
+    }
+
+    shellLayout.hasUserToggledLyric.value = true;
+    if (shellLayout.isWideLayout.value) {
+      ui.playerPanelMode.value = mode;
+      return;
+    }
+
+    uiStore.enterPlayerPanel(mode);
+  };
+
+  const toggleVisiblePlayerPanel = () => {
+    if (!player.currentSong.value) {
+      return;
+    }
+
+    if (ui.playerPanelMode.value === "collapsed") {
+      setVisiblePlayerPanel("cover");
+      return;
+    }
+
+    setVisiblePlayerPanel(
+      ui.playerPanelMode.value === "cover" ? "lyrics" : "cover",
+    );
   };
 
   const syncSelectedPlaylistIntoPlayer = (playlist: PlaylistSelection) => {
@@ -282,8 +323,11 @@ export function useAppShell() {
     library.selectedLibrarySourceKey.value = resolvedGroup.sourceKey;
     library.selectedLibraryPlaylistName.value = resolvedPlaylist.name;
     ui.activeTab.value = "library";
-    ui.currentView.value = "songs";
-    ui.playerPanelMode.value = "cover";
+    uiStore.openLibraryPlaylist({
+      name: `曲库 / ${resolvedPlaylist.name} [${resolvedGroup.name}]`,
+      songs: resolvedPlaylist.songs,
+    });
+    uiStore.enterPlayerPanel("cover");
 
     try {
       await playerStore.playSongFromPlaylist(
@@ -331,7 +375,10 @@ export function useAppShell() {
       songs,
     });
     clearLibrarySelection();
-    ui.currentView.value = "songs";
+    uiStore.openCollectionPlaylist({
+      name,
+      songs,
+    });
   };
 
   const handleSelectLibraryPlaylist = (
@@ -352,7 +399,10 @@ export function useAppShell() {
     });
     library.selectedLibrarySourceKey.value = resolved.source.sourceKey;
     library.selectedLibraryPlaylistName.value = playlistName;
-    ui.currentView.value = "songs";
+    uiStore.openLibraryPlaylist({
+      name: `曲库 / ${playlistName} [${resolved.source.name}]`,
+      songs: resolved.playlist.songs,
+    });
   };
 
   const handleLyricLineClick = async (time: number) => {
@@ -1035,9 +1085,13 @@ export function useAppShell() {
     handleLyricLineClick,
     handleShowActiveQueue: uiStore.showActiveQueue,
     handleStartSharedPlayback,
-    togglePlayerPanelMode: shellLayout.togglePlayerPanelMode,
-    showCoverPanel: shellLayout.showCoverPanel,
-    showLyricsPanel: shellLayout.showLyricsPanel,
+    togglePlayerPanelMode: toggleVisiblePlayerPanel,
+    showCoverPanel: () => {
+      setVisiblePlayerPanel("cover");
+    },
+    showLyricsPanel: () => {
+      setVisiblePlayerPanel("lyrics");
+    },
     handleCoverLoadError: shellLayout.handleCoverLoadError,
     seekToTime: playerStore.seekToTime,
     play: playerStore.play,
