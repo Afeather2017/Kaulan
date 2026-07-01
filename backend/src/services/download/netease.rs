@@ -6,10 +6,13 @@ use crate::types::{
     DownloadPreviewRequest, DownloadSource, DownloadTrackRequest, OnlineSearchResult,
 };
 use async_trait::async_trait;
+use download_core::DownloadProgressReporter;
 use netease_api::auth::Session as NeteaseSession;
 use netease_api::types::{Quality, SearchType};
+use netease_api::DownloadTrackRequest as NeteaseSourceDownloadTrackRequest;
 use netease_api::NeteaseClient;
 use std::path::Path;
+use std::sync::Arc;
 use tokio::task;
 use tracing::{info, warn};
 
@@ -30,7 +33,7 @@ impl Default for NeteaseProvider {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl MusicProvider for NeteaseProvider {
     fn source(&self) -> DownloadSource {
         DownloadSource::Netease
@@ -130,17 +133,19 @@ impl MusicProvider for NeteaseProvider {
         .map_err(|e| e.to_string())?
     }
 
-    async fn download_full(
+    async fn download_full_with_progress(
         &self,
         request: &DownloadTrackRequest,
         target_dir: &Path,
+        job_id: &str,
+        reporter: Arc<dyn DownloadProgressReporter>,
     ) -> Result<FullDownloadResult, String> {
         let track_id = request
             .id
             .parse::<u64>()
             .map_err(|_| "无效的网易云歌曲 ID".to_string())?;
         let target_dir = target_dir.to_path_buf();
-        let title = request.title.clone();
+        let job_id = job_id.to_string();
         let file_stem = resolve_download_file_stem(request.file_name.as_deref(), &request.title)?;
 
         task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
@@ -148,7 +153,16 @@ impl MusicProvider for NeteaseProvider {
             let track = client.track_detail(track_id).map_err(|e| e.to_string())?;
             let filename = format!("{file_stem}.mp3");
             let final_path = target_dir.join(filename);
-            download_netease_with_fallback(&client, track_id, &final_path, "full", title.as_str())?;
+            let source_request = NeteaseSourceDownloadTrackRequest {
+                job_id,
+                track_id,
+                quality: Quality::Exhigh,
+            };
+            client
+                .download_track_with_progress(&source_request, &final_path, reporter)
+                .map_err(|err| {
+                    explain_netease_failure(client.session().is_logged_in(), &[err.to_string()])
+                })?;
             Ok(FullDownloadResult {
                 final_path,
                 cover_url: track.album.pic_url,

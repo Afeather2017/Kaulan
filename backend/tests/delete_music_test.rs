@@ -40,6 +40,7 @@ fn build_app_state(db: DatabaseConnection, music_path: String) -> AppState {
         preview_root: Arc::new(format!("{music_path}/.preview")),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     }
 }

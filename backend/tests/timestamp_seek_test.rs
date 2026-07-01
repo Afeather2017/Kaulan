@@ -98,6 +98,7 @@ async fn test_timestamp_seek_valid() {
         preview_root: Arc::new("/tmp/test_music_seek/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -174,6 +175,7 @@ async fn test_timestamp_seek_start() {
         preview_root: Arc::new("/tmp/test_music_seek_start/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -232,6 +234,7 @@ async fn test_timestamp_seek_end() {
         preview_root: Arc::new("/tmp/test_music_seek_end/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -306,6 +309,7 @@ async fn test_timestamp_seek_negative() {
         preview_root: Arc::new("/tmp/test_music_seek_negative/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -356,6 +360,7 @@ async fn test_timestamp_seek_exceeds_duration() {
         preview_root: Arc::new("/tmp/test_music_seek_exceeds/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -405,6 +410,7 @@ async fn test_timestamp_seek_missing_duration() {
         preview_root: Arc::new("/tmp/test_music_seek_missing/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -447,6 +453,7 @@ async fn test_timestamp_seek_invalid_id() {
         preview_root: Arc::new("/tmp/test_music_seek_invalid/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -492,6 +499,7 @@ async fn test_normal_request_without_timestamp() {
         preview_root: Arc::new("/tmp/test_music_normal/.preview".to_string()),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 

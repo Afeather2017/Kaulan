@@ -36,6 +36,7 @@ tempfile = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 ytdl-audio = { path = "../vendor/ytdl-audio" }
+download-core = { path = "../vendor/ncmdump-rs/download-core" }
 netease-api = { path = "../vendor/ncmdump-rs/netease-api" }
 bilibili-api = { path = "../vendor/ncmdump-rs/bilibili-api" }
 

@@ -232,6 +232,7 @@ mod tests {
             preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -294,6 +295,7 @@ mod tests {
             preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -342,6 +344,7 @@ mod tests {
             preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -380,6 +383,7 @@ mod tests {
             preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -432,6 +436,7 @@ mod tests {
             preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 

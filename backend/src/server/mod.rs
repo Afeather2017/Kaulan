@@ -33,9 +33,9 @@ pub use discovery::{
     set_device_name, start_discovery_scan,
 };
 pub use download::{
-    apply_lyric, download_preview, download_track, get_bilibili_thumbnail,
-    get_download_directory_tree, get_online_provider_statuses, get_preview_track, search_lyrics,
-    search_online,
+    apply_lyric, create_download_job, download_preview, download_track, get_bilibili_thumbnail,
+    get_download_directory_tree, get_download_job, get_download_jobs, get_online_provider_statuses,
+    get_preview_track, search_lyrics, search_online,
 };
 pub use lufs::precache_lufs;
 pub use lyrics::{get_lyrics, get_lyrics_by_id};
@@ -334,6 +334,7 @@ pub async fn start_server(
         })),
         db_conn,
         scan_lock,
+        download_jobs: Arc::new(download_service::DownloadJobStore::new()),
         discovery: discovery_state.clone(),
     });
 
@@ -405,6 +406,9 @@ pub async fn start_server(
                 .service(get_download_directory_tree)
                 .service(download_preview)
                 .service(get_preview_track)
+                .service(create_download_job)
+                .service(get_download_jobs)
+                .service(get_download_job)
                 .service(download_track)
                 // File upload endpoints
                 .service(get_directory_tree)

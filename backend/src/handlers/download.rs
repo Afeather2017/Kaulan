@@ -1,8 +1,10 @@
 //! HTTP handlers for online music search, preview, lyrics, and download.
 
 use crate::entities::music::Entity as MusicEntity;
+use crate::services::download::MusicProvider;
 use actix_files::NamedFile;
 use actix_web::{get, http::header, post, web, HttpRequest, HttpResponse};
+use download_core::{DownloadProgressPhase, DownloadProgressReporter};
 use futures::future::join_all;
 use netease_api::types::SearchType;
 use netease_api::{NeteaseClient, NeteaseError};
@@ -11,15 +13,18 @@ use sea_orm::EntityTrait;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::task;
 use tracing::{error, warn};
+use uuid::Uuid;
 
 use crate::services::{download as download_service, scanner};
 use crate::types::{
-    AppState, ApplyLyricRequest, ApplyLyricResponse, DirectoryNode, DownloadPreviewRequest,
-    DownloadPreviewResponse, DownloadSource, DownloadTrackRequest, DownloadTrackResponse,
-    LyricCandidate, OnlineSearchRequest, OnlineSearchResult, PreviewSong,
+    AppState, ApplyLyricRequest, ApplyLyricResponse, CreateDownloadJobResponse, DirectoryNode,
+    DownloadJobListResponse, DownloadPreviewRequest, DownloadPreviewResponse, DownloadSource,
+    DownloadTrackRequest, DownloadTrackResponse, LyricCandidate, OnlineSearchRequest,
+    OnlineSearchResult, PreviewSong,
 };
 
 #[post("/api/download/search")]
@@ -391,7 +396,91 @@ pub async fn download_track(
     body: web::Json<DownloadTrackRequest>,
     data: web::Data<AppState>,
 ) -> HttpResponse {
-    let mut body = body.into_inner();
+    match prepare_download_request(body.into_inner(), &data) {
+        Ok((request, target_dir, provider)) => {
+            match execute_download_request(request, target_dir, provider, data, None).await {
+                Ok(response) => HttpResponse::Ok().json(response),
+                Err(message) => HttpResponse::BadGateway().json(DownloadTrackResponse {
+                    success: false,
+                    message: format!("下载失败: {message}"),
+                    filename: None,
+                    lyric_filename: None,
+                    warning: None,
+                }),
+            }
+        }
+        Err(response) => HttpResponse::BadRequest().json(response),
+    }
+}
+
+#[post("/api/download/jobs")]
+pub async fn create_download_job(
+    body: web::Json<DownloadTrackRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    let prepared = match prepare_download_request(body.into_inner(), &data) {
+        Ok(prepared) => prepared,
+        Err(response) => {
+            return HttpResponse::BadRequest().json(CreateDownloadJobResponse {
+                success: false,
+                message: response.message,
+                job_id: None,
+            });
+        }
+    };
+
+    let (request, target_dir, provider) = prepared;
+    let job_id = Uuid::new_v4().to_string();
+    data.download_jobs
+        .create(&job_id, request.source, &request.title)
+        .await;
+
+    let data_clone = data.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        let source = request.source;
+        if let Err(message) = execute_download_request(
+            request,
+            target_dir,
+            provider,
+            data_clone.clone(),
+            Some(spawned_job_id.clone()),
+        )
+        .await
+        {
+            data_clone
+                .download_jobs
+                .mark_failed(&spawned_job_id, source, format!("下载失败: {message}"))
+                .await;
+        }
+    });
+
+    HttpResponse::Ok().json(CreateDownloadJobResponse {
+        success: true,
+        message: "下载任务已创建".to_string(),
+        job_id: Some(job_id),
+    })
+}
+
+#[get("/api/download/jobs")]
+pub async fn get_download_jobs(data: web::Data<AppState>) -> HttpResponse {
+    let jobs = data.download_jobs.active_jobs().await;
+    HttpResponse::Ok().json(DownloadJobListResponse { jobs })
+}
+
+#[get("/api/download/jobs/{job_id}")]
+pub async fn get_download_job(path: web::Path<String>, data: web::Data<AppState>) -> HttpResponse {
+    let job_id = path.into_inner();
+    match data.download_jobs.get(&job_id).await {
+        Some(snapshot) => HttpResponse::Ok().json(snapshot),
+        None => HttpResponse::NotFound().finish(),
+    }
+}
+
+fn prepare_download_request(
+    mut body: DownloadTrackRequest,
+    data: &web::Data<AppState>,
+) -> Result<(DownloadTrackRequest, PathBuf, &'static dyn MusicProvider), DownloadTrackResponse> {
     let target_dir = match resolve_target_dir(
         Path::new(data.download_root.as_ref()),
         body.target_subdir.as_deref(),
@@ -405,13 +494,7 @@ pub async fn download_track(
                 body.target_subdir,
                 message
             );
-            return HttpResponse::BadRequest().json(DownloadTrackResponse {
-                success: false,
-                message,
-                filename: None,
-                lyric_filename: None,
-                warning: None,
-            });
+            return Err(rejected_download_response(message));
         }
     };
 
@@ -428,70 +511,91 @@ pub async fn download_track(
                 body.file_name,
                 message
             );
-            return HttpResponse::BadRequest().json(DownloadTrackResponse {
-                success: false,
-                message,
-                filename: None,
-                lyric_filename: None,
-                warning: None,
-            });
+            return Err(rejected_download_response(message));
         }
     };
 
     if let Err(err) = fs::create_dir_all(&target_dir) {
         error!("[DOWNLOAD] Failed to create target download dir: {}", err);
-        return HttpResponse::InternalServerError().json(DownloadTrackResponse {
-            success: false,
-            message: "无法创建目标目录".to_string(),
-            filename: None,
-            lyric_filename: None,
-            warning: None,
-        });
+        return Err(rejected_download_response("无法创建目标目录".to_string()));
     }
 
-    let provider = match download_service::provider(body.source) {
-        Some(provider) => provider,
-        None => {
-            return HttpResponse::BadRequest().json(DownloadTrackResponse {
-                success: false,
-                message: "不支持的下载源".to_string(),
-                filename: None,
-                lyric_filename: None,
-                warning: None,
-            });
-        }
-    };
+    let provider = download_service::provider(body.source)
+        .ok_or_else(|| rejected_download_response("不支持的下载源".to_string()))?;
 
-    let output = match provider.download_full(&body, &target_dir).await {
-        Ok(result) => result,
-        Err(err) => {
-            warn!("[DOWNLOAD] Full download failed: {}", err);
-            return HttpResponse::BadGateway().json(DownloadTrackResponse {
-                success: false,
-                message: format!("下载失败: {err}"),
-                filename: None,
-                lyric_filename: None,
-                warning: None,
-            });
-        }
-    };
+    Ok((body, target_dir, provider))
+}
 
-    download_service::try_attach_cover_art_from_url(
-        &output.final_path,
-        output.cover_url.as_deref(),
-    )
-    .await;
+async fn execute_download_request(
+    body: DownloadTrackRequest,
+    target_dir: PathBuf,
+    provider: &'static dyn MusicProvider,
+    data: web::Data<AppState>,
+    job_id: Option<String>,
+) -> Result<DownloadTrackResponse, String> {
+    let reporter: Option<Arc<dyn DownloadProgressReporter>> = job_id.as_ref().map(|_| {
+        Arc::new(download_service::JobProgressReporter::new(
+            data.download_jobs.clone(),
+        )) as Arc<dyn DownloadProgressReporter>
+    });
+    let output = match (&job_id, &reporter) {
+        (Some(job_id), Some(reporter)) => {
+            provider
+                .download_full_with_progress(&body, &target_dir, job_id, reporter.clone())
+                .await
+        }
+        _ => provider.download_full(&body, &target_dir).await,
+    }
+    .map_err(|err| {
+        warn!("[DOWNLOAD] Full download failed: {}", err);
+        err
+    })?;
 
     let mut warning = None;
+    if let Some(job_id) = job_id.as_deref() {
+        data.download_jobs
+            .update_phase(
+                job_id,
+                body.source,
+                DownloadProgressPhase::EmbeddingCover,
+                "Embedding cover art",
+                None,
+            )
+            .await;
+    }
+    if let Some(cover_url) = output.cover_url.as_deref() {
+        if let Err(err) =
+            download_service::attach_cover_art_from_url(&output.final_path, cover_url).await
+        {
+            warn!(
+                "[DOWNLOAD] Failed to attach cover art to {}: {}",
+                output.final_path.display(),
+                err
+            );
+            append_warning(&mut warning, format!("封面写入失败: {err}"));
+        }
+    }
+
+    if let Some(job_id) = job_id.as_deref() {
+        data.download_jobs
+            .update_phase(
+                job_id,
+                body.source,
+                DownloadProgressPhase::SavingLyrics,
+                "Saving lyrics",
+                None,
+            )
+            .await;
+    }
     let lyric_filename = if let Some(lyric_id) = body.lyric_selection.as_deref() {
         match write_selected_lyric(lyric_id, &output.final_path).await {
             Ok(Some(path)) => path.file_name().map(|v| v.to_string_lossy().to_string()),
             Ok(None) => {
-                warning = Some("未获取到可用歌词".to_string());
+                append_warning(&mut warning, "未获取到可用歌词".to_string());
                 None
             }
             Err(err) => {
-                warning = Some(format!("歌词下载失败: {err}"));
+                append_warning(&mut warning, format!("歌词下载失败: {err}"));
                 None
             }
         }
@@ -499,6 +603,17 @@ pub async fn download_track(
         None
     };
 
+    if let Some(job_id) = job_id.as_deref() {
+        data.download_jobs
+            .update_phase(
+                job_id,
+                body.source,
+                DownloadProgressPhase::RefreshingLibrary,
+                "Refreshing library",
+                None,
+            )
+            .await;
+    }
     let library_roots = [
         data.music_path.as_ref().as_str(),
         data.download_root.as_ref().as_str(),
@@ -508,18 +623,46 @@ pub async fn download_track(
             "[DOWNLOAD] Database update after online download failed: {}",
             err
         );
+        append_warning(&mut warning, format!("刷新曲库失败: {err}"));
     }
 
-    HttpResponse::Ok().json(DownloadTrackResponse {
+    let filename = output
+        .final_path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string());
+    if let Some(job_id) = job_id.as_deref() {
+        data.download_jobs
+            .mark_completed(job_id, filename.clone(), warning.clone())
+            .await;
+    }
+
+    Ok(DownloadTrackResponse {
         success: true,
         message: "下载完成".to_string(),
-        filename: output
-            .final_path
-            .file_name()
-            .map(|value| value.to_string_lossy().to_string()),
+        filename,
         lyric_filename,
         warning,
     })
+}
+
+fn rejected_download_response(message: String) -> DownloadTrackResponse {
+    DownloadTrackResponse {
+        success: false,
+        message,
+        filename: None,
+        lyric_filename: None,
+        warning: None,
+    }
+}
+
+fn append_warning(current: &mut Option<String>, warning: String) {
+    match current {
+        Some(existing) => {
+            existing.push('；');
+            existing.push_str(&warning);
+        }
+        None => *current = Some(warning),
+    }
 }
 
 async fn write_selected_lyric(
@@ -674,7 +817,8 @@ fn join_artists(artists: &[netease_api::types::Artist]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_lyric, download_track, merge_lyric_content, resolve_target_dir, ApplyLyricRequest,
+        apply_lyric, create_download_job, download_track, get_download_jobs, merge_lyric_content,
+        resolve_target_dir, ApplyLyricRequest,
     };
     use crate::types::AppState;
     use actix_web::{test as actix_test, web, App};
@@ -706,6 +850,7 @@ mod tests {
             preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
             db_conn,
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -736,6 +881,23 @@ mod tests {
         fs::create_dir_all(temp_dir.path().join("Album")).unwrap();
         let resolved = resolve_target_dir(temp_dir.path(), Some("Album/Live")).unwrap();
         assert_eq!(resolved, temp_dir.path().join("Album/Live"));
+    }
+
+    #[actix_web::test]
+    async fn download_jobs_endpoint_starts_empty() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(get_download_jobs))
+                .await;
+        let req = actix_test::TestRequest::get()
+            .uri("/api/download/jobs")
+            .to_request();
+
+        let resp = actix_test::call_service(&app, req).await;
+        let body: serde_json::Value = actix_test::read_body_json(resp).await;
+
+        assert_eq!(body["jobs"].as_array().map(Vec::len), Some(0));
     }
 
     #[actix_web::test]
@@ -784,6 +946,31 @@ mod tests {
             actix_test::init_service(App::new().app_data(app_state).service(download_track)).await;
         let req = actix_test::TestRequest::post()
             .uri("/api/download/track")
+            .set_json(&crate::types::DownloadTrackRequest {
+                source: crate::types::DownloadSource::Netease,
+                id: "123".to_string(),
+                title: "Song".to_string(),
+                artist: Some("Artist".to_string()),
+                file_name: Some("   ".to_string()),
+                target_subdir: None,
+                lyric_selection: None,
+            })
+            .to_request();
+
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn create_download_job_rejects_blank_custom_filename() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(create_download_job))
+                .await;
+        let req = actix_test::TestRequest::post()
+            .uri("/api/download/jobs")
             .set_json(&crate::types::DownloadTrackRequest {
                 source: crate::types::DownloadSource::Netease,
                 id: "123".to_string(),

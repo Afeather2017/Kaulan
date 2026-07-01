@@ -91,6 +91,7 @@ async fn test_upload_single_file_to_root() {
         preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
 
@@ -143,6 +144,7 @@ async fn test_upload_to_subdirectory() {
         preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
 
@@ -194,6 +196,7 @@ async fn test_upload_unsupported_file_type_rejected() {
         preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
 
@@ -243,6 +246,7 @@ async fn test_upload_path_traversal_protection() {
         preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
 
@@ -300,6 +304,7 @@ async fn test_upload_updates_database() {
         preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
 
@@ -370,6 +375,7 @@ async fn test_upload_empty_request() {
         preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
 
@@ -416,6 +422,7 @@ async fn test_upload_to_nested_subdirectories() {
         preview_root: Arc::new(format!("{}/.preview", music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
 

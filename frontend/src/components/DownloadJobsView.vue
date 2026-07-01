@@ -1,0 +1,213 @@
+<template>
+  <div class="download-jobs-view">
+    <div class="content-tabs">
+      <button class="content-tab" @click="$emit('showLibrary')">曲库</button>
+      <button class="content-tab" @click="$emit('showCollections')">
+        我的收藏
+      </button>
+      <button class="content-tab active" disabled>下载中</button>
+    </div>
+
+    <div v-if="jobs.length === 0" class="empty-state">
+      <div>当前没有正在进行的下载任务。</div>
+    </div>
+
+    <div v-else class="job-list">
+      <article v-for="job in jobs" :key="job.key" class="job-card">
+        <div class="job-header">
+          <div class="job-title">{{ job.title }}</div>
+          <div class="job-source">{{ job.snapshot.source }}</div>
+        </div>
+        <div class="job-phase-row">
+          <span class="job-phase">{{ phaseLabel(job.snapshot.phase) }}</span>
+          <span v-if="job.snapshot.percent !== null" class="job-percent">
+            {{ job.snapshot.percent }}%
+          </span>
+        </div>
+        <div class="job-progress-track">
+          <div
+            class="job-progress-bar"
+            :style="{ width: `${progressWidth(job.snapshot)}%` }"
+          ></div>
+        </div>
+        <div class="job-message">{{ job.snapshot.message }}</div>
+        <div v-if="job.snapshot.detail" class="job-detail">
+          {{ job.snapshot.detail }}
+        </div>
+      </article>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import type {
+  ActiveDownloadJob,
+  DownloadJobSnapshot,
+  DownloadPhase,
+} from "@/stores/downloads";
+
+defineProps<{
+  jobs: ActiveDownloadJob[];
+}>();
+
+defineEmits<{
+  (e: "showLibrary"): void;
+  (e: "showCollections"): void;
+}>();
+
+const phaseLabel = (phase: DownloadPhase): string => {
+  switch (phase) {
+    case "queued":
+      return "排队中";
+    case "preparing":
+      return "准备中";
+    case "resolving_meta":
+      return "获取信息";
+    case "downloading":
+      return "下载中";
+    case "post_processing":
+      return "处理音频";
+    case "embedding_cover":
+      return "写入封面";
+    case "saving_lyrics":
+      return "保存歌词";
+    case "refreshing_library":
+      return "刷新曲库";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+  }
+};
+
+const progressWidth = (snapshot: DownloadJobSnapshot): number => {
+  if (snapshot.percent !== null) {
+    return Math.max(4, snapshot.percent);
+  }
+  switch (snapshot.phase) {
+    case "queued":
+      return 6;
+    case "preparing":
+      return 12;
+    case "resolving_meta":
+      return 20;
+    case "downloading":
+      return 48;
+    case "post_processing":
+      return 72;
+    case "embedding_cover":
+      return 82;
+    case "saving_lyrics":
+      return 90;
+    case "refreshing_library":
+      return 96;
+    case "completed":
+      return 100;
+    case "failed":
+      return 100;
+  }
+};
+</script>
+
+<style scoped>
+.download-jobs-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.content-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.content-tab {
+  border: 1px solid #d6dde2;
+  background: #f6f8f9;
+  color: #35515b;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.content-tab.active {
+  background: #17313b;
+  border-color: #17313b;
+  color: #fff;
+}
+
+.empty-state {
+  padding: 20px 0;
+  color: #60757e;
+}
+
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 0;
+}
+
+.job-card {
+  border: 1px solid #d6dde2;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f8f9 100%);
+}
+
+.job-header,
+.job-phase-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-title {
+  font-weight: 700;
+  color: #17313b;
+}
+
+.job-source {
+  font-size: 12px;
+  color: #5d7078;
+  text-transform: capitalize;
+}
+
+.job-phase-row {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #45606a;
+}
+
+.job-progress-track {
+  margin-top: 10px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e6ecef;
+  overflow: hidden;
+}
+
+.job-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d4662f 0%, #f0a43b 100%);
+  transition: width 0.25s ease;
+}
+
+.job-message {
+  margin-top: 10px;
+  color: #17313b;
+  font-size: 14px;
+}
+
+.job-detail {
+  margin-top: 6px;
+  color: #60757e;
+  font-size: 12px;
+  word-break: break-word;
+}
+</style>

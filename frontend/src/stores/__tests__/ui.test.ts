@@ -60,4 +60,18 @@ describe("ui store navigation stack", () => {
     expect(store.playerPanelMode).toBe("cover");
     expect(store.canGoBack).toBe(true);
   });
+
+  it("treats downloads as a real content page", () => {
+    const store = useUiStore();
+
+    store.openDownloads();
+
+    expect(store.currentView).toBe("downloads");
+    expect(store.canGoBack).toBe(true);
+
+    store.showTabHome("library");
+
+    expect(store.currentView).toBe("playlists");
+    expect(store.activeTab).toBe("library");
+  });
 });

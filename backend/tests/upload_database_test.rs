@@ -140,6 +140,7 @@ async fn test_upload_files_then_check_database_via_api() {
         preview_root: Arc::new(format!("{}/.preview", music_path_str)),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 

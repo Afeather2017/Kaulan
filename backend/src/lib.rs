@@ -125,6 +125,7 @@ mod tests {
                 .await
                 .unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -168,6 +169,7 @@ mod tests {
             ),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -215,6 +217,7 @@ mod tests {
             ),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 
@@ -252,6 +255,7 @@ mod tests {
             ),
             db_conn: establish_connection(&music_path).await.unwrap(),
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
         });
 

@@ -30,7 +30,17 @@
       >
         新建收藏夹
       </button>
+      <button class="content-tab" @click="$emit('openDownloads')">
+        下载中
+      </button>
     </div>
+
+    <DownloadJobsView
+      v-if="currentView === 'downloads'"
+      :jobs="activeDownloadJobs"
+      @show-library="$emit('showLibraryHome')"
+      @show-collections="$emit('showCollectionsHome')"
+    />
 
     <LibrarySourceListView
       v-if="
@@ -154,6 +164,12 @@
         >
           在线搜索 “{{ trimmedSearchQuery }}”
         </button>
+        <button
+          class="online-search-entry secondary"
+          @click="$emit('openDownloads')"
+        >
+          查看下载进度
+        </button>
       </div>
       <div v-if="searchResults.length === 0 && !selectMode" class="empty-state">
         <div>未找到库内结果</div>
@@ -170,14 +186,16 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
+import DownloadJobsView from "@/components/DownloadJobsView.vue";
 import PlaylistListView from "@/components/PlaylistListView.vue";
 import LibrarySourceListView from "@/components/LibrarySourceListView.vue";
 import SongListView from "@/components/SongListView.vue";
+import type { ActiveDownloadJob } from "@/stores/downloads";
 import type { MusicInfo } from "@/types/music";
 import type { LibrarySourceGroupSummary } from "@/types/library";
 
 const props = defineProps<{
-  currentView: "playlists" | "songs" | "search";
+  currentView: "playlists" | "songs" | "search" | "downloads";
   activeTab: "library" | "collections";
   libraryGroupSummaries: LibrarySourceGroupSummary[];
   collectionNames: string[];
@@ -194,6 +212,7 @@ const props = defineProps<{
   trimmedSearchQuery: string;
   searchResults: MusicInfo[];
   songSelectionActionLabel: string;
+  activeDownloadJobs: ActiveDownloadJob[];
 }>();
 
 defineEmits<{
@@ -221,6 +240,9 @@ defineEmits<{
   (e: "performSongSelectionAction"): void;
   (e: "openOnlineSearchFromQuery"): void;
   (e: "resetLibraryFilter"): void;
+  (e: "openDownloads"): void;
+  (e: "showLibraryHome"): void;
+  (e: "showCollectionsHome"): void;
 }>();
 
 type ScrollableSongList = {
@@ -241,12 +263,16 @@ const getPlaylistScrollKey = (playlistTitle: string) =>
   `playlist:${playlistTitle}`;
 
 const saveScrollPosition = (
-  currentView: "playlists" | "songs" | "search",
+  currentView: "playlists" | "songs" | "search" | "downloads",
   activeTab: "library" | "collections",
   selectedPlaylistTitle: string,
 ) => {
   if (currentView === "playlists") {
     playlistScrollPositions[activeTab] = contentAreaRef.value?.scrollTop ?? 0;
+    return;
+  }
+
+  if (currentView === "downloads") {
     return;
   }
 
@@ -265,11 +291,15 @@ const saveScrollPosition = (
 };
 
 const restoreScrollPosition = async (
-  currentView: "playlists" | "songs" | "search",
+  currentView: "playlists" | "songs" | "search" | "downloads",
   activeTab: "library" | "collections",
   selectedPlaylistTitle: string,
 ) => {
   await nextTick();
+
+  if (currentView === "downloads") {
+    return;
+  }
 
   if (currentView === "playlists") {
     if (contentAreaRef.value) {
@@ -369,6 +399,13 @@ watch(
 .online-search-entry {
   width: 100%;
   text-align: left;
+}
+
+.online-search-entry.secondary {
+  margin-top: 10px;
+  border-color: #d7b36a;
+  background: #fff7e6;
+  color: #8a5a11;
 }
 
 .empty-online-search-btn {

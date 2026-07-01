@@ -56,9 +56,13 @@
             :trimmed-search-query="trimmedSearchQuery"
             :search-results="searchResults"
             :song-selection-action-label="songSelectionActionLabel"
-            @set-active-tab="activeTab = $event"
+            :active-download-jobs="activeDownloadJobs"
+            @set-active-tab="handleSetActiveTab"
             @open-filter-sheet="openFilterSheet"
             @add-device="handleAddDevice"
+            @open-downloads="openDownloads"
+            @show-library-home="showLibraryHome"
+            @show-collections-home="showCollectionsHome"
             @select-library-playlist="handleSelectLibraryPlaylist"
             @open-source-menu="handleOpenSourceMenu"
             @retry-source-connection="handleRetrySourceConnection"
@@ -317,6 +321,7 @@ const {
   onlineSearchSourceName,
   currentView,
   activeTab,
+  activeDownloadJobs,
   selectedPlaylist,
   showSettings,
   showAddDeviceModal,
@@ -377,6 +382,10 @@ const {
   isLyricPanelVisible,
   resolveSongCoverUrl,
   handleSearch,
+  handleSetActiveTab,
+  openDownloads,
+  showLibraryHome,
+  showCollectionsHome,
   handleActionBack,
   handleShowSettingsModal,
   handleShowLufsChange,

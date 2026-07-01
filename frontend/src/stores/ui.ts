@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
 import { getLocalApiBase } from "@/utils/api";
 
-export type MainView = "playlists" | "songs" | "search";
+export type MainView = "playlists" | "songs" | "search" | "downloads";
 export type MainTab = "library" | "collections";
 export type PlayerPanelMode = "collapsed" | "cover" | "lyrics";
 
@@ -158,6 +158,15 @@ export const useUiStore = defineStore("ui", () => {
     pushContentState("search");
   };
 
+  const openDownloads = () => {
+    pushContentState("downloads");
+  };
+
+  const showTabHome = (tab: MainTab) => {
+    selectedPlaylist.value = null;
+    replaceTopContentState("playlists", tab);
+  };
+
   const resetSelectedPlaylist = () => {
     selectedPlaylist.value = null;
   };
@@ -260,6 +269,8 @@ export const useUiStore = defineStore("ui", () => {
     openLibraryPlaylist,
     openCollectionPlaylist,
     showSearchResults,
+    openDownloads,
+    showTabHome,
     resetSelectedPlaylist,
     backToPlaylists,
     goBack,

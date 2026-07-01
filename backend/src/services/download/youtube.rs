@@ -8,9 +8,10 @@ use crate::types::{
 use async_trait::async_trait;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::task;
 use tracing::warn;
-use ytdl_audio::{DownloadOpts, YoutubeClient};
+use ytdl_audio::{DownloadOpts, DownloadProgressReporter, DownloadRequest, YoutubeClient};
 
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
 
@@ -28,7 +29,7 @@ impl Default for YoutubeProvider {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl MusicProvider for YoutubeProvider {
     fn source(&self) -> DownloadSource {
         DownloadSource::Youtube
@@ -117,21 +118,27 @@ impl MusicProvider for YoutubeProvider {
         })
     }
 
-    async fn download_full(
+    async fn download_full_with_progress(
         &self,
         request: &DownloadTrackRequest,
         target_dir: &Path,
+        job_id: &str,
+        reporter: Arc<dyn DownloadProgressReporter>,
     ) -> Result<FullDownloadResult, String> {
         let client = youtube_client().map_err(|e| e.to_string())?;
         let temp_dir = create_download_staging_dir(target_dir)?;
         let result = client
-            .download(
-                &format!("https://www.youtube.com/watch?v={}", request.id),
-                DownloadOpts {
-                    output_dir: temp_dir.path().to_string_lossy().to_string(),
-                    cookies: youtube_cookie_file_path(),
-                    ..Default::default()
+            .download_with_progress(
+                &DownloadRequest {
+                    job_id: job_id.to_string(),
+                    url: format!("https://www.youtube.com/watch?v={}", request.id),
+                    opts: DownloadOpts {
+                        output_dir: temp_dir.path().to_string_lossy().to_string(),
+                        cookies: youtube_cookie_file_path(),
+                        ..Default::default()
+                    },
                 },
+                reporter,
             )
             .await
             .map_err(|e| e.to_string())?;

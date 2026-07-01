@@ -5,9 +5,16 @@ mod netease;
 mod youtube;
 
 use async_trait::async_trait;
+use download_core::{
+    apply_progress_event, DownloadProgressEvent, DownloadProgressPhase, DownloadProgressReporter,
+    DownloadProgressSnapshot, NoopProgressReporter,
+};
 use reqwest::StatusCode;
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Once, OnceLock};
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex as TokioMutex;
 use tokio::task;
 use tracing::warn;
 
@@ -39,7 +46,170 @@ pub struct FullDownloadResult {
     pub cover_url: Option<String>,
 }
 
-#[async_trait(?Send)]
+const DOWNLOAD_JOB_TTL: Duration = Duration::from_secs(120);
+
+#[derive(Debug)]
+struct DownloadJobRecord {
+    snapshot: DownloadProgressSnapshot,
+    finished_at: Option<Instant>,
+}
+
+#[derive(Debug, Default)]
+pub struct DownloadJobStore {
+    jobs: TokioMutex<HashMap<String, DownloadJobRecord>>,
+}
+
+impl DownloadJobStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub async fn create(&self, job_id: &str, source: DownloadSource, title: &str) {
+        self.cleanup().await;
+        let event = DownloadProgressEvent {
+            job_id: job_id.to_string(),
+            source: source.as_str().to_string(),
+            phase: DownloadProgressPhase::Queued,
+            percent: None,
+            message: format!("Queued download: {title}"),
+            detail: None,
+        };
+        let snapshot = apply_progress_event(None, event);
+        let mut jobs = self.jobs.lock().await;
+        jobs.insert(
+            job_id.to_string(),
+            DownloadJobRecord {
+                snapshot,
+                finished_at: None,
+            },
+        );
+    }
+
+    pub async fn apply_event(&self, event: DownloadProgressEvent) {
+        let mut jobs = self.jobs.lock().await;
+        let record = jobs
+            .entry(event.job_id.clone())
+            .or_insert_with(|| DownloadJobRecord {
+                snapshot: apply_progress_event(None, event.clone()),
+                finished_at: None,
+            });
+        record.snapshot = apply_progress_event(Some(record.snapshot.clone()), event.clone());
+        if !matches!(event.phase, DownloadProgressPhase::Failed) {
+            record.snapshot.error = None;
+        }
+        record.finished_at = terminal_phase(&event.phase).then_some(Instant::now());
+    }
+
+    pub async fn update_phase(
+        &self,
+        job_id: &str,
+        source: DownloadSource,
+        phase: DownloadProgressPhase,
+        message: impl Into<String>,
+        detail: Option<String>,
+    ) {
+        self.apply_event(DownloadProgressEvent {
+            job_id: job_id.to_string(),
+            source: source.as_str().to_string(),
+            phase,
+            percent: None,
+            message: message.into(),
+            detail,
+        })
+        .await;
+    }
+
+    pub async fn mark_warning(&self, job_id: &str, warning: Option<String>) {
+        let mut jobs = self.jobs.lock().await;
+        if let Some(record) = jobs.get_mut(job_id) {
+            record.snapshot.warning = warning;
+        }
+    }
+
+    pub async fn mark_completed(
+        &self,
+        job_id: &str,
+        filename: Option<String>,
+        warning: Option<String>,
+    ) {
+        let mut jobs = self.jobs.lock().await;
+        if let Some(record) = jobs.get_mut(job_id) {
+            record.snapshot.state = "completed".to_string();
+            record.snapshot.phase = DownloadProgressPhase::Completed;
+            record.snapshot.percent = Some(100);
+            record.snapshot.message = "Download complete".to_string();
+            record.snapshot.filename = filename;
+            record.snapshot.warning = warning;
+            record.snapshot.error = None;
+            record.finished_at = Some(Instant::now());
+        }
+    }
+
+    pub async fn mark_failed(&self, job_id: &str, source: DownloadSource, message: String) {
+        self.apply_event(DownloadProgressEvent {
+            job_id: job_id.to_string(),
+            source: source.as_str().to_string(),
+            phase: DownloadProgressPhase::Failed,
+            percent: None,
+            message: message.clone(),
+            detail: Some(message),
+        })
+        .await;
+    }
+
+    pub async fn active_jobs(&self) -> Vec<DownloadProgressSnapshot> {
+        self.cleanup().await;
+        let jobs = self.jobs.lock().await;
+        jobs.values()
+            .filter(|record| !terminal_phase(&record.snapshot.phase))
+            .map(|record| record.snapshot.clone())
+            .collect()
+    }
+
+    pub async fn get(&self, job_id: &str) -> Option<DownloadProgressSnapshot> {
+        self.cleanup().await;
+        let jobs = self.jobs.lock().await;
+        jobs.get(job_id).map(|record| record.snapshot.clone())
+    }
+
+    async fn cleanup(&self) {
+        let mut jobs = self.jobs.lock().await;
+        jobs.retain(|_, record| {
+            record
+                .finished_at
+                .is_none_or(|finished_at| finished_at.elapsed() < DOWNLOAD_JOB_TTL)
+        });
+    }
+}
+
+#[derive(Clone)]
+pub struct JobProgressReporter {
+    job_store: Arc<DownloadJobStore>,
+}
+
+impl JobProgressReporter {
+    pub fn new(job_store: Arc<DownloadJobStore>) -> Self {
+        Self { job_store }
+    }
+}
+
+impl DownloadProgressReporter for JobProgressReporter {
+    fn emit(&self, event: DownloadProgressEvent) {
+        let job_store = self.job_store.clone();
+        tokio::spawn(async move {
+            job_store.apply_event(event).await;
+        });
+    }
+}
+
+fn terminal_phase(phase: &DownloadProgressPhase) -> bool {
+    matches!(
+        phase,
+        DownloadProgressPhase::Completed | DownloadProgressPhase::Failed
+    )
+}
+
+#[async_trait]
 pub trait MusicProvider: Send + Sync {
     fn source(&self) -> DownloadSource;
     fn is_enabled(&self) -> bool;
@@ -54,11 +224,26 @@ pub trait MusicProvider: Send + Sync {
         request: &DownloadPreviewRequest,
         preview_root: &Path,
     ) -> Result<PreviewBuildResult, String>;
+    async fn download_full_with_progress(
+        &self,
+        request: &DownloadTrackRequest,
+        target_dir: &Path,
+        job_id: &str,
+        reporter: Arc<dyn DownloadProgressReporter>,
+    ) -> Result<FullDownloadResult, String>;
     async fn download_full(
         &self,
         request: &DownloadTrackRequest,
         target_dir: &Path,
-    ) -> Result<FullDownloadResult, String>;
+    ) -> Result<FullDownloadResult, String> {
+        self.download_full_with_progress(
+            request,
+            target_dir,
+            "download",
+            Arc::new(NoopProgressReporter),
+        )
+        .await
+    }
 }
 
 pub fn initialize_runtime() -> Result<(), String> {

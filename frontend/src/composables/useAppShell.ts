@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useAndroidBackNavigation } from "@/composables/useAndroidBackNavigation";
 import { useAppShellLayout } from "@/composables/useAppShellLayout";
 import { useCollectionsStore } from "@/stores/collections";
+import { useDownloadsStore } from "@/stores/downloads";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore, type PlaylistSelection } from "@/stores/ui";
 import { useLibraryStore } from "@/stores/library";
@@ -42,11 +43,13 @@ export function useAppShell() {
   const libraryStore = useLibraryStore();
   const playerStore = usePlayerStore();
   const collectionsStore = useCollectionsStore();
+  const downloadsStore = useDownloadsStore();
 
   const ui = storeToRefs(uiStore);
   const library = storeToRefs(libraryStore);
   const player = storeToRefs(playerStore);
   const collections = storeToRefs(collectionsStore);
+  const downloads = storeToRefs(downloadsStore);
 
   const selection = useSelection();
   const currentSongs = computed<MusicInfo[]>(
@@ -193,6 +196,23 @@ export function useAppShell() {
       return;
     }
     uiStore.showSearchResults(trimmedQuery);
+  };
+
+  const handleSetActiveTab = (tab: "library" | "collections") => {
+    uiStore.showTabHome(tab);
+    resetSelectionModes();
+  };
+
+  const openDownloads = () => {
+    uiStore.openDownloads();
+  };
+
+  const showLibraryHome = () => {
+    uiStore.showTabHome("library");
+  };
+
+  const showCollectionsHome = () => {
+    uiStore.showTabHome("collections");
   };
 
   const setStartupStatusMessage = (message: string) => {
@@ -961,6 +981,7 @@ export function useAppShell() {
     resetLibraryFilter: libraryStore.resetLibraryFilter,
     currentView: ui.currentView,
     activeTab: ui.activeTab,
+    activeDownloadJobs: downloads.activeJobs,
     selectedPlaylist: ui.selectedPlaylist,
     showSettings: ui.showSettings,
     showAddDeviceModal: ui.showAddDeviceModal,
@@ -1027,6 +1048,10 @@ export function useAppShell() {
     isLyricPanelVisible: shellLayout.isLyricPanelVisible,
     resolveSongCoverUrl: shellLayout.resolveSongCoverUrl,
     handleSearch,
+    handleSetActiveTab,
+    openDownloads,
+    showLibraryHome,
+    showCollectionsHome,
     handleActionBack: androidBackNavigation.handleActionBack,
     handleShowSettingsModal,
     handleShowLufsChange: playerStore.setShowLufsState,

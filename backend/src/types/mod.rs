@@ -61,6 +61,7 @@ pub struct AppState {
     pub preview_root: Arc<String>,
     pub db_conn: DatabaseConnection,
     pub scan_lock: Arc<TokioMutex<()>>,
+    pub download_jobs: Arc<crate::services::download::DownloadJobStore>,
     pub discovery: Arc<crate::discovery::types::DiscoveryState>,
 }
 
@@ -165,6 +166,20 @@ pub struct DownloadTrackRequest {
     pub file_name: Option<String>,
     pub target_subdir: Option<String>,
     pub lyric_selection: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDownloadJobResponse {
+    pub success: bool,
+    pub message: String,
+    pub job_id: Option<String>,
+}
+
+pub type DownloadJobSnapshot = download_core::DownloadProgressSnapshot;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadJobListResponse {
+    pub jobs: Vec<DownloadJobSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

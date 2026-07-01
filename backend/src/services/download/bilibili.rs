@@ -7,8 +7,11 @@ use crate::types::{
 };
 use async_trait::async_trait;
 use bilibili_api::auth::BiliSession;
+use bilibili_api::DownloadAudioRequest;
 use bilibili_api::{BilibiliClient, BilibiliError};
+use download_core::DownloadProgressReporter;
 use std::path::Path;
+use std::sync::Arc;
 use tokio::task;
 
 const BILIBILI_REMUXED_AUDIO_EXTENSION: &str = "m4a";
@@ -28,7 +31,7 @@ impl Default for BilibiliProvider {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl MusicProvider for BilibiliProvider {
     fn source(&self) -> DownloadSource {
         DownloadSource::Bilibili
@@ -121,21 +124,41 @@ impl MusicProvider for BilibiliProvider {
         .map_err(|e| e.to_string())?
     }
 
-    async fn download_full(
+    async fn download_full_with_progress(
         &self,
         request: &DownloadTrackRequest,
         target_dir: &Path,
+        job_id: &str,
+        reporter: Arc<dyn DownloadProgressReporter>,
     ) -> Result<FullDownloadResult, String> {
         let bvid = request.id.clone();
         let file_stem = resolve_download_file_stem(request.file_name.as_deref(), &request.title)?;
         let target_dir = target_dir.to_path_buf();
+        let job_id = job_id.to_string();
 
         task::spawn_blocking(move || -> Result<FullDownloadResult, String> {
             let client = BilibiliClient::new().map_err(|e| e.to_string())?;
             let detail = client.video_detail(&bvid).map_err(|e| e.to_string())?;
             let filename = format!("{file_stem}.{BILIBILI_REMUXED_AUDIO_EXTENSION}");
             let final_path = target_dir.join(filename);
-            download_bilibili_audio(&client, &bvid, &final_path).map_err(|e| match e {
+            let tmp_dir = std::env::temp_dir();
+            let tmp_file = tmp_dir.join(format!("bili_{bvid}.{BILIBILI_RAW_AUDIO_EXTENSION}"));
+            client
+                .download_audio_raw_with_progress(
+                    &DownloadAudioRequest {
+                        job_id,
+                        bvid: bvid.clone(),
+                    },
+                    &tmp_file,
+                    reporter,
+                )
+                .map_err(|e| match e {
+                    BilibiliError::Ffmpeg(message) => format!("FFmpeg 错误: {message}"),
+                    other => other.to_string(),
+                })?;
+            let remux_result = remux_aac_to_m4a(&tmp_file, &final_path);
+            let _ = std::fs::remove_file(&tmp_file);
+            remux_result.map_err(|e| match e {
                 BilibiliError::Ffmpeg(message) => format!("FFmpeg 错误: {message}"),
                 other => other.to_string(),
             })?;

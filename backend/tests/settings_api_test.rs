@@ -54,6 +54,7 @@ async fn test_get_music_directory() {
         preview_root: Arc::new(format!("{}/.preview", test_music_path)),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -103,6 +104,7 @@ async fn test_update_database_empty() {
         ),
         db_conn: db,
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -160,6 +162,7 @@ async fn test_update_database_with_new_files() {
         ),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -231,6 +234,7 @@ async fn test_startup_update_skips_when_done() {
         ),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 
@@ -289,6 +293,7 @@ async fn test_startup_update_runs_and_sets_flag() {
         ),
         db_conn: db.clone(),
         scan_lock: Arc::new(TokioMutex::new(())),
+        download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
 

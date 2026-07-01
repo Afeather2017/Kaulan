@@ -227,12 +227,10 @@
               <button
                 class="action-btn download-btn"
                 @click="handleDownload(result)"
-                :disabled="
-                  downloadingKey === resultKey(result) || !result.can_download
-                "
+                :disabled="isResultDownloading(result) || !result.can_download"
               >
                 {{
-                  downloadingKey === resultKey(result)
+                  isResultDownloading(result)
                     ? "下载中"
                     : result.can_download
                       ? "下载到曲库"
@@ -298,6 +296,7 @@
 import { computed, reactive, ref, onMounted, watch } from "vue";
 import LyricSearchModal from "@/components/modals/LyricSearchModal.vue";
 import { type LyricCandidate } from "@/components/LyricSearchPanel.vue";
+import { useDownloadsStore } from "@/stores/downloads";
 import { getLocalApiBase } from "@/utils/api";
 import { isLocalhostApiBase } from "@/utils/platform";
 import type { OnlineSearchSourceOption } from "@/types/library";
@@ -360,11 +359,11 @@ const providerOptions: Array<{ value: OnlineProvider; label: string }> = [
   { value: "netease", label: "网易云" },
   { value: "bilibili", label: "Bilibili" },
 ];
+const downloadsStore = useDownloadsStore();
 
 const searchInput = ref("");
 const isSearching = ref(false);
 const searchResults = ref<SearchResult[]>([]);
-const downloadingKey = ref<string | null>(null);
 const previewingKey = ref<string | null>(null);
 const showProviderSettings = ref(false);
 const managingProvider = ref<OnlineProvider | null>(null);
@@ -399,6 +398,9 @@ const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
     summary: "未读取登录状态",
   },
 });
+
+const isResultDownloading = (result: SearchResult): boolean =>
+  downloadsStore.activeJobs.some((job) => job.resultKey === resultKey(result));
 
 const sourceOptions = computed(() => props.sourceOptions ?? []);
 
@@ -793,10 +795,11 @@ const downloadTrackToApiBase = async (
   lyricId: string | null,
   targetSubdir: string | null,
 ) => {
-  const response = await fetch(apiBase + "/download/track", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  return downloadsStore.startDownloadJob(
+    apiBase,
+    result.title,
+    resultKey(result),
+    {
       source: result.source,
       id: result.id,
       title: result.title,
@@ -804,16 +807,8 @@ const downloadTrackToApiBase = async (
       file_name: fileName,
       target_subdir: targetSubdir,
       lyric_selection: lyricId,
-    }),
-  });
-  const data = await response.json();
-  if (!response.ok || !data.success) {
-    throw new Error(data.message || "下载失败");
-  }
-  return data as {
-    filename?: string | null;
-    warning?: string | null;
-  };
+    },
+  );
 };
 
 const handleDownload = (result: SearchResult) => {
@@ -829,9 +824,8 @@ const confirmDownload = async () => {
   const requestedFileName = downloadDialogFileName.value.trim();
   customDownloadNames[resultKey(result)] = requestedFileName;
 
-  downloadingKey.value = resultKey(result);
   statusType.value = "info";
-  statusMessage.value = `正在下载: ${result.title}`;
+  statusMessage.value = `正在创建下载任务: ${result.title}`;
   closeDownloadDialog();
   try {
     const selectedLyric = selectedLyrics[resultKey(result)];
@@ -848,8 +842,11 @@ const confirmDownload = async () => {
       selectedLyric?.id ?? null,
       selectedDownloadSubdir.value || null,
     );
+    void downloadsStore.waitForJob(sharedResult.key).then(async () => {
+      await emit("downloadComplete");
+    });
 
-    let warningMessage = sharedResult.warning || "";
+    let warningMessage = "";
     if (shouldAlsoSaveLocal) {
       try {
         await downloadTrackToApiBase(
@@ -868,16 +865,14 @@ const confirmDownload = async () => {
 
     statusType.value = warningMessage ? "info" : "success";
     statusMessage.value = warningMessage
-      ? `下载完成: ${sharedResult.filename}，${warningMessage}`
+      ? `下载任务已开始，${warningMessage}`
       : shouldAlsoSaveLocal
-        ? `下载完成: ${sharedResult.filename}，并已请求保存本机副本`
-        : `下载完成: ${sharedResult.filename}`;
-    emit("downloadComplete");
+        ? "下载任务已开始，并已请求保存本机副本"
+        : "下载任务已开始，请在“下载中”面板查看进度";
   } catch (error) {
     statusType.value = "error";
     statusMessage.value = `下载失败: ${error}`;
   } finally {
-    downloadingKey.value = null;
   }
 };
 </script>
