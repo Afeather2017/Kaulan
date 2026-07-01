@@ -569,6 +569,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "dirs 6.0.0",
+ "download-core",
  "md-5",
  "reqwest 0.12.28",
  "serde",
@@ -1497,6 +1498,13 @@ name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
+name = "download-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "dpi"
@@ -3177,6 +3185,7 @@ dependencies = [
  "base64 0.22.1",
  "cbc",
  "dirs 6.0.0",
+ "download-core",
  "num-bigint",
  "rand 0.9.2",
  "reqwest 0.12.28",
@@ -7971,6 +7980,7 @@ name = "ytdl-audio"
 version = "0.2.0"
 dependencies = [
  "clap",
+ "download-core",
  "futures-util",
  "regex",
  "reqwest 0.12.28",
