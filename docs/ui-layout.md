@@ -3,11 +3,17 @@
 Related source files:
 
 - `frontend/src/App.vue`
+- `frontend/src/components/AppContentView.vue`
+- `frontend/src/components/DownloadJobsView.vue`
 - `frontend/src/components/modals/AddDeviceModal.vue`
+- `frontend/src/components/modals/OnlineSearchModal.vue`
 - `frontend/src/components/modals/SettingsModal.vue`
 - `frontend/src/components/SearchBar.vue`
 - `frontend/src/components/PlaylistListView.vue`
 - `frontend/src/components/SongListView.vue`
+- `frontend/src/composables/useAppShell.ts`
+- `frontend/src/stores/downloads.ts`
+- `frontend/src/stores/ui.ts`
 
 ## Core Direction
 
@@ -128,6 +134,20 @@ Not:
 
 - nearby-device discovery
 - manual source onboarding
+- active download progress
+
+### 5. Active Downloads
+
+Download progress should be visible as a first-class panel, not hidden behind settings or a popup.
+
+That means:
+
+- the app has a dedicated `Downloads` main view
+- the view shows active jobs only
+- progress state is owned by the shared status model and polling store
+- the online-search panel submits downloads, but does not own long-running progress UI
+
+This keeps search focused on starting downloads while the rest of the app can continue browsing or playback.
 
 ## Terminology
 
@@ -240,6 +260,7 @@ Lyric state:
 
 - `Library` shows server-grouped folder-based playlists from all servers
 - `My Collections` shows only local personal collections
+- `Downloads` shows active download jobs across providers
 - `Filter` opens a sheet, not a full new permanent panel
 - `Add device` is shown only while `Library` is active
 - `New collection` is shown only while `My Collections` is active
@@ -247,6 +268,37 @@ Lyric state:
 - lyrics should open in the expandable upper player panel
 - the lower player block should keep the same layout in cover and lyric states
 - song sharing should live in the current queue sheet header, not in a narrow-only top action bar
+
+### Mobile Downloads Page
+
+`Downloads` is a normal content page in narrow mode.
+
+```text
++--------------------------------------------------+
+| [< Back] Downloads                          [⋮]  |
++--------------------------------------------------+
+| YouTube                                          |
+| Song A                                           |
+| Downloading                                      |
+| [##########------] 64%                           |
+|                                                  |
+| Bilibili                                         |
+| Song B                                           |
+| Preparing                                        |
+| [###-------------] 12%                           |
++--------------------------------------------------+
+| [Cover] Song Name                                |
+| [Cover]      progress bar                        |
+| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++--------------------------------------------------+
+```
+
+Rules:
+
+- show only active jobs
+- completed, failed, or cancelled jobs leave this page once they are no longer active
+- each row shows source, title, phase, and progress percent when available
+- the page is driven by the shared downloads store rather than modal-local state
 
 ### Mobile Offline Example
 
@@ -517,6 +569,26 @@ Wide mode can show browsing and playback together, but the library should still 
 +---------------------------------------+--------------------------------------------------+
 ```
 
+`Downloads` tab:
+
+```text
++------------------------------------------------------------------------------------------+
+| Kaulan                  [ Search all music sources...                 ] [⋮]              |
++------------------------------------------------------------------------------------------+
+| Downloads                             | Now Playing / Lyrics                              |
++---------------------------------------+--------------------------------------------------+
+| YouTube                               |              [ Cover ]                           |
+| Song A                                |              [ Cover ]                           |
+| Downloading                     64%   |              [ Cover ]                           |
+| [##########------]                    |              [ Cover ]                           |
+|                                       |--------------------------------------------------|
+| Bilibili                              | [Cover] Song Name                                |
+| Song B                                | [Cover]      progress bar                        |
+| Preparing                       12%   | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
+| [###-------------]                    |                                                  |
++---------------------------------------+--------------------------------------------------+
+```
+
 `My Collections` tab:
 
 ```text
@@ -545,6 +617,13 @@ Wide mode can show browsing and playback together, but the library should still 
 |  [Retry]                              | [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
 +---------------------------------------+--------------------------------------------------+
 ```
+
+### Wide Mode Rules
+
+- `Downloads` replaces the left-side browsing panel in wide mode
+- the player panel stays visible while downloads are active
+- `Downloads` is not a dialog, sheet, or settings subsection
+- the same shared downloads state drives both narrow and wide presentations
 
 ### Desktop With Library Detail Open
 
