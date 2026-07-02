@@ -264,7 +264,12 @@
       @selected="handleLyricSelected"
     />
 
-    <div v-if="downloadDialogState" class="dialog-overlay">
+    <div
+      v-if="downloadDialogState"
+      class="dialog-overlay"
+      @mousedown="handleDownloadDialogOverlayPointerDown"
+      @mouseup="handleDownloadDialogOverlayPointerUp"
+    >
       <div class="download-dialog" @click.stop>
         <div class="download-dialog-title">设置下载文件名</div>
         <div class="download-dialog-meta">
@@ -382,6 +387,7 @@ const lyricPickerState = ref<SearchResult | null>(null);
 const downloadDialogState = ref<SearchResult | null>(null);
 const downloadDialogFileName = ref("");
 const mainOverlayPressed = ref(false);
+const downloadDialogOverlayPressed = ref(false);
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
     provider: "youtube",
@@ -487,6 +493,7 @@ watch(
 watch(downloadDialogState, (value) => {
   if (value) {
     mainOverlayPressed.value = false;
+    downloadDialogOverlayPressed.value = false;
   }
 });
 
@@ -535,6 +542,22 @@ const handleMainOverlayPointerUp = (event: MouseEvent) => {
   }
 
   emit("close");
+};
+
+const handleDownloadDialogOverlayPointerDown = (event: MouseEvent) => {
+  downloadDialogOverlayPressed.value = event.target === event.currentTarget;
+};
+
+const handleDownloadDialogOverlayPointerUp = (event: MouseEvent) => {
+  const shouldClose =
+    downloadDialogOverlayPressed.value && event.target === event.currentTarget;
+
+  downloadDialogOverlayPressed.value = false;
+  if (!shouldClose) {
+    return;
+  }
+
+  closeDownloadDialog();
 };
 
 const buildDefaultLyricSearchQuery = (result: SearchResult): string => {

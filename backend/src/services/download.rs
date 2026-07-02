@@ -173,11 +173,15 @@ impl DownloadJobStore {
     }
 
     async fn cleanup(&self) {
+        self.cleanup_with_ttl(DOWNLOAD_JOB_TTL).await;
+    }
+
+    async fn cleanup_with_ttl(&self, ttl: Duration) {
         let mut jobs = self.jobs.lock().await;
         jobs.retain(|_, record| {
             record
                 .finished_at
-                .is_none_or(|finished_at| finished_at.elapsed() < DOWNLOAD_JOB_TTL)
+                .is_none_or(|finished_at| finished_at.elapsed() < ttl)
         });
     }
 }
@@ -209,6 +213,7 @@ fn terminal_phase(phase: &DownloadProgressPhase) -> bool {
     )
 }
 
+// Provider futures must be Send because async download jobs are spawned onto the Tokio runtime.
 #[async_trait]
 pub trait MusicProvider: Send + Sync {
     fn source(&self) -> DownloadSource;
@@ -324,15 +329,14 @@ pub(crate) fn resolve_download_file_stem(
                 return Err("文件名不能为空".to_string());
             }
 
-            let requested_path = Path::new(trimmed);
-            if requested_path
-                .components()
-                .any(|component| !matches!(component, Component::Normal(_)))
+            let mut components = Path::new(trimmed).components();
+            if !matches!(components.next(), Some(Component::Normal(_)))
+                || components.next().is_some()
             {
                 return Err("文件名不能包含路径".to_string());
             }
 
-            let stem = requested_path
+            let stem = Path::new(trimmed)
                 .file_stem()
                 .and_then(|value| value.to_str())
                 .map(str::trim)
@@ -489,10 +493,12 @@ mod tests {
     use super::{
         build_online_provider_statuses, create_download_staging_dir,
         ensure_ytdl_solver_dependencies_in_dir, resolve_download_file_stem, sanitize_filename,
-        should_embed_cover_art,
+        should_embed_cover_art, DownloadJobStore,
     };
+    use download_core::{DownloadProgressEvent, DownloadProgressPhase};
     use std::fs;
     use std::path::Path;
+    use std::time::Duration;
 
     const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
 
@@ -537,6 +543,12 @@ mod tests {
     }
 
     #[test]
+    fn resolve_download_file_stem_rejects_nested_relative_paths() {
+        let err = resolve_download_file_stem(Some("Album/Song.mp3"), "fallback").unwrap_err();
+        assert!(err.contains("不能包含路径"));
+    }
+
+    #[test]
     fn resolve_download_file_stem_rejects_blank_names() {
         let err = resolve_download_file_stem(Some("   "), "fallback").unwrap_err();
         assert!(err.contains("不能为空"));
@@ -571,5 +583,67 @@ mod tests {
         assert!(should_embed_cover_art(Path::new("/tmp/example.mp3")));
         assert!(should_embed_cover_art(Path::new("/tmp/example.flac")));
         assert!(should_embed_cover_art(Path::new("/tmp/example.m4a")));
+    }
+
+    #[tokio::test]
+    async fn download_job_store_tracks_progress_until_completion() {
+        let store = DownloadJobStore::new();
+        store
+            .create("job-1", crate::types::DownloadSource::Youtube, "Track")
+            .await;
+        store
+            .apply_event(DownloadProgressEvent {
+                job_id: "job-1".to_string(),
+                source: "youtube".to_string(),
+                phase: DownloadProgressPhase::Downloading,
+                percent: Some(42),
+                message: "Downloading".to_string(),
+                detail: Some("42%".to_string()),
+            })
+            .await;
+        store
+            .mark_completed("job-1", Some("track.mp3".to_string()), None)
+            .await;
+
+        let snapshot = store.get("job-1").await.expect("snapshot should exist");
+        assert_eq!(snapshot.state, "completed");
+        assert!(matches!(snapshot.phase, DownloadProgressPhase::Completed));
+        assert_eq!(snapshot.percent, Some(100));
+        assert_eq!(snapshot.filename.as_deref(), Some("track.mp3"));
+    }
+
+    #[tokio::test]
+    async fn download_job_store_records_failures() {
+        let store = DownloadJobStore::new();
+        store
+            .create("job-2", crate::types::DownloadSource::Bilibili, "Track")
+            .await;
+        store
+            .mark_failed(
+                "job-2",
+                crate::types::DownloadSource::Bilibili,
+                "download failed".to_string(),
+            )
+            .await;
+
+        let snapshot = store.get("job-2").await.expect("snapshot should exist");
+        assert_eq!(snapshot.state, "failed");
+        assert!(matches!(snapshot.phase, DownloadProgressPhase::Failed));
+        assert_eq!(snapshot.error.as_deref(), Some("download failed"));
+    }
+
+    #[tokio::test]
+    async fn download_job_store_evicts_terminal_jobs_after_ttl() {
+        let store = DownloadJobStore::new();
+        store
+            .create("job-3", crate::types::DownloadSource::Netease, "Track")
+            .await;
+        store
+            .mark_completed("job-3", Some("track.mp3".to_string()), None)
+            .await;
+
+        store.cleanup_with_ttl(Duration::ZERO).await;
+
+        assert!(store.get("job-3").await.is_none());
     }
 }

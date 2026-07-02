@@ -32,6 +32,7 @@ export interface ActiveDownloadJob {
   title: string;
   resultKey: string;
   snapshot: DownloadJobSnapshot;
+  pollFailures: number;
 }
 
 interface CreateDownloadJobResponse {
@@ -46,6 +47,9 @@ type JobWaiter = {
 };
 
 const POLL_INTERVAL_MS = 1000;
+const POLL_FAILURE_LIMIT = 3;
+const LOST_JOB_MESSAGE = "任务已丢失（服务可能已重启）";
+const POLL_RETRY_MESSAGE = "连接下载服务失败，正在重试";
 
 export const useDownloadsStore = defineStore("downloads", () => {
   const jobs = ref<Record<string, ActiveDownloadJob>>({});
@@ -102,8 +106,10 @@ export const useDownloadsStore = defineStore("downloads", () => {
           if (response.status === 404) {
             finalizeJob(job.key, {
               ...job.snapshot,
-              state: "completed",
-              phase: "completed",
+              state: "failed",
+              phase: "failed",
+              error: LOST_JOB_MESSAGE,
+              message: LOST_JOB_MESSAGE,
             });
             return;
           }
@@ -115,19 +121,46 @@ export const useDownloadsStore = defineStore("downloads", () => {
           jobs.value[job.key] = {
             ...job,
             snapshot,
+            pollFailures: 0,
           };
 
           if (snapshot.state === "completed" || snapshot.state === "failed") {
             finalizeJob(job.key, snapshot);
           }
         } catch (error) {
-          finalizeJob(job.key, {
+          const nextFailures = job.pollFailures + 1;
+          const errorMessage =
+            nextFailures >= POLL_FAILURE_LIMIT
+              ? `连接下载服务失败: ${String(error)}`
+              : POLL_RETRY_MESSAGE;
+          const nextSnapshot: DownloadJobSnapshot = {
             ...job.snapshot,
-            state: "failed",
-            phase: "failed",
-            error: String(error),
-            message: String(error),
-          });
+            detail: String(error),
+            message: errorMessage,
+            warning: job.snapshot.warning,
+            error:
+              nextFailures >= POLL_FAILURE_LIMIT
+                ? errorMessage
+                : job.snapshot.error,
+            state:
+              nextFailures >= POLL_FAILURE_LIMIT
+                ? "failed"
+                : job.snapshot.state,
+            phase:
+              nextFailures >= POLL_FAILURE_LIMIT
+                ? "failed"
+                : job.snapshot.phase,
+          };
+
+          jobs.value[job.key] = {
+            ...job,
+            snapshot: nextSnapshot,
+            pollFailures: nextFailures,
+          };
+
+          if (nextFailures >= POLL_FAILURE_LIMIT) {
+            finalizeJob(job.key, nextSnapshot);
+          }
         }
       }),
     );
@@ -197,6 +230,7 @@ export const useDownloadsStore = defineStore("downloads", () => {
       title,
       resultKey,
       snapshot,
+      pollFailures: 0,
     };
     ensurePolling();
     void pollJobs();
