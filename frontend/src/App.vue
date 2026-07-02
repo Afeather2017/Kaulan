@@ -12,17 +12,6 @@
         <SearchBar v-model="searchQuery" @search="handleSearch" />
       </div>
 
-      <div v-if="showActionBar" class="action-bar">
-        <button
-          v-if="showBackButton"
-          class="action-btn"
-          @click="handleActionBack"
-        >
-          返回
-        </button>
-        <div class="action-spacer"></div>
-      </div>
-
       <!-- Scanning Message -->
       <div v-if="isScanning" class="scanning-message">扫描中...</div>
       <div v-if="startupStatusMessage" class="startup-message">
@@ -38,50 +27,62 @@
 
       <div class="main-area" :class="{ 'wide-layout': isWideLayout }">
         <div class="list-panel" v-show="!isPlayerPanelVisible || isWideLayout">
-          <AppContentView
-            :current-view="currentView"
-            :active-tab="activeTab"
-            :is-wide-layout="isWideLayout"
-            :library-group-summaries="libraryGroupSummaries"
-            :collection-names="collectionNames"
-            :collection-playlists="collectionPlaylists"
-            :collection-select-mode="collectionSelectMode"
-            :selected-collections-list="selectedCollectionsList"
-            :has-selected-non-all-music="hasSelectedNonAllMusicCollection()"
-            :selected-playlist-title="selectedPlaylist?.name || ''"
-            :current-songs="currentSongs"
-            :select-mode="selectMode"
-            :selected-songs="selectedSongs"
-            :current-song-name="currentSong?.name"
-            :show-lufs="showLufs"
-            :trimmed-search-query="trimmedSearchQuery"
-            :search-results="searchResults"
-            :song-selection-action-label="songSelectionActionLabel"
-            :active-download-jobs="activeDownloadJobs"
-            @set-active-tab="handleSetActiveTab"
-            @open-filter-sheet="openFilterSheet"
-            @add-device="handleAddDevice"
-            @open-downloads="openDownloads"
-            @show-library-home="showLibraryHome"
-            @show-collections-home="showCollectionsHome"
-            @select-library-playlist="handleSelectLibraryPlaylist"
-            @open-source-menu="handleOpenSourceMenu"
-            @retry-source-connection="handleRetrySourceConnection"
-            @toggle-collection-select-mode="toggleCollectionSelectMode"
-            @toggle-collection-selection="toggleCollectionSelection"
-            @select-collection="handleSelectCollection"
-            @show-create-modal="handleShowCreateModal"
-            @delete-selected-collections="handleDeleteSelectedCollections"
-            @open-collection-menu="handleOpenCollectionMenu"
-            @open-song-list-menu="handleOpenSongListMenu"
-            @back-to-playlists="handleBackToPlaylists"
-            @toggle-select-mode="toggleSelectMode"
-            @toggle-song-selection="toggleSongSelection"
-            @play-song="handlePlaySong"
-            @perform-song-selection-action="handleSongSelectionAction"
-            @open-online-search-from-query="openOnlineSearchFromQuery"
-            @reset-library-filter="resetLibraryFilter"
-          />
+          <div v-if="showActionBar" class="action-bar">
+            <button
+              v-if="showBackButton"
+              class="action-btn"
+              @click="handleActionBack"
+            >
+              返回
+            </button>
+            <div class="action-spacer"></div>
+          </div>
+          <div class="list-panel-content">
+            <AppContentView
+              :current-view="currentView"
+              :active-tab="activeTab"
+              :is-wide-layout="isWideLayout"
+              :library-group-summaries="libraryGroupSummaries"
+              :collection-names="collectionNames"
+              :collection-playlists="collectionPlaylists"
+              :collection-select-mode="collectionSelectMode"
+              :selected-collections-list="selectedCollectionsList"
+              :has-selected-non-all-music="hasSelectedNonAllMusicCollection()"
+              :selected-playlist-title="selectedPlaylist?.name || ''"
+              :current-songs="currentSongs"
+              :select-mode="selectMode"
+              :selected-songs="selectedSongs"
+              :current-song-name="currentSong?.name"
+              :show-lufs="showLufs"
+              :trimmed-search-query="trimmedSearchQuery"
+              :search-results="searchResults"
+              :song-selection-action-label="songSelectionActionLabel"
+              :active-download-jobs="activeDownloadJobs"
+              @set-active-tab="handleSetActiveTab"
+              @open-filter-sheet="openFilterSheet"
+              @add-device="handleAddDevice"
+              @open-downloads="openDownloads"
+              @show-library-home="showLibraryHome"
+              @show-collections-home="showCollectionsHome"
+              @select-library-playlist="handleSelectLibraryPlaylist"
+              @open-source-menu="handleOpenSourceMenu"
+              @retry-source-connection="handleRetrySourceConnection"
+              @toggle-collection-select-mode="toggleCollectionSelectMode"
+              @toggle-collection-selection="toggleCollectionSelection"
+              @select-collection="handleSelectCollection"
+              @show-create-modal="handleShowCreateModal"
+              @delete-selected-collections="handleDeleteSelectedCollections"
+              @open-collection-menu="handleOpenCollectionMenu"
+              @open-song-list-menu="handleOpenSongListMenu"
+              @back-to-playlists="handleBackToPlaylists"
+              @toggle-select-mode="toggleSelectMode"
+              @toggle-song-selection="toggleSongSelection"
+              @play-song="handlePlaySong"
+              @perform-song-selection-action="handleSongSelectionAction"
+              @open-online-search-from-query="openOnlineSearchFromQuery"
+              @reset-library-filter="resetLibraryFilter"
+            />
+          </div>
         </div>
         <AppPlayerView
           :is-player-panel-visible="isPlayerPanelVisible"
@@ -740,6 +741,13 @@ const copyShareUrl = async () => {
   flex: 1;
   min-height: 0;
   background-color: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.list-panel-content {
+  flex: 1;
+  min-height: 0;
 }
 
 @media (min-width: 900px) and (min-aspect-ratio: 1/1) {

@@ -186,12 +186,6 @@
         >
           在线搜索 “{{ trimmedSearchQuery }}”
         </button>
-        <button
-          class="online-search-entry secondary"
-          @click="$emit('openDownloads')"
-        >
-          查看下载进度
-        </button>
       </div>
       <div v-if="searchResults.length === 0 && !selectMode" class="empty-state">
         <div>未找到库内结果</div>

@@ -119,6 +119,7 @@ export function useAppShell() {
     currentSong: player.currentSong,
     playerPanelMode: ui.playerPanelMode,
     canGoBack: ui.canGoBack,
+    currentView: ui.currentView,
   });
 
   watch(

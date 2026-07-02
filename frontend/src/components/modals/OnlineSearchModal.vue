@@ -1,5 +1,9 @@
 <template>
-  <div class="modal-overlay" @click="$emit('close')">
+  <div
+    class="modal-overlay"
+    @mousedown="handleMainOverlayPointerDown"
+    @mouseup="handleMainOverlayPointerUp"
+  >
     <div class="modal-content" @click.stop>
       <h3>在线查找</h3>
       <p class="source-caption">当前来源：{{ sourceNameLabel }}</p>
@@ -260,11 +264,7 @@
       @selected="handleLyricSelected"
     />
 
-    <div
-      v-if="downloadDialogState"
-      class="dialog-overlay"
-      @click="closeDownloadDialog"
-    >
+    <div v-if="downloadDialogState" class="dialog-overlay">
       <div class="download-dialog" @click.stop>
         <div class="download-dialog-title">设置下载文件名</div>
         <div class="download-dialog-meta">
@@ -381,6 +381,7 @@ const supportsProviderAccountActions = ref(false);
 const lyricPickerState = ref<SearchResult | null>(null);
 const downloadDialogState = ref<SearchResult | null>(null);
 const downloadDialogFileName = ref("");
+const mainOverlayPressed = ref(false);
 const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
   youtube: {
     provider: "youtube",
@@ -483,6 +484,12 @@ watch(
   },
 );
 
+watch(downloadDialogState, (value) => {
+  if (value) {
+    mainOverlayPressed.value = false;
+  }
+});
+
 const handleSourceChange = (event: Event) => {
   const nextApiBase = (event.target as HTMLSelectElement).value;
   if (!nextApiBase || nextApiBase === resolvedApiBase()) {
@@ -512,6 +519,22 @@ const openDownloadDialog = (result: SearchResult) => {
 const closeDownloadDialog = () => {
   downloadDialogState.value = null;
   downloadDialogFileName.value = "";
+};
+
+const handleMainOverlayPointerDown = (event: MouseEvent) => {
+  mainOverlayPressed.value = event.target === event.currentTarget;
+};
+
+const handleMainOverlayPointerUp = (event: MouseEvent) => {
+  const shouldClose =
+    mainOverlayPressed.value && event.target === event.currentTarget;
+
+  mainOverlayPressed.value = false;
+  if (!shouldClose) {
+    return;
+  }
+
+  emit("close");
 };
 
 const buildDefaultLyricSearchQuery = (result: SearchResult): string => {
