@@ -159,7 +159,8 @@ export const useUiStore = defineStore("ui", () => {
   };
 
   const openDownloads = () => {
-    pushContentState("downloads");
+    selectedPlaylist.value = null;
+    replaceTopContentState("downloads");
   };
 
   const showTabHome = (tab: MainTab) => {

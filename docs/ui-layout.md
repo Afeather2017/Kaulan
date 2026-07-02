@@ -181,7 +181,7 @@ The main screen should focus on:
 +--------------------------------------------------+
 | Kaulan                             [Search] [⋮] |
 +--------------------------------------------------+
-| [Library] [My Collections] [Filter] [Add device] |
+| [Library] [My Collections] [Downloads]     [Actions] |
 +--------------------------------------------------+
 | This Device                      [Online]    [⋮]|
 |  所有音乐                                        |
@@ -205,10 +205,10 @@ The main screen should focus on:
 +------------------------------------------------------+
 | Kaulan                               [Search] [⋮]   |
 +------------------------------------------------------+
-| [Library] [My Collections] [Filter] [New Collection] |
+| [Library] [My Collections] [Downloads]     [Actions] |
 +------------------------------------------------------+
 | No personal collections yet.                         |
-| Tap "New Collection" to create one.                  |
+| Tap "Actions" then "New Collection" to create one.   |
 +------------------------------------------------------+
 | [Cover] Song Name                                    |
 | [Cover]      progress bar                            |
@@ -261,13 +261,41 @@ Lyric state:
 - `Library` shows server-grouped folder-based playlists from all servers
 - `My Collections` shows only local personal collections
 - `Downloads` shows active download jobs across providers
+- the persistent header keeps only top-level destinations
+- page-specific commands open from one contextual `Actions` entry in both narrow and wide layouts
 - `Filter` opens a sheet, not a full new permanent panel
-- `Add device` is shown only while `Library` is active
-- `New collection` is shown only while `My Collections` is active
+- `Add device` is available from `Actions` while `Library` is active
+- `New collection` is available from `Actions` while `My Collections` is active
 - only one of these is active at a time
 - lyrics should open in the expandable upper player panel
 - the lower player block should keep the same layout in cover and lyric states
 - song sharing should live in the current queue sheet header, not in a narrow-only top action bar
+
+### Mobile Page Actions Sheet
+
+The contextual actions sheet should scale with future features without adding more permanent header buttons.
+
+Examples:
+
+```text
+Library Actions
+
+- Filter Library
+- Add Device
+```
+
+```text
+Collection Actions
+
+- New Collection
+```
+
+Rules:
+
+- the main header keeps destination switching only in every layout
+- commands in the sheet are scoped to the current main page
+- source-specific operations still belong to the source-group `⋮` menu
+- future page-wide commands should be added here instead of creating new header pills
 
 ### Mobile Downloads Page
 
@@ -275,7 +303,7 @@ Lyric state:
 
 ```text
 +--------------------------------------------------+
-| [< Back] Downloads                          [⋮]  |
+| [Library] [My Collections] [Downloads]           |
 +--------------------------------------------------+
 | YouTube                                          |
 | Song A                                           |

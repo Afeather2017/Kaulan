@@ -1,13 +1,5 @@
 <template>
   <div class="download-jobs-view">
-    <div class="content-tabs">
-      <button class="content-tab" @click="$emit('showLibrary')">曲库</button>
-      <button class="content-tab" @click="$emit('showCollections')">
-        我的收藏
-      </button>
-      <button class="content-tab active" disabled>下载中</button>
-    </div>
-
     <div v-if="jobs.length === 0" class="empty-state">
       <div>当前没有正在进行的下载任务。</div>
     </div>
@@ -48,11 +40,6 @@ import type {
 
 defineProps<{
   jobs: ActiveDownloadJob[];
-}>();
-
-defineEmits<{
-  (e: "showLibrary"): void;
-  (e: "showCollections"): void;
 }>();
 
 const phaseLabel = (phase: DownloadPhase): string => {
@@ -116,31 +103,8 @@ const progressWidth = (snapshot: DownloadJobSnapshot): number => {
   height: 100%;
 }
 
-.content-tabs {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.content-tab {
-  border: 1px solid #d6dde2;
-  background: #f6f8f9;
-  color: #35515b;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.content-tab.active {
-  background: #17313b;
-  border-color: #17313b;
-  color: #fff;
-}
-
 .empty-state {
-  padding: 20px 0;
+  padding: 12px 0 20px;
   color: #60757e;
 }
 

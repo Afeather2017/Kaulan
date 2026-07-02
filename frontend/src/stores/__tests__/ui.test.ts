@@ -61,13 +61,13 @@ describe("ui store navigation stack", () => {
     expect(store.canGoBack).toBe(true);
   });
 
-  it("treats downloads as a real content page", () => {
+  it("treats downloads as a top-level destination", () => {
     const store = useUiStore();
 
     store.openDownloads();
 
     expect(store.currentView).toBe("downloads");
-    expect(store.canGoBack).toBe(true);
+    expect(store.canGoBack).toBe(false);
 
     store.showTabHome("library");
 

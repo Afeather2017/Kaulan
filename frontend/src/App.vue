@@ -41,6 +41,7 @@
           <AppContentView
             :current-view="currentView"
             :active-tab="activeTab"
+            :is-wide-layout="isWideLayout"
             :library-group-summaries="libraryGroupSummaries"
             :collection-names="collectionNames"
             :collection-playlists="collectionPlaylists"
