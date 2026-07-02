@@ -416,7 +416,7 @@ pub fn run() {
     set_server(kaulan_server.clone());
     log::info!("Registered KaulanServer with music notification plugin");
 
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(MusicDirectory(Mutex::new(String::new())))
         .manage(kaulan_server.clone())
         .plugin(tauri_plugin_dialog::init())
@@ -425,9 +425,7 @@ pub fn run() {
         .plugin(tauri_plugin_music_notification_api::init());
 
     #[cfg(debug_assertions)]
-    {
-        builder = builder.plugin(tauri_plugin_mcp_bridge::init());
-    }
+    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
     builder
         .setup(move |app| {
