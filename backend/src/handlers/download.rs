@@ -534,9 +534,10 @@ async fn execute_download_request(
     job_id: Option<String>,
 ) -> Result<DownloadTrackResponse, String> {
     let reporter: Option<Arc<dyn DownloadProgressReporter>> = job_id.as_ref().map(|_| {
-        Arc::new(download_service::JobProgressReporter::new(
-            data.download_jobs.clone(),
-        )) as Arc<dyn DownloadProgressReporter>
+        let reporter: Arc<dyn DownloadProgressReporter> = Arc::new(
+            download_service::JobProgressReporter::new(data.download_jobs.clone()),
+        );
+        reporter
     });
     let output = match (&job_id, &reporter) {
         (Some(job_id), Some(reporter)) => {
