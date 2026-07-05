@@ -198,6 +198,18 @@ pub struct ApplyLyricResponse {
     pub lyric_filename: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateLyricContentRequest {
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateLyricContentResponse {
+    pub success: bool,
+    pub message: String,
+    pub lyric_filename: Option<String>,
+}
+
 /// Response for file upload operation
 #[derive(Serialize, Deserialize)]
 pub struct UploadResponse {

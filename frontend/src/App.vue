@@ -92,8 +92,10 @@
           :is-lyrics-loading="isLyricsLoading"
           :has-lyrics="hasLyrics"
           :lyrics="lyrics"
+          :raw-lyrics-content="rawLyricsContent"
           :current-lyric-index="currentLyricIndex"
           :current-song-id="currentSong?.id ?? null"
+          :lyric-api-base="currentSongLyricApiBase"
           :current-song-name="currentSong?.name"
           :cover-url="resolveSongCoverUrl(currentSong)"
           :current-time="currentTime"
@@ -113,6 +115,7 @@
           @next="nextSong"
           @show-active-queue="handleShowActiveQueue"
           @toggle-panel-mode="togglePlayerPanelMode"
+          @lyrics-saved="handleLyricApplied"
         />
       </div>
     </div>
@@ -369,6 +372,7 @@ const {
   selectedCollectionsList,
   hasSelectedNonAllMusicCollection,
   lyrics,
+  rawLyricsContent,
   currentLyricIndex,
   isLyricsLoading,
   hasLyrics,

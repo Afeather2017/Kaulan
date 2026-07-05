@@ -33,6 +33,41 @@ export interface LyricLine {
 
 const LYRIC_RESYNC_THRESHOLD_SECONDS = 0.1;
 
+function clampNonNegative(value: number): number {
+  return Math.max(0, value);
+}
+
+function formatLrcTimestamp(totalSeconds: number, digits: 2 | 3): string {
+  const clampedMs = Math.round(clampNonNegative(totalSeconds) * 1000);
+  const minutes = Math.floor(clampedMs / 60000);
+  const seconds = Math.floor((clampedMs % 60000) / 1000);
+  const milliseconds = clampedMs % 1000;
+  const fraction =
+    digits === 3
+      ? milliseconds.toString().padStart(3, "0")
+      : Math.floor(milliseconds / 10)
+          .toString()
+          .padStart(2, "0");
+
+  return `${minutes.toString().padStart(2, "0")}:${seconds
+    .toString()
+    .padStart(2, "0")}.${fraction}`;
+}
+
+function formatVttTimestamp(totalSeconds: number): string {
+  const clampedMs = Math.round(clampNonNegative(totalSeconds) * 1000);
+  const hours = Math.floor(clampedMs / 3600000);
+  const minutes = Math.floor((clampedMs % 3600000) / 60000);
+  const seconds = Math.floor((clampedMs % 60000) / 1000);
+  const milliseconds = clampedMs % 1000;
+
+  return `${hours.toString().padStart(2, "0")}:${minutes
+    .toString()
+    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}.${milliseconds
+    .toString()
+    .padStart(3, "0")}`;
+}
+
 /**
  * Merge parsed lyric lines by timestamp while preserving text order.
  */
@@ -157,6 +192,44 @@ function parseVttTimestamp(timestamp: string): number | null {
   return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
 }
 
+function shiftLrcContent(content: string, shiftMs: number): string {
+  const shiftSeconds = shiftMs / 1000;
+  const timeRegex = /\[(\d{2,}):(\d{2})\.(\d{2,3})\]/g;
+
+  return content.replace(
+    timeRegex,
+    (_match, minutesText, secondsText, fractionText) => {
+      const minutes = Number.parseInt(minutesText, 10);
+      const seconds = Number.parseInt(secondsText, 10);
+      const milliseconds = Number.parseInt(
+        String(fractionText).padEnd(3, "0").slice(0, 3),
+        10,
+      );
+      const totalSeconds =
+        minutes * 60 + seconds + milliseconds / 1000 + shiftSeconds;
+
+      return `[${formatLrcTimestamp(totalSeconds, String(fractionText).length === 3 ? 3 : 2)}]`;
+    },
+  );
+}
+
+function shiftVttContent(content: string, shiftMs: number): string {
+  const shiftSeconds = shiftMs / 1000;
+
+  return content.replace(
+    /(\d{2}:\d{2}(?::\d{2})?\.\d{3})(\s*-->\s*)(\d{2}:\d{2}(?::\d{2})?\.\d{3})/g,
+    (_match, startText, arrow, endText) => {
+      const startSeconds = parseVttTimestamp(String(startText));
+      const endSeconds = parseVttTimestamp(String(endText));
+      if (startSeconds === null || endSeconds === null) {
+        return `${startText}${arrow}${endText}`;
+      }
+
+      return `${formatVttTimestamp(startSeconds + shiftSeconds)}${arrow}${formatVttTimestamp(endSeconds + shiftSeconds)}`;
+    },
+  );
+}
+
 /**
  * Parse WEBVTT content into LyricLine array.
  *
@@ -226,6 +299,15 @@ export function parseLyrics(content: string): LyricLine[] {
   }
 
   return parseLrc(content);
+}
+
+export function shiftLyricsContent(content: string, shiftMs: number): string {
+  const trimmed = content.trimStart();
+  if (trimmed.startsWith("WEBVTT")) {
+    return shiftVttContent(content, shiftMs);
+  }
+
+  return shiftLrcContent(content, shiftMs);
 }
 
 /**
@@ -302,6 +384,8 @@ export function useLyrics(
   const currentLyricIndex = ref(-1);
   /** Loading state for lyrics fetch */
   const isLoading = ref(false);
+  /** Raw lyric text returned by backend */
+  const rawLyricsContent = ref<string | null>(null);
   /** Whether lyrics are available for the current song */
   const hasLyrics = computed(() => lyrics.value.length > 0);
   let lyricTimer: number | null = null;
@@ -386,6 +470,7 @@ export function useLyrics(
   async function fetchLyrics(): Promise<void> {
     if (!currentSong.value) {
       clearLyricTimer();
+      rawLyricsContent.value = null;
       lyrics.value = [];
       currentLyricIndex.value = -1;
       return;
@@ -398,10 +483,12 @@ export function useLyrics(
     );
 
     if (content) {
+      rawLyricsContent.value = content;
       lyrics.value = parseLyrics(content);
       scheduleFromTime(currentTime.value);
     } else {
       clearLyricTimer();
+      rawLyricsContent.value = null;
       lyrics.value = [];
       currentLyricIndex.value = -1;
     }
@@ -448,6 +535,7 @@ export function useLyrics(
 
   return {
     lyrics,
+    rawLyricsContent,
     currentLyricIndex,
     hasLyrics,
     isLoading,
