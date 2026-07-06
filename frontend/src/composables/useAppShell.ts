@@ -1045,7 +1045,6 @@ export function useAppShell() {
     showSharedPlayPrompt,
     songMenuTab,
     showBackButton: shellLayout.showBackButton,
-    showActionBar: shellLayout.showActionBar,
     isWideLayout: shellLayout.isWideLayout,
     isPlayerPanelVisible: shellLayout.isPlayerPanelVisible,
     isLyricPanelVisible: shellLayout.isLyricPanelVisible,

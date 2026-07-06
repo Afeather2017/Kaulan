@@ -25,8 +25,6 @@ export function useAppShellLayout(options: UseAppShellLayoutOptions) {
     return !isWideLayout.value || currentView.value === "search";
   });
 
-  const showActionBar = computed(() => showBackButton.value);
-
   const isPlayerPanelVisible = computed(
     () => isWideLayout.value || playerPanelMode.value !== "collapsed",
   );
@@ -106,7 +104,6 @@ export function useAppShellLayout(options: UseAppShellLayoutOptions) {
     hasUserToggledLyric,
     failedCoverUrls,
     showBackButton,
-    showActionBar,
     isPlayerPanelVisible,
     isLyricPanelVisible,
     resolveSongCoverUrl,

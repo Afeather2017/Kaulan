@@ -5,7 +5,11 @@ This document describes how Kaulan's frontend app shell is split between Pinia s
 ## Related Source Files
 
 - `frontend/src/App.vue`
+- `frontend/src/components/AppContentView.vue`
+- `frontend/src/components/SongListView.vue`
 - `frontend/src/composables/useAppShell.ts`
+- `frontend/src/composables/useAppShellLayout.ts`
+- `frontend/src/composables/useAndroidBackNavigation.ts`
 - `frontend/src/stores/ui.ts`
 - `frontend/src/stores/library.ts`
 - `frontend/src/stores/player.ts`
@@ -102,7 +106,18 @@ Examples that stay local:
 
 - scroll restoration in `AppContentView.vue`
 - `scrollTop` handling in `SongListView.vue`
+- panel-local navigation controls in `AppContentView.vue` and `SongListView.vue`
 - temporary modal text inputs
+
+### Keep view actions near the view
+
+Back buttons and contextual action buttons should be rendered by the panel that owns the user workflow:
+
+- `AppContentView.vue` renders local back controls for search, downloads, and playlist panels when the shell says back navigation is available.
+- `SongListView.vue` renders the song-detail back and selection controls inside the list header.
+- `App.vue` should not render a global content action bar. It only passes the stack-backed `handleActionBack` event handler down to the active panel.
+
+This keeps new panels from depending on global show/hide state when they add or remove view-specific actions.
 
 ## Playback Boundary
 

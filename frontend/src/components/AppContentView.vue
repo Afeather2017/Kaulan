@@ -1,5 +1,11 @@
 <template>
   <div ref="contentAreaRef" class="content-area">
+    <div v-if="showLocalBackButton" class="panel-back-bar">
+      <button class="panel-back-button" @click="$emit('actionBack')">
+        ← 返回
+      </button>
+    </div>
+
     <div
       v-if="showTopNavigation"
       :class="['content-tabs', { 'compact-content-tabs': !isWideLayout }]"
@@ -147,7 +153,7 @@
       header-action-label="⋮"
       :selection-count="selectedSongs.size"
       :selection-action-label="songSelectionActionLabel"
-      @back="$emit('backToPlaylists')"
+      @back="$emit('actionBack')"
       @toggle-select-mode="$emit('toggleSelectMode')"
       @toggle-selection="$emit('toggleSongSelection', $event)"
       @play="(song, index) => $emit('playSong', song, index)"
@@ -210,10 +216,13 @@ import type { ActiveDownloadJob } from "@/stores/downloads";
 import type { MusicInfo } from "@/types/music";
 import type { LibrarySourceGroupSummary } from "@/types/library";
 
+// Related documentation: `docs/frontend/app-shell-architecture.md`
+
 const props = defineProps<{
   currentView: "playlists" | "songs" | "search" | "downloads";
   activeTab: "library" | "collections";
   isWideLayout: boolean;
+  showBackButton: boolean;
   libraryGroupSummaries: LibrarySourceGroupSummary[];
   collectionNames: string[];
   collectionPlaylists: Record<string, MusicInfo[]>;
@@ -250,7 +259,7 @@ const emit = defineEmits<{
   (e: "deleteSelectedCollections"): void;
   (e: "openCollectionMenu", name: string): void;
   (e: "openSongListMenu", title: string): void;
-  (e: "backToPlaylists"): void;
+  (e: "actionBack"): void;
   (e: "toggleSelectMode"): void;
   (e: "toggleSongSelection", key: string): void;
   (e: "playSong", song: MusicInfo, index: number): void;
@@ -281,6 +290,10 @@ const detailScrollPositions = new Map<string, number>();
 
 const showTopNavigation = computed(
   () => props.currentView === "playlists" || props.currentView === "downloads",
+);
+
+const showLocalBackButton = computed(
+  () => props.showBackButton && props.currentView !== "songs",
 );
 
 const isLibraryNavActive = computed(
@@ -426,6 +439,19 @@ watch(
   top: 0;
   background: #fff;
   z-index: 5;
+}
+
+.panel-back-bar {
+  padding: 10px 0 6px;
+}
+
+.panel-back-button {
+  border: none;
+  background: transparent;
+  color: #1db954;
+  padding: 6px 0;
+  font-size: 14px;
+  cursor: pointer;
 }
 
 .content-nav-group {
