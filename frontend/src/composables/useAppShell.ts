@@ -1101,7 +1101,6 @@ export function useAppShell() {
     handleLyricApplied,
     handleSelectCollection,
     handleSelectLibraryPlaylist,
-    handleBackToPlaylists,
     toggleSelectMode: selection.toggleSelectMode,
     toggleSongSelection: selection.toggleSongSelection,
     toggleCollectionSelectMode: selection.toggleCollectionSelectMode,
