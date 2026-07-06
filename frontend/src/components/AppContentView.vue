@@ -1,9 +1,7 @@
 <template>
   <div ref="contentAreaRef" class="content-area">
     <div v-if="showLocalBackButton" class="panel-back-bar">
-      <button class="panel-back-button" @click="$emit('actionBack')">
-        ← 返回
-      </button>
+      <BackButton @back="$emit('actionBack')" />
     </div>
 
     <div
@@ -209,6 +207,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import DownloadJobsView from "@/components/DownloadJobsView.vue";
+import BackButton from "@/components/BackButton.vue";
 import PlaylistListView from "@/components/PlaylistListView.vue";
 import LibrarySourceListView from "@/components/LibrarySourceListView.vue";
 import SongListView from "@/components/SongListView.vue";
@@ -443,15 +442,6 @@ watch(
 
 .panel-back-bar {
   padding: 10px 0 6px;
-}
-
-.panel-back-button {
-  border: none;
-  background: transparent;
-  color: #1db954;
-  padding: 6px 0;
-  font-size: 14px;
-  cursor: pointer;
 }
 
 .content-nav-group {

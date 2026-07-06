@@ -16,13 +16,7 @@
         <div v-else class="header-action-placeholder"></div>
       </template>
       <template v-else>
-        <button
-          v-if="showBackButton"
-          class="back-button"
-          @click="$emit('back')"
-        >
-          ← 返回
-        </button>
+        <BackButton v-if="showBackButton" @back="$emit('back')" />
         <h2>{{ title }}</h2>
         <button
           v-if="showHeaderActionButton"
@@ -72,6 +66,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import BackButton from "@/components/BackButton.vue";
 import type { MusicInfo } from "@/types/music";
 
 withDefaults(
@@ -152,16 +147,6 @@ defineExpose({
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.back-button {
-  background: none;
-  border: none;
-  color: #1db954;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 5px;
-  white-space: nowrap;
 }
 
 .select-mode-btn {

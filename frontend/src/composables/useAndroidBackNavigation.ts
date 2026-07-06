@@ -161,6 +161,16 @@ export function useAndroidBackNavigation(
   };
 
   const handleActionBack = () => {
+    // Close any open action sheet and exit selection modes so dangling UI
+    // state doesn't persist onto the parent view we navigate back to. This
+    // mirrors the cleanup `handleBackToPlaylists` runs on the stack-empty
+    // fallback; here it covers the goBack() success path the on-screen back
+    // button takes when the navigation stack is non-empty.
+    closeSongListMenu();
+    closeCollectionMenu();
+    clearSongSelection();
+    collectionSelectMode.value = false;
+    selectedCollectionsList.value.clear();
     if (goBack()) {
       return;
     }
