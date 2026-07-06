@@ -1,6 +1,9 @@
 //! Shared request/response types for the Kaulan music player API.
 //!
 //! This module contains all the data structures used for API requests and responses.
+//!
+//! Related documentation:
+//! - `docs/lyric-editing.md`
 
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -198,15 +201,21 @@ pub struct ApplyLyricResponse {
     pub lyric_filename: Option<String>,
 }
 
+/// Request body for updating an existing lyric sidecar file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateLyricContentRequest {
+    /// Full UTF-8 lyric file content to write to the existing `.lrc` or `.vtt` sidecar.
     pub content: String,
 }
 
+/// Response body returned after attempting to update a lyric sidecar file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateLyricContentResponse {
+    /// Whether the lyric update succeeded.
     pub success: bool,
+    /// Human-readable result message.
     pub message: String,
+    /// Updated lyric sidecar filename when the target file was resolved.
     pub lyric_filename: Option<String>,
 }
 

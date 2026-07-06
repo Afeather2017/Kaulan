@@ -8,6 +8,7 @@
  *
  * Related documentation:
  * - `docs/lyric-sync-timing.md`
+ * - `docs/lyric-editing.md`
  */
 
 import {
@@ -194,11 +195,18 @@ function parseVttTimestamp(timestamp: string): number | null {
 
 function shiftLrcContent(content: string, shiftMs: number): string {
   const shiftSeconds = shiftMs / 1000;
-  const timeRegex = /\[(\d{2,}):(\d{2})\.(\d{2,3})\]/g;
+  const timeRegex = /([\[<])(\d{2,}):(\d{2})\.(\d{2,3})([\]>])/g;
 
   return content.replace(
     timeRegex,
-    (_match, minutesText, secondsText, fractionText) => {
+    (match, opening, minutesText, secondsText, fractionText, closing) => {
+      if (
+        (opening === "[" && closing !== "]") ||
+        (opening === "<" && closing !== ">")
+      ) {
+        return match;
+      }
+
       const minutes = Number.parseInt(minutesText, 10);
       const seconds = Number.parseInt(secondsText, 10);
       const milliseconds = Number.parseInt(
@@ -208,7 +216,10 @@ function shiftLrcContent(content: string, shiftMs: number): string {
       const totalSeconds =
         minutes * 60 + seconds + milliseconds / 1000 + shiftSeconds;
 
-      return `[${formatLrcTimestamp(totalSeconds, String(fractionText).length === 3 ? 3 : 2)}]`;
+      return `${opening}${formatLrcTimestamp(
+        totalSeconds,
+        String(fractionText).length === 3 ? 3 : 2,
+      )}${closing}`;
     },
   );
 }

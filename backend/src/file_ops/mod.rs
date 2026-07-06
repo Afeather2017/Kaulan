@@ -2,6 +2,9 @@
 //!
 //! The database stores raw paths. Backend-side file access resolves each raw path
 //! to a registered source and delegates read/list/write/existence operations there.
+//!
+//! Related documentation:
+//! - `docs/lyric-editing.md`
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -568,7 +571,7 @@ fn scan_directory_recursive_sync(
     }
 }
 
-fn lyric_candidate_paths(file_path: &str) -> Vec<String> {
+pub(crate) fn lyric_candidate_paths(file_path: &str) -> Vec<String> {
     let base_path = Path::new(file_path);
 
     ["lrc", "vtt"]

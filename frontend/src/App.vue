@@ -93,7 +93,6 @@
           :has-lyrics="hasLyrics"
           :lyrics="lyrics"
           :raw-lyrics-content="rawLyricsContent"
-          :current-lyric-index="currentLyricIndex"
           :current-song-id="currentSong?.id ?? null"
           :lyric-api-base="currentSongLyricApiBase"
           :current-song-name="currentSong?.name"
@@ -373,7 +372,6 @@ const {
   hasSelectedNonAllMusicCollection,
   lyrics,
   rawLyricsContent,
-  currentLyricIndex,
   isLyricsLoading,
   hasLyrics,
   selectedSourceMenuGroup,

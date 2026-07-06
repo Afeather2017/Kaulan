@@ -2,9 +2,17 @@
 //!
 //! This module provides endpoints for:
 //! - Streaming sidecar lyric files (`.lrc` preferred, `.vtt` fallback) synchronized with music playback
+//! - Updating existing writable sidecar lyric files after frontend timing edits
+//!
+//! Related documentation:
+//! - `docs/lyrics-display.md`
+//! - `docs/lyric-editing.md`
 
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity};
-use crate::file_ops::{get_lyric_reader, resolve_path, source_exists, source_write_file, PathKind};
+use crate::file_ops::{
+    get_lyric_reader, lyric_candidate_paths, resolve_path, source_exists, source_write_file,
+    PathKind,
+};
 use crate::types::AppState;
 use actix_web::{get, put, web, HttpResponse, Responder};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -189,6 +197,24 @@ pub async fn get_lyrics_by_id(path: web::Path<i32>, data: web::Data<AppState>) -
     }
 }
 
+/// Update an existing writable lyric sidecar file by music ID.
+///
+/// The backend derives candidate `.lrc` and `.vtt` paths from the database-stored
+/// music path, then writes only when the resolved source is standard filesystem.
+/// MediaStore and other non-writable sources return `409 Conflict`.
+///
+/// # Path Parameters
+/// * `id` - The music ID to look up in the database
+///
+/// # Request Body
+/// JSON object with a non-empty `content` string containing the complete lyric file.
+///
+/// # Returns
+/// - `200 OK` when the existing lyric file is updated
+/// - `400 Bad Request` when `content` is empty or whitespace only
+/// - `404 Not Found` when music or lyric sidecar file does not exist
+/// - `409 Conflict` when the source is not writable
+/// - `500 Internal Server Error` for database, path, or write errors
 #[put("/api/lyrics/id/{id}")]
 pub async fn update_lyrics_by_id(
     path: web::Path<i32>,
@@ -200,7 +226,7 @@ pub async fn update_lyrics_by_id(
     info!("[ACCESS] PUT /api/lyrics/id/{} - Started", id);
 
     let content = body.content.clone();
-    if content.is_empty() {
+    if content.trim().is_empty() {
         info!("[ACCESS] PUT /api/lyrics/id/{} - Status: 400", id);
         return HttpResponse::BadRequest().json(crate::types::UpdateLyricContentResponse {
             success: false,
@@ -316,21 +342,6 @@ async fn resolve_existing_lyric_path(file_path: &str) -> Result<Option<String>, 
     }
 
     Ok(None)
-}
-
-fn lyric_candidate_paths(file_path: &str) -> [String; 2] {
-    let base_path = Path::new(file_path);
-
-    [
-        base_path
-            .with_extension("lrc")
-            .to_string_lossy()
-            .to_string(),
-        base_path
-            .with_extension("vtt")
-            .to_string_lossy()
-            .to_string(),
-    ]
 }
 
 #[cfg(test)]
@@ -630,6 +641,23 @@ mod tests {
         let body = test::read_body(resp).await;
         let content = String::from_utf8(body.to_vec()).unwrap();
         assert_eq!(content, "[00:01.00]Updated line");
+    }
+
+    #[actix_web::test]
+    async fn test_update_lyrics_by_id_rejects_blank_content() {
+        let (_temp_dir, app_state) = create_test_setup().await;
+        let app =
+            test::init_service(App::new().app_data(app_state).service(update_lyrics_by_id)).await;
+
+        let req = test::TestRequest::put()
+            .uri("/api/lyrics/id/1")
+            .set_json(crate::types::UpdateLyricContentRequest {
+                content: "  \n\t".to_string(),
+            })
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
     }
 
     #[actix_web::test]

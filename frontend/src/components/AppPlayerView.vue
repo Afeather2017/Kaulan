@@ -184,6 +184,7 @@
 </template>
 
 <script setup lang="ts">
+// Related documentation: `docs/lyric-editing.md`
 import { computed, ref, watch } from "vue";
 import PlayerControls from "@/components/PlayerControls.vue";
 import { shiftLyricsContent, type LyricLine } from "@/composables/useLyrics";
@@ -197,7 +198,6 @@ const props = defineProps<{
   hasLyrics: boolean;
   lyrics: LyricLine[];
   rawLyricsContent: string | null;
-  currentLyricIndex: number;
   currentSongId: number | null;
   lyricApiBase: string;
   currentSongName?: string;
