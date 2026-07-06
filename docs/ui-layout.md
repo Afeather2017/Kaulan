@@ -256,6 +256,33 @@ Lyric state:
 +--------------------------------------------------+
 ```
 
+Lyric edit state:
+
+```text
++--------------------------------------------------+
+| [Back]                                      [Edit]|
++--------------------------------------------------+
+| [Cancel]                              [Done]     |
+|                                  [-] [100 ms] [+]|
+| Current lyric line                              |
+| Next lyric line                                 |
++--------------------------------------------------+
+| [Cover] Song Name                                |
+| [Cover]      progress bar                        |
+| [Shuffle/Seq/...] [<<] [Play/Pause] [>>] [Queue] |
++--------------------------------------------------+
+```
+
+Rules:
+
+- lyric editing stays inside the expandable upper player panel
+- entering edit mode pauses playback and keeps the lower player block stable
+- `-`, `+`, and the millisecond step input preview a whole-file timing shift
+- `Done` writes the existing writable `.lrc` or `.vtt` sidecar file through `PUT /api/lyrics/id/{id}`
+- `Cancel` discards the previewed timing shift
+- non-writable sources should surface the backend `409 Conflict` message instead of pretending the edit was saved
+- see `docs/lyric-editing.md` for the API flow and timestamp-shifting behavior
+
 ### Narrow Mode Rules
 
 - `Library` shows server-grouped folder-based playlists from all servers

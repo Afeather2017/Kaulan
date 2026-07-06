@@ -5,11 +5,18 @@
  *
  * Related documentation:
  * - `docs/lyric-sync-timing.md`
+ * - `docs/lyric-editing.md`
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { nextTick, ref } from "vue";
-import { parseLrc, parseLyrics, parseVtt, useLyrics } from "../useLyrics";
+import {
+  parseLrc,
+  parseLyrics,
+  parseVtt,
+  shiftLyricsContent,
+  useLyrics,
+} from "../useLyrics";
 
 vi.mock("@/utils/api", () => ({
   resolveSourceApiBase: (sourceKey?: string | null) =>
@@ -225,6 +232,38 @@ Third continuation line
     const result = parseLrc(content);
 
     expect(result[0].texts[0]).toBe(`that's "my" line, right?`);
+  });
+});
+
+describe("shiftLyricsContent", () => {
+  it("should shift all LRC timestamps while preserving metadata", () => {
+    const content = `[ar:Artist]
+[00:00.54]First line
+[00:02.52]Second line`;
+
+    expect(shiftLyricsContent(content, 500)).toBe(`[ar:Artist]
+[00:01.04]First line
+[00:03.02]Second line`);
+  });
+
+  it("should shift enhanced LRC inline word timestamps", () => {
+    const content = "[00:12.34]<00:12.34>First <00:14.567>second";
+
+    expect(shiftLyricsContent(content, 500)).toBe(
+      "[00:12.84]<00:12.84>First <00:15.067>second",
+    );
+  });
+
+  it("should shift VTT cue times and clamp negative values", () => {
+    const content = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+First line`;
+
+    expect(shiftLyricsContent(content, -1500)).toBe(`WEBVTT
+
+00:00:00.000 --> 00:00:01.500
+First line`);
   });
 });
 

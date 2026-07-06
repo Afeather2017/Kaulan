@@ -13,6 +13,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **File System Playlists** - Automatic playlist creation from folder structure
 - **Collection Management** - User-defined playlists/collections stored locally in the browser
 - **Volume Normalization** - LUFS support for consistent audio levels
+- **Lyric Display & Timing Edits** - Show synchronized LRC/WEBVTT lyrics and shift writable sidecar timing from the player
 - **Real-time Search** - Search across all songs instantly
 - **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics

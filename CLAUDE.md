@@ -256,6 +256,11 @@ frontend/src-tauri/src/
   - Constructs corresponding `.lrc` file path
   - Returns 404 if LRC file doesn't exist (graceful degradation)
   - See [`docs/lyrics-display.md`](docs/lyrics-display.md) for details
+- `GET /api/lyrics/id/{id}` - Stream LRC or WEBVTT lyrics by music ID
+- `PUT /api/lyrics/id/{id}` - Update an existing writable LRC or WEBVTT sidecar file after lyric timing edits
+  - Request body: `{ "content": "..." }`
+  - Returns 409 when the source is not writable, such as Android MediaStore
+  - See [`docs/lyric-editing.md`](docs/lyric-editing.md) for details
 
 ### Playlist Endpoints (Folder-based)
 - `GET /api/playlists` - Get all playlists (folder-based)

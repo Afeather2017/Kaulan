@@ -83,6 +83,7 @@ export function useAppShell() {
 
   const {
     lyrics,
+    rawLyricsContent,
     currentLyricIndex,
     hasLyrics,
     isLoading: isLyricsLoading,
@@ -1034,6 +1035,7 @@ export function useAppShell() {
     hasSelectedNonAllMusicCollection:
       selection.hasSelectedNonAllMusicCollection,
     lyrics,
+    rawLyricsContent,
     currentLyricIndex,
     isLyricsLoading,
     hasLyrics,
