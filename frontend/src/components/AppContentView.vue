@@ -1,5 +1,9 @@
 <template>
   <div ref="contentAreaRef" class="content-area">
+    <div v-if="showLocalBackButton" class="panel-back-bar">
+      <BackButton @back="$emit('actionBack')" />
+    </div>
+
     <div
       v-if="showTopNavigation"
       :class="['content-tabs', { 'compact-content-tabs': !isWideLayout }]"
@@ -147,7 +151,7 @@
       header-action-label="⋮"
       :selection-count="selectedSongs.size"
       :selection-action-label="songSelectionActionLabel"
-      @back="$emit('backToPlaylists')"
+      @back="$emit('actionBack')"
       @toggle-select-mode="$emit('toggleSelectMode')"
       @toggle-selection="$emit('toggleSongSelection', $event)"
       @play="(song, index) => $emit('playSong', song, index)"
@@ -203,6 +207,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import DownloadJobsView from "@/components/DownloadJobsView.vue";
+import BackButton from "@/components/BackButton.vue";
 import PlaylistListView from "@/components/PlaylistListView.vue";
 import LibrarySourceListView from "@/components/LibrarySourceListView.vue";
 import SongListView from "@/components/SongListView.vue";
@@ -210,10 +215,13 @@ import type { ActiveDownloadJob } from "@/stores/downloads";
 import type { MusicInfo } from "@/types/music";
 import type { LibrarySourceGroupSummary } from "@/types/library";
 
+// Related documentation: `docs/frontend/app-shell-architecture.md`
+
 const props = defineProps<{
   currentView: "playlists" | "songs" | "search" | "downloads";
   activeTab: "library" | "collections";
   isWideLayout: boolean;
+  showBackButton: boolean;
   libraryGroupSummaries: LibrarySourceGroupSummary[];
   collectionNames: string[];
   collectionPlaylists: Record<string, MusicInfo[]>;
@@ -250,7 +258,7 @@ const emit = defineEmits<{
   (e: "deleteSelectedCollections"): void;
   (e: "openCollectionMenu", name: string): void;
   (e: "openSongListMenu", title: string): void;
-  (e: "backToPlaylists"): void;
+  (e: "actionBack"): void;
   (e: "toggleSelectMode"): void;
   (e: "toggleSongSelection", key: string): void;
   (e: "playSong", song: MusicInfo, index: number): void;
@@ -281,6 +289,10 @@ const detailScrollPositions = new Map<string, number>();
 
 const showTopNavigation = computed(
   () => props.currentView === "playlists" || props.currentView === "downloads",
+);
+
+const showLocalBackButton = computed(
+  () => props.showBackButton && props.currentView !== "songs",
 );
 
 const isLibraryNavActive = computed(
@@ -426,6 +438,10 @@ watch(
   top: 0;
   background: #fff;
   z-index: 5;
+}
+
+.panel-back-bar {
+  padding: 10px 0 6px;
 }
 
 .content-nav-group {

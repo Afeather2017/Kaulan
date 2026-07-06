@@ -27,21 +27,12 @@
 
       <div class="main-area" :class="{ 'wide-layout': isWideLayout }">
         <div class="list-panel" v-show="!isPlayerPanelVisible || isWideLayout">
-          <div v-if="showActionBar" class="action-bar">
-            <button
-              v-if="showBackButton"
-              class="action-btn"
-              @click="handleActionBack"
-            >
-              返回
-            </button>
-            <div class="action-spacer"></div>
-          </div>
           <div class="list-panel-content">
             <AppContentView
               :current-view="currentView"
               :active-tab="activeTab"
               :is-wide-layout="isWideLayout"
+              :show-back-button="showBackButton"
               :library-group-summaries="libraryGroupSummaries"
               :collection-names="collectionNames"
               :collection-playlists="collectionPlaylists"
@@ -74,7 +65,7 @@
               @delete-selected-collections="handleDeleteSelectedCollections"
               @open-collection-menu="handleOpenCollectionMenu"
               @open-song-list-menu="handleOpenSongListMenu"
-              @back-to-playlists="handleBackToPlaylists"
+              @action-back="handleActionBack"
               @toggle-select-mode="toggleSelectMode"
               @toggle-song-selection="toggleSongSelection"
               @play-song="handlePlaySong"
@@ -380,7 +371,6 @@ const {
   showSharedPlayPrompt,
   songMenuTab,
   showBackButton,
-  showActionBar,
   isWideLayout,
   isPlayerPanelVisible,
   isLyricPanelVisible,
@@ -433,7 +423,6 @@ const {
   openOnlineLyricSearch,
   handleSelectCollection,
   handleSelectLibraryPlaylist,
-  handleBackToPlaylists,
   toggleSelectMode,
   toggleSongSelection,
   toggleCollectionSelectMode,
@@ -565,27 +554,6 @@ const copyShareUrl = async () => {
 
 .icon-btn:hover {
   background-color: #e6e6e6;
-}
-
-.action-bar {
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  background-color: #fff;
-  border-bottom: 1px solid #eee;
-}
-
-.action-spacer {
-  flex: 1;
-}
-
-.action-btn {
-  background: none;
-  border: none;
-  color: #1db954;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 12px;
 }
 
 .icon-action-btn {
