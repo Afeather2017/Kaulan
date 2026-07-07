@@ -14,7 +14,7 @@ subs=$(sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*//p' .gitmodules 2>/d
 dirty=""
 for sub in $subs; do
     [ ! -d "$sub" ] && continue
-    if changes=$(git -C "$sub" status --porcelain 2>/dev/null) && [ -n "$changes" ]; then
+    if changes=$(env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE git -C "$sub" status --porcelain 2>/dev/null) && [ -n "$changes" ]; then
         dirty="${dirty:+$dirty }$sub"
     fi
 done
