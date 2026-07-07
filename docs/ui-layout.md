@@ -256,7 +256,7 @@ Lyric state:
 +--------------------------------------------------+
 ```
 
-Lyric edit state:
+Lyric timing edit state:
 
 ```text
 +--------------------------------------------------+
@@ -273,15 +273,34 @@ Lyric edit state:
 +--------------------------------------------------+
 ```
 
+Lyric raw text edit state (full-screen dialog):
+
+```text
++--------------------------------------------------+
+| Cancel        Edit Lyrics                Save    |
++--------------------------------------------------+
+| [00:01.23] First lyric line                     |
+| [00:05.67] Second lyric line                    |
+| [00:09.00] Third lyric line                     |
+| [00:12.45] Fourth lyric line                    |
+| [00:16.80] Fifth lyric line                     |
+| [00:21.10] Sixth lyric line                     |
+| [00:25.30] Seventh lyric line                   |
+| [00:29.50] Eighth lyric line                    |
++--------------------------------------------------+
+```
+
 Rules:
 
-- lyric editing stays inside the expandable upper player panel
-- entering edit mode pauses playback and keeps the lower player block stable
-- `-`, `+`, and the millisecond step input preview a whole-file timing shift
+- timing editing stays inside the expandable upper player panel because the user wants to see and hear the shifted lines
+- raw text editing opens a full-screen dialog because the user is editing words, not listening — the lower player block would be dead weight inside an inline mode
+- entering either edit mode pauses playback
+- `-`, `+`, and the millisecond step input preview a whole-file timing shift in timing mode only
 - `Done` writes the existing writable `.lrc` or `.vtt` sidecar file through `PUT /api/lyrics/id/{id}`
-- `Cancel` discards the previewed timing shift
+- `Save` in the raw text dialog writes the same endpoint with the user-edited content; the app does not reparse or reformat it
+- `Cancel` discards edits (confirming first if there are unsaved changes in the raw text dialog)
 - non-writable sources should surface the backend `409 Conflict` message instead of pretending the edit was saved
-- see `docs/lyric-editing.md` for the API flow and timestamp-shifting behavior
+- see `docs/lyric-editing.md` for the API flow and the per-mode behaviors
 
 ### Narrow Mode Rules
 

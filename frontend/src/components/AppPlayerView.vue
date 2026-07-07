@@ -38,14 +38,22 @@
                   {{ isSavingLyric ? "Saving..." : "Done" }}
                 </button>
               </template>
-              <button
-                v-else-if="hasLyrics"
-                type="button"
-                class="lyric-toolbar-btn"
-                @click="enterLyricEditMode"
-              >
-                Edit
-              </button>
+              <template v-else-if="hasLyrics">
+                <button
+                  type="button"
+                  class="lyric-toolbar-btn"
+                  @click="enterLyricEditMode"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  class="lyric-toolbar-btn"
+                  @click="openRawLyricEditor"
+                >
+                  Edit text
+                </button>
+              </template>
             </div>
           </div>
           <div v-if="isLyricsLoading" class="lyric-empty">歌词加载中...</div>
@@ -181,12 +189,23 @@
     @show-active-queue="$emit('showActiveQueue')"
     @show-player-panel="$emit('togglePanelMode')"
   />
+
+  <EditRawLyricsModal
+    v-if="isRawLyricEditOpen"
+    :music-id="currentSongId"
+    :raw-lyrics-content="rawLyricsContent"
+    :lyric-api-base="lyricApiBase"
+    :visible="isRawLyricEditOpen"
+    @close="isRawLyricEditOpen = false"
+    @saved="handleRawLyricSaved"
+  />
 </template>
 
 <script setup lang="ts">
 // Related documentation: `docs/lyric-editing.md`
 import { computed, ref, watch } from "vue";
 import PlayerControls from "@/components/PlayerControls.vue";
+import EditRawLyricsModal from "@/components/modals/EditRawLyricsModal.vue";
 import { shiftLyricsContent, type LyricLine } from "@/composables/useLyrics";
 
 const props = defineProps<{
@@ -233,6 +252,7 @@ const lyricShiftStepInput = ref("100");
 const lyricContentBase = ref<string | null>(null);
 const isSavingLyric = ref(false);
 const lyricSaveError = ref<string | null>(null);
+const isRawLyricEditOpen = ref(false);
 
 const maxLyricShiftMs = computed(() =>
   Math.max(0, Math.round(props.duration * 1000)),
@@ -283,6 +303,7 @@ const resetLyricEditState = () => {
   lyricShiftStepInput.value = "100";
   isSavingLyric.value = false;
   lyricSaveError.value = null;
+  isRawLyricEditOpen.value = false;
 };
 
 const scrollToCurrentLyric = () => {
@@ -431,6 +452,23 @@ const handlePanelBackdropClick = () => {
   }
 
   emit("showCoverPanel");
+};
+
+const openRawLyricEditor = () => {
+  if (!props.hasLyrics || isLyricEditMode.value || isRawLyricEditOpen.value) {
+    return;
+  }
+
+  if (props.isPlaying) {
+    emit("pause");
+  }
+
+  isRawLyricEditOpen.value = true;
+};
+
+const handleRawLyricSaved = () => {
+  isRawLyricEditOpen.value = false;
+  emit("lyricsSaved");
 };
 
 watch(displayedCurrentLyricIndex, scrollToCurrentLyric);
