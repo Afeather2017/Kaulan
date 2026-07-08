@@ -29,6 +29,11 @@
 
       <div v-if="submitError" class="modal-error">{{ submitError }}</div>
 
+      <div v-if="showNoTimestampWarning" class="modal-warning">
+        No <code>[mm:ss.xx]</code> timestamps found — lyrics may not display
+        after saving.
+      </div>
+
       <textarea
         ref="textareaRef"
         v-model="draft"
@@ -37,7 +42,6 @@
         autocapitalize="off"
         autocomplete="off"
         :disabled="isSubmitting"
-        @input="autoresize"
       />
     </div>
   </div>
@@ -45,12 +49,16 @@
 
 <script setup lang="ts">
 // Related documentation: `docs/lyric-editing.md`
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import {
+  canSubmitLyricText,
+  extractLyricPutError,
+  hasLrcTimestamps,
+} from "@/utils/lyricText";
 
 const props = defineProps<{
   musicId: number | null;
   rawLyricsContent: string | null;
-  visible: boolean;
   lyricApiBase: string;
 }>();
 
@@ -64,10 +72,12 @@ const draft = ref("");
 const isSubmitting = ref(false);
 const submitError = ref<string | null>(null);
 
-const canSubmit = computed(
-  () =>
-    draft.value.trim().length > 0 &&
-    draft.value !== (props.rawLyricsContent ?? ""),
+const canSubmit = computed(() =>
+  canSubmitLyricText(draft.value, props.rawLyricsContent),
+);
+
+const showNoTimestampWarning = computed(
+  () => draft.value.length > 0 && !hasLrcTimestamps(draft.value),
 );
 
 function resetDraftFromProps() {
@@ -131,14 +141,7 @@ async function handleSubmit() {
       const payload = (await response.json().catch(() => null)) as {
         message?: string;
       } | null;
-      if (response.status === 409) {
-        submitError.value =
-          payload?.message ??
-          "This source is read-only — lyrics can't be saved from this device.";
-      } else {
-        submitError.value =
-          payload?.message || `Failed to save lyrics (${response.status})`;
-      }
+      submitError.value = extractLyricPutError(response.status, payload);
       return;
     }
 
@@ -151,24 +154,16 @@ async function handleSubmit() {
   }
 }
 
-watch(
-  () => props.visible,
-  (visible) => {
-    if (visible) {
-      resetDraftFromProps();
-    }
-  },
-  { immediate: true },
-);
+watch(draft, autoresize);
 
 watch(
   () => props.rawLyricsContent,
   () => {
-    if (props.visible) {
-      resetDraftFromProps();
-    }
+    resetDraftFromProps();
   },
 );
+
+onMounted(resetDraftFromProps);
 </script>
 
 <style scoped>
@@ -268,6 +263,25 @@ watch(
   color: #9f2f2f;
   font-size: 12px;
   font-weight: 600;
+}
+
+.modal-warning {
+  margin: 10px 18px 0;
+  padding: 8px 12px;
+  border: 1px solid #e6cf9c;
+  border-radius: 10px;
+  background: rgba(255, 250, 235, 0.96);
+  color: #7a5a16;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modal-warning code {
+  background: rgba(122, 90, 22, 0.08);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-family: "SFMono-Regular", "Menlo", "Consolas", monospace;
+  font-size: 11px;
 }
 
 .lyric-textarea {

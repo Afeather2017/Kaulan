@@ -195,7 +195,6 @@
     :music-id="currentSongId"
     :raw-lyrics-content="rawLyricsContent"
     :lyric-api-base="lyricApiBase"
-    :visible="isRawLyricEditOpen"
     @close="isRawLyricEditOpen = false"
     @saved="handleRawLyricSaved"
   />
