@@ -39,13 +39,13 @@ The root [`build-android.sh`](../build-android.sh) script performs the same stag
 The workflow installs FFmpeg 8.1.1 development dependencies before Rust builds:
 
 - Linux runs on `ubuntu-24.04`, builds FFmpeg 8.1.1 from the official source tarball, caches the installed output, and exposes it through `PKG_CONFIG_PATH`.
-- Windows downloads the Gyan FFmpeg 8.1.1 shared development package and exposes it through `FFMPEG_INCLUDE_DIR`, `FFMPEG_LIBS_DIR`, `FFMPEG_DLL_PATH`, and `FFMPEG_LINK_MODE=dynamic`. The workflow also copies the package `.lib` import libraries into the DLL directory because `rusty_ffmpeg` links from `FFMPEG_DLL_PATH` in dynamic mode.
+- Windows bootstraps `vcpkg` through [`scripts/setup-windows-vcpkg.ps1`](../scripts/setup-windows-vcpkg.ps1), installs `ffmpeg` for the default `x64-windows` triplet, caches the local `.cache/vcpkg` tree, and exposes `VCPKG_ROOT`, `VCPKGRS_DYNAMIC=1`, plus the triplet `bin` directory to later build steps.
 - Android uses the staged FFmpeg bundle under `build/android-ffmpeg/android/<target>`. The release job generates it with `scripts/build-android-ffmpeg.sh`, then `build-android.sh` verifies `binding.rs`, each target `lib` directory, and each target `prefix/include` directory before packaging.
 
 These match the backend dependency setup in `backend/Cargo.toml`:
 
 - non-Windows targets use `rusty_ffmpeg` with `link_system_ffmpeg` and the `ffmpeg8_1` API feature
-- Windows targets enable the `link_vcpkg_ffmpeg` fallback and the `ffmpeg8_1` API feature, while CI points `rusty_ffmpeg` directly at the downloaded FFmpeg 8.1.1 include and library directories
+- Windows targets enable `link_vcpkg_ffmpeg` and consume the vendored `vendor/rusty_ffmpeg/src/binding.rs` through `.cargo/config.toml`, so local and CI builds do not need a separate LLVM or `libclang` install
 
 ## Publish flow
 

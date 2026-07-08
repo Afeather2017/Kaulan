@@ -84,8 +84,10 @@ Desktop Bilibili downloads now remux the raw DASH AAC stream into an `.m4a` cont
 
 ## Runtime Requirements
 
-- system FFmpeg libraries and headers must be installed for `rusty_ffmpeg`
-- `pkg-config` metadata for FFmpeg must be available
+- Linux desktop builds require system FFmpeg libraries and headers for `rusty_ffmpeg`
+- Linux desktop builds require `pkg-config` metadata for FFmpeg
+- Windows desktop builds use [`scripts/setup-windows-vcpkg.ps1`](../scripts/setup-windows-vcpkg.ps1) to install FFmpeg through `vcpkg`
+- Windows desktop builds reuse the vendored [`vendor/rusty_ffmpeg/src/binding.rs`](../vendor/rusty_ffmpeg/src/binding.rs), so no separate LLVM or `libclang` install is required
 
 Android builds use the staged FFmpeg bundle under
 [`build/android-ffmpeg/android/<target>`](../build/android-ffmpeg/android)
@@ -109,6 +111,14 @@ On Arch Linux, the desktop build currently relies on:
 
 ```bash
 sudo pacman -S --needed base-devel pkgconf ffmpeg clang
+```
+
+On Windows, the equivalent setup is:
+
+```powershell
+pwsh -File .\scripts\setup-windows-vcpkg.ps1
+$env:VCPKG_ROOT = (Resolve-Path .\.cache\vcpkg)
+$env:VCPKGRS_DYNAMIC = '1'
 ```
 
 Desktop validation commands:

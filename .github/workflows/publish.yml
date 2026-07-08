@@ -158,22 +158,18 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Windows FFmpeg ${{ env.FFMPEG_VERSION }} build dependencies
+      - name: Cache Windows vcpkg root
+        if: matrix.platform == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcpkg
+          key: windows-vcpkg-${{ runner.os }}-${{ hashFiles('scripts/setup-windows-vcpkg.ps1') }}
+
+      - name: Install Windows FFmpeg build dependencies with vcpkg
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $installRoot = Join-Path $env:RUNNER_TEMP "ffmpeg"
-          $archive = Join-Path $env:RUNNER_TEMP "ffmpeg.7z"
-          $url = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-$env:FFMPEG_VERSION-full_build-shared.7z"
-          Invoke-WebRequest -Uri $url -OutFile $archive
-          7z x $archive "-o$installRoot" -y
-          $ffmpegRoot = Get-ChildItem $installRoot -Directory | Select-Object -First 1
-          Copy-Item "$($ffmpegRoot.FullName)\lib\*.lib" "$($ffmpegRoot.FullName)\bin\"
-          echo "FFMPEG_INCLUDE_DIR=$($ffmpegRoot.FullName)\include" >> $env:GITHUB_ENV
-          echo "FFMPEG_LIBS_DIR=$($ffmpegRoot.FullName)\lib" >> $env:GITHUB_ENV
-          echo "FFMPEG_DLL_PATH=$($ffmpegRoot.FullName)\bin" >> $env:GITHUB_ENV
-          echo "FFMPEG_LINK_MODE=dynamic" >> $env:GITHUB_ENV
-          echo "$($ffmpegRoot.FullName)\bin" >> $env:GITHUB_PATH
+          ./scripts/setup-windows-vcpkg.ps1
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-24.04'
