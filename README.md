@@ -46,6 +46,19 @@ cd ../backend
 cargo build
 ```
 
+On Windows, provision FFmpeg through the repository helper before the first Rust
+build:
+
+```powershell
+pwsh -File .\scripts\setup-windows-vcpkg.ps1
+$env:VCPKG_ROOT = (Resolve-Path .\.cache\vcpkg)
+$env:VCPKGRS_DYNAMIC = '1'
+cargo build
+```
+
+The Rust build reuses the vendored `vendor/rusty_ffmpeg/src/binding.rs`, so a
+separate LLVM or `libclang` installation is not required on Windows anymore.
+
 ### Running the Application
 
 The music directory can be provided via:
@@ -858,4 +871,13 @@ sudo apt install ffmpeg
 
 # macOS
 brew install ffmpeg
+```
+
+On Windows, use the repo-managed `vcpkg` bootstrap instead of installing FFmpeg
+and LLVM manually:
+
+```powershell
+pwsh -File .\scripts\setup-windows-vcpkg.ps1
+$env:VCPKG_ROOT = (Resolve-Path .\.cache\vcpkg)
+$env:VCPKGRS_DYNAMIC = '1'
 ```
