@@ -156,7 +156,25 @@ Examples:
 
 Wide layout does not use player entries in this stack. When the app switches to wide mode, player panels are removed from back history and only left-side content history remains. When the app returns to narrow mode, the player panel is restored as the top mobile panel.
 
+The layout watcher in `useAppShell.ts` only reacts to actual `isWideLayout` changes. It does not fire on the initial `false` ref value, so a fresh app launch in narrow mode keeps the playlist as the top panel instead of auto-opening the player panel.
+
 This is a good fit for mobile UIs with stacked panels inside one Vue page.
+
+## On-Screen Back Button In The Player Panel
+
+The narrow-mode player panel is a single `player` entry on the panel stack. Toggling between cover and lyrics updates that entry's `mode` instead of pushing another entry, so cover and lyrics share one back destination: whatever content panel is underneath (typically the playlist).
+
+Both panels expose an on-screen **Back** button in narrow mode that pops the stack via `uiStore.goBack()`:
+
+- Related source: [`frontend/src/components/AppPlayerView.vue`](../../frontend/src/components/AppPlayerView.vue) emits `requestPlayerBack`
+- Related source: [`frontend/src/composables/useAppShell.ts`](../../frontend/src/composables/useAppShell.ts) wires the emit to `uiStore.goBack()`
+- Related source: [`frontend/src/stores/ui.ts`](../../frontend/src/stores/ui.ts) owns the stack and the `goBack` pop
+
+Notes:
+
+- The Back button only renders when `!isWideLayout`, matching the existing lyric-toolbar behavior.
+- On the lyric panel, Back exits the lyric editor first (prompting to discard unsaved timing shifts, if any) before popping the stack. It no longer detours through the cover panel.
+- Tapping the cover art still toggles cover↔lyrics. Tapping the lyric-panel backdrop still collapses lyrics to cover. Those are mode toggles, not back actions, so they do not pop the stack.
 
 ## Android-Only Safety
 

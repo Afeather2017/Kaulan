@@ -226,6 +226,8 @@ export const useUiStore = defineStore("ui", () => {
       pushPlayerState(playerPanelMode.value);
       return;
     }
+
+    pushPlayerState("cover");
   };
 
   const openSettings = () => {

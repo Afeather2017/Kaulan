@@ -96,6 +96,7 @@
           @open-online-lyric-search="openOnlineLyricSearch"
           @show-cover-panel="showCoverPanel"
           @show-lyrics-panel="showLyricsPanel"
+          @request-player-back="requestPlayerBack"
           @cover-load-error="handleCoverLoadError(currentSong)"
           @seek="seekToTime"
           @toggle-play-mode="togglePlayMode"
@@ -435,6 +436,7 @@ const {
   togglePlayerPanelMode,
   showCoverPanel,
   showLyricsPanel,
+  requestPlayerBack,
   handleCoverLoadError,
   seekToTime,
   play,
