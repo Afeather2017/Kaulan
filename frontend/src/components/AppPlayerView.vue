@@ -14,10 +14,10 @@
               class="lyric-toolbar-btn"
               @click="handleBackAction"
             >
-              Back
+              返回
             </button>
             <div v-else class="lyric-toolbar-title">
-              {{ isLyricEditMode ? "Edit Lyrics" : "Lyrics" }}
+              {{ isLyricEditMode ? "编辑歌词" : "歌词" }}
             </div>
             <div class="lyric-toolbar-actions">
               <template v-if="isLyricEditMode">
@@ -27,7 +27,7 @@
                   :disabled="isSavingLyric"
                   @click="handleCancelLyricEdit"
                 >
-                  Cancel
+                  取消
                 </button>
                 <button
                   type="button"
@@ -35,7 +35,7 @@
                   :disabled="isSavingLyric"
                   @click="handleDoneLyricEdit"
                 >
-                  {{ isSavingLyric ? "Saving..." : "Done" }}
+                  {{ isSavingLyric ? "保存中..." : "完成" }}
                 </button>
               </template>
               <template v-else-if="hasLyrics">
@@ -44,14 +44,14 @@
                   class="lyric-toolbar-btn"
                   @click="enterLyricEditMode"
                 >
-                  Edit
+                  编辑
                 </button>
                 <button
                   type="button"
                   class="lyric-toolbar-btn"
                   @click="openRawLyricEditor"
                 >
-                  Edit text
+                  编辑文本
                 </button>
               </template>
             </div>
@@ -66,7 +66,7 @@
                 class="lyric-search-btn"
                 @click.stop="$emit('openOnlineLyricSearch')"
               >
-                search online
+                在线搜索
               </button>
             </div>
           </div>
@@ -89,7 +89,7 @@
                   :max="maxLyricShiftMs"
                   step="1"
                   class="lyric-step-input"
-                  aria-label="Lyric shift step in milliseconds"
+                  aria-label="歌词时间调整步长（毫秒）"
                   :disabled="isSavingLyric"
                 />
                 <span class="lyric-step-unit">ms</span>
@@ -143,7 +143,7 @@
               class="cover-toolbar-btn"
               @click.stop="handleBackAction"
             >
-              Back
+              返回
             </button>
           </div>
           <div class="cover-body" @click="$emit('showLyricsPanel')">
@@ -383,7 +383,7 @@ const handleCancelLyricEdit = () => {
   if (
     draftLyricShiftMs.value !== 0 &&
     typeof window !== "undefined" &&
-    !window.confirm("Discard lyric timing changes?")
+    !window.confirm("放弃歌词时间调整？")
   ) {
     return;
   }
@@ -424,7 +424,7 @@ const handleDoneLyricEdit = async () => {
         message?: string;
       } | null;
       lyricSaveError.value =
-        payload?.message || `Failed to save lyrics (${response.status})`;
+        payload?.message || `保存歌词失败 (${response.status})`;
       return;
     }
 
@@ -434,7 +434,7 @@ const handleDoneLyricEdit = async () => {
     emit("lyricsSaved");
   } catch (error) {
     console.error("Failed to save lyric content:", error);
-    lyricSaveError.value = "Failed to save lyrics";
+    lyricSaveError.value = "保存歌词失败";
   } finally {
     isSavingLyric.value = false;
   }
@@ -445,7 +445,7 @@ const handleBackAction = () => {
     const shouldClosePanel =
       draftLyricShiftMs.value === 0 ||
       typeof window === "undefined" ||
-      window.confirm("Discard lyric timing changes and leave the editor?");
+      window.confirm("放弃歌词时间调整并退出编辑器？");
     if (!shouldClosePanel) {
       return;
     }
