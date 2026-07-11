@@ -136,19 +136,30 @@
             </div>
           </div>
         </div>
-        <div v-else class="cover-panel" @click="$emit('showLyricsPanel')">
-          <div class="cover-panel-placeholder">
-            <i class="fas fa-music"></i>
+        <div v-else class="cover-panel">
+          <div v-if="!isWideLayout" class="cover-toolbar">
+            <button
+              type="button"
+              class="cover-toolbar-btn"
+              @click.stop="handleBackAction"
+            >
+              Back
+            </button>
           </div>
-          <img
-            v-if="currentSongId && coverUrl"
-            :src="coverUrl"
-            :key="coverUrl || currentSongId"
-            class="cover-image"
-            @error="$emit('coverLoadError')"
-            @load="($event.target as HTMLImageElement).style.display = ''"
-            alt=""
-          />
+          <div class="cover-body" @click="$emit('showLyricsPanel')">
+            <div class="cover-panel-placeholder">
+              <i class="fas fa-music"></i>
+            </div>
+            <img
+              v-if="currentSongId && coverUrl"
+              :src="coverUrl"
+              :key="coverUrl || currentSongId"
+              class="cover-image"
+              @error="$emit('coverLoadError')"
+              @load="($event.target as HTMLImageElement).style.display = ''"
+              alt=""
+            />
+          </div>
         </div>
 
         <PlayerControls
@@ -231,6 +242,7 @@ const emit = defineEmits<{
   (e: "openOnlineLyricSearch"): void;
   (e: "showCoverPanel"): void;
   (e: "showLyricsPanel"): void;
+  (e: "requestPlayerBack"): void;
   (e: "coverLoadError"): void;
   (e: "seek", time: number): void;
   (e: "togglePlayMode"): void;
@@ -442,7 +454,7 @@ const handleBackAction = () => {
     draftLyricShiftMs.value = 0;
   }
 
-  emit("showCoverPanel");
+  emit("requestPlayerBack");
 };
 
 const handlePanelBackdropClick = () => {
@@ -761,6 +773,35 @@ watch(
   border-bottom: 1px solid #eee;
   background-color: #fff;
   display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.cover-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid #eee;
+  background: rgba(250, 250, 250, 0.96);
+  flex-shrink: 0;
+}
+
+.cover-toolbar-btn {
+  border: 1px solid #d7dee6;
+  background: #fff;
+  color: #31414f;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cover-body {
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
@@ -788,7 +829,8 @@ watch(
 }
 
 @media (max-width: 720px) {
-  .lyric-toolbar {
+  .lyric-toolbar,
+  .cover-toolbar {
     padding: 12px 14px 10px;
   }
 

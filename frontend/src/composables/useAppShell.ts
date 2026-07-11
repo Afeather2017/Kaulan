@@ -128,7 +128,6 @@ export function useAppShell() {
     (isWide) => {
       uiStore.normalizeForLayout(isWide);
     },
-    { immediate: true },
   );
 
   const clearLibrarySelection = () => {
@@ -1117,6 +1116,9 @@ export function useAppShell() {
     },
     showLyricsPanel: () => {
       setVisiblePlayerPanel("lyrics");
+    },
+    requestPlayerBack: () => {
+      uiStore.goBack();
     },
     handleCoverLoadError: shellLayout.handleCoverLoadError,
     seekToTime: playerStore.seekToTime,
