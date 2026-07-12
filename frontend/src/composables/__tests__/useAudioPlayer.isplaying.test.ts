@@ -107,18 +107,18 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
   });
 
   // Reproduces the browser-only bug: when the source is still loading the
-  // browser interrupts play() with AbortError ("removed from the document"),
-  // but the element recovers and plays anyway. isPlaying must follow the real
-  // "playing" state, not the rejected play() promise. The catch must not throw
-  // and must not pin isPlaying=false.
-  it("keeps isPlaying=true when play() rejects with AbortError and element recovers", async () => {
+  // browser interrupts play() with AbortError ("removed from the document").
+  // isPlaying must follow the real "playing" state, not the rejected play()
+  // promise. The catch must not throw, and on auto-advance (no user gesture to
+  // resume the interrupted element) it must wait for the source to be ready and
+  // start playback explicitly so the song does not sit paused.
+  it("recovers and plays when play() rejects with AbortError", async () => {
     const abortError = new Error(
       "The play() request was interrupted by a call to pause().",
     );
     abortError.name = "AbortError";
 
     const listeners: Record<string, Array<(event?: unknown) => void>> = {};
-    let playCallCount = 0;
     const rejectingAudio = {
       src: "",
       paused: true,
@@ -131,9 +131,19 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
       error: null as MediaError | null,
       play: vi.fn(() => {
         playCallCount += 1;
-        return playCallCount === 1
-          ? Promise.reject(abortError)
-          : Promise.resolve(undefined);
+        if (playCallCount === 1) {
+          // First attempt is interrupted while the source is still loading.
+          // The source finishes loading shortly after, signaling "canplay".
+          setTimeout(() => {
+            rejectingAudio.readyState = 4;
+            (listeners["canplay"] ?? []).forEach((cb) => cb());
+          }, 0);
+          return Promise.reject(abortError);
+        }
+        // Retry once the source is ready: playback actually starts.
+        rejectingAudio.paused = false;
+        (listeners["playing"] ?? []).forEach((cb) => cb());
+        return Promise.resolve(undefined);
       }),
       pause: vi.fn(),
       addEventListener: vi.fn(
@@ -144,6 +154,7 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
       ),
       removeEventListener: vi.fn(),
     };
+    let playCallCount = 0;
     global.Audio = vi.fn(() => rejectingAudio) as unknown as typeof Audio;
 
     const { playSong, isPlaying } = useAudioPlayer({
@@ -153,14 +164,102 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
     // Must not throw: AbortError is an interrupt, not an autoplay block.
     await playSong(mockSongs[0]);
 
-    expect(rejectingAudio.play).toHaveBeenCalled();
-    // While the element is still paused/loading, isPlaying stays false.
-    expect(isPlaying.value).toBe(false);
-
-    // The browser recovers and the element actually starts playing.
-    rejectingAudio.paused = false;
-    (listeners["playing"] ?? []).forEach((cb) => cb());
-
+    // The first attempt was interrupted, then retried once the source loaded.
+    expect(rejectingAudio.play).toHaveBeenCalledTimes(2);
     expect(isPlaying.value).toBe(true);
+  });
+
+  // Regression: rapid skips overlap playSong calls on the single reused
+  // HTMLAudioElement. When a newer switch changes `src` while an older switch's
+  // play() is still pending, the older promise rejects with AbortError. The
+  // older switch must NOT then retry play() (it would act on the newer song's
+  // src) or flip isPlaying/isPlayingInternal — it must bail, leaving the newer
+  // switch in charge. Without the generation guard the stale retry issues a 3rd
+  // play() (2 calls -> 3); with the guard it stays at 2.
+  it("does not retry play() on a switch superseded mid-retry (rapid skip)", async () => {
+    const abortError = new Error("The play() request was interrupted.");
+    abortError.name = "AbortError";
+
+    const listeners: Record<string, Array<(event?: unknown) => void>> = {};
+    let playCallCount = 0;
+    const deferredPlays: Array<{
+      resolve: () => void;
+      reject: (error: unknown) => void;
+    }> = [];
+    const controllableAudio = {
+      src: "",
+      paused: true,
+      ended: false,
+      readyState: 0,
+      networkState: 0,
+      duration: 0,
+      currentTime: 0,
+      volume: 1,
+      error: null as MediaError | null,
+      play: () => {
+        playCallCount += 1;
+        return new Promise<void>((resolve, reject) => {
+          deferredPlays.push({
+            resolve: () => {
+              controllableAudio.paused = false;
+              (listeners["playing"] ?? []).forEach((cb) => cb());
+              resolve();
+            },
+            reject,
+          });
+        });
+      },
+      pause: () => {
+        const wasPlaying = !controllableAudio.paused;
+        controllableAudio.paused = true;
+        if (wasPlaying) (listeners["pause"] ?? []).forEach((cb) => cb());
+      },
+      addEventListener: (event: string, cb: (event?: unknown) => void) => {
+        (listeners[event] ??= []).push(cb);
+      },
+      removeEventListener: () => {},
+    };
+    global.Audio = vi.fn(() => controllableAudio) as unknown as typeof Audio;
+
+    const { playSong, isPlaying, currentSong } = useAudioPlayer({
+      songs: () => mockSongs,
+    });
+
+    // Song A: pass the pre-play wait so it calls play() (call 1), then leave its
+    // play() promise pending.
+    const aPromise = playSong(mockSongs[0]);
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(playCallCount).toBe(1);
+
+    // A's play() is interrupted (as a newer src change would) -> AbortError. A
+    // enters waitForAudioReady and suspends on canplay.
+    deferredPlays[0].reject(abortError);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Song B supersedes A while A waits for canplay. B calls play() (call 2).
+    const bPromise = playSong(mockSongs[1]);
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(playCallCount).toBe(2);
+
+    // B actually starts playing.
+    deferredPlays[1].resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // The source finishes loading; this also unblocks A's waitForAudioReady.
+    controllableAudio.readyState = 4;
+    (listeners["canplay"] ?? []).forEach((cb) => cb());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // A was superseded, so it must NOT have retried play() (would be 3 without
+    // the generation guard). B is the active song and is playing.
+    expect(playCallCount).toBe(2);
+    expect(currentSong.value?.id).toBe(2);
+    expect(isPlaying.value).toBe(true);
+
+    // Drain any later deferred so the test never hangs if the guard is removed.
+    for (const deferred of deferredPlays.slice(2)) {
+      deferred.resolve();
+    }
+    await Promise.allSettled([aPromise, bPromise]);
   });
 });
