@@ -28,7 +28,7 @@ The workflow uploads these packages to the GitHub Release:
 
 - Windows desktop bundles (`x86_64` and `arm64`)
 - Linux desktop bundles (`x86_64` and `arm64`)
-- Android APKs, one per ABI: `arm64-v8a` (aarch64), `armeabi-v7a` (armv7), and `x86_64`. The previous single ~100MB universal APK was split into these per-architecture packages; the App Bundle (AAB) is no longer produced by CI.
+- Android APKs, one per ABI: `arm64-v8a` (aarch64), `armeabi-v7a` (armv7), and `x86_64`, published as `kaulan-<abi>.apk`. Tauri always assembles the universal Gradle flavor, so each per-ABI leg builds `app-universal-release.apk` containing only that ABI's libs and renames it to `kaulan-<abi>.apk` before upload; the App Bundle (AAB) is no longer produced by CI.
 
 The Android release job runs as a per-ABI matrix. Each leg builds and caches only its own FFmpeg subtree (see [`ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md)) before running the Android packaging script. Manual recovery publishes can be started with `workflow_dispatch` by passing the existing GitHub release tag, such as `v0.1.4`.
 

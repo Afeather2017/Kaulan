@@ -227,7 +227,7 @@ jobs:
 
   release-android:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    name: Release Android (${{ matrix.flavor }})
+    name: Release Android (${{ matrix.abi }})
     needs: test
     runs-on: ubuntu-24.04
     environment: android
@@ -235,20 +235,21 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
-      # One APK per ABI instead of one ~100MB universal APK.
-      # `flavor` matches the Gradle product flavors defined in
-      # frontend/src-tauri/gen/android/buildSrc/.../RustPlugin.kt (arm64/arm/x86_64).
+      # One APK per ABI instead of one ~100MB universal APK. Tauri always
+      # assembles the "universal" Gradle flavor even with --target, so each leg
+      # emits app-universal-release.apk containing only that ABI's libs; the
+      # staging step below renames it per ABI so the legs don't collide.
       matrix:
         include:
           - short: aarch64
             rust_target: aarch64-linux-android
-            flavor: arm64
+            abi: arm64-v8a
           - short: armv7
             rust_target: armv7-linux-androideabi
-            flavor: arm
+            abi: armeabi-v7a
           - short: x86_64
             rust_target: x86_64-linux-android
-            flavor: x86_64
+            abi: x86_64
     env:
       CI: 'true'
       JAVA_VERSION: '17'
@@ -320,7 +321,7 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build Android release package (${{ matrix.flavor }})
+      - name: Build Android release package (${{ matrix.abi }})
         run: bash ./build-android.sh --target ${{ matrix.short }} --no-aab
 
       - name: List built APKs
@@ -328,9 +329,18 @@ jobs:
           find frontend/src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' \
             -printf '%10s  %p\n' | sort -k2 || true
 
-      - name: Upload Android APK (${{ matrix.flavor }})
+      - name: Stage per-ABI APK
+        run: |
+          set -euo pipefail
+          src="frontend/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+          dest="frontend/src-tauri/gen/android/app/build/outputs/kaulan-${{ matrix.abi }}.apk"
+          test -f "$src"
+          cp "$src" "$dest"
+          ls -l "$dest"
+
+      - name: Upload Android APK (${{ matrix.abi }})
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            frontend/src-tauri/gen/android/app/build/outputs/apk/**/app-${{ matrix.flavor }}-*release*.apk
+            frontend/src-tauri/gen/android/app/build/outputs/kaulan-${{ matrix.abi }}.apk
