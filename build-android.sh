@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build Kaulan Android release packages.
 # Produces signed APK/AAB bundles when a signing key is available.
+# Pass --no-aab to emit per-ABI APKs only (used by the CI per-arch matrix).
 
 set -euo pipefail
 
@@ -195,15 +196,36 @@ else
     write_keystore_properties
 fi
 
+# Forward only packaging-relevant args to tauri. --no-aab is consumed locally so
+# per-ABI CI legs can emit APK-only artifacts without an App Bundle.
+BUILD_AAB="true"
+TAURI_ARGS=()
+for _arg in "$@"; do
+    if [ "$_arg" = "--no-aab" ]; then
+        BUILD_AAB="false"
+    else
+        TAURI_ARGS+=("$_arg")
+    fi
+done
+
 echo
-echo "[2/4] Building signed Android packages..."
 cd "$FRONTEND_DIR"
-npx tauri android build --ci --apk --aab "$@"
+# ${TAURI_ARGS[@]+"${TAURI_ARGS[@]}"} expands safely to nothing when the array
+# is empty, even under `set -u` on older bash (e.g. macOS 3.2).
+if [ "$BUILD_AAB" = "true" ]; then
+    echo "[2/4] Building signed Android packages (APK + AAB)..."
+    npx tauri android build --ci --apk --aab ${TAURI_ARGS[@]+"${TAURI_ARGS[@]}"}
+else
+    echo "[2/4] Building signed Android packages (APK only)..."
+    npx tauri android build --ci --apk ${TAURI_ARGS[@]+"${TAURI_ARGS[@]}"}
+fi
 
 echo
 echo "[3/4] Collecting build outputs..."
 find "$APK_GLOB" -type f \( -name '*.apk' -o -name '*mapping.txt' \) | sort || true
-find "$AAB_GLOB" -type f -name '*.aab' | sort || true
+if [ "$BUILD_AAB" = "true" ]; then
+    find "$AAB_GLOB" -type f -name '*.aab' | sort || true
+fi
 
 SIGNED_APK="$(find "$APK_GLOB" -type f -name '*release*.apk' ! -name '*unsigned.apk' | sort | head -n 1 || true)"
 if [ -n "$SIGNED_APK" ]; then
