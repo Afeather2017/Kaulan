@@ -1,10 +1,20 @@
 [CmdletBinding()]
 param(
     [string]$VcpkgRoot = "",
-    [string]$Triplet = "x64-windows"
+    [string]$Triplet = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+# Resolve the vcpkg triplet from the host architecture when the caller omits it.
+# windows-11-arm runners report ARM64 and need arm64-windows; x64 stays x64-windows.
+if ([string]::IsNullOrWhiteSpace($Triplet)) {
+    if ($env:PROCESSOR_ARCHITECTURE -ieq "ARM64") {
+        $Triplet = "arm64-windows"
+    } else {
+        $Triplet = "x64-windows"
+    }
+}
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($VcpkgRoot)) {

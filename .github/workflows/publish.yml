@@ -73,7 +73,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/ffmpeg-${{ env.FFMPEG_VERSION }}
-          key: linux-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('scripts/ci-install-ffmpeg-linux.sh') }}
+          key: linux-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci-install-ffmpeg-linux.sh') }}
 
       - name: Build Linux FFmpeg ${{ env.FFMPEG_VERSION }}
         run: bash ./scripts/ci-install-ffmpeg-linux.sh
@@ -140,7 +140,9 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-24.04
+          - platform: ubuntu-24.04-arm
           - platform: windows-latest
+          - platform: windows-11-arm
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
@@ -159,20 +161,20 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Windows vcpkg root
-        if: matrix.platform == 'windows-latest'
+        if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
           path: .cache/vcpkg
-          key: windows-vcpkg-${{ runner.os }}-${{ hashFiles('scripts/setup-windows-vcpkg.ps1') }}
+          key: windows-vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/setup-windows-vcpkg.ps1') }}
 
       - name: Install Windows FFmpeg build dependencies with vcpkg
-        if: matrix.platform == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           ./scripts/setup-windows-vcpkg.ps1
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-24.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -192,14 +194,14 @@ jobs:
             patchelf
 
       - name: Cache Linux FFmpeg build
-        if: matrix.platform == 'ubuntu-24.04'
+        if: runner.os == 'Linux'
         uses: actions/cache@v4
         with:
           path: .cache/ffmpeg-${{ env.FFMPEG_VERSION }}
-          key: linux-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('scripts/ci-install-ffmpeg-linux.sh') }}
+          key: linux-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci-install-ffmpeg-linux.sh') }}
 
       - name: Build Linux FFmpeg ${{ env.FFMPEG_VERSION }}
-        if: matrix.platform == 'ubuntu-24.04'
+        if: runner.os == 'Linux'
         run: bash ./scripts/ci-install-ffmpeg-linux.sh
 
       - name: Install local music notification package dependencies
@@ -225,12 +227,28 @@ jobs:
 
   release-android:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    name: Release Android
+    name: Release Android (${{ matrix.flavor }})
     needs: test
     runs-on: ubuntu-24.04
     environment: android
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      # One APK per ABI instead of one ~100MB universal APK.
+      # `flavor` matches the Gradle product flavors defined in
+      # frontend/src-tauri/gen/android/buildSrc/.../RustPlugin.kt (arm64/arm/x86_64).
+      matrix:
+        include:
+          - short: aarch64
+            rust_target: aarch64-linux-android
+            flavor: arm64
+          - short: armv7
+            rust_target: armv7-linux-androideabi
+            flavor: arm
+          - short: x86_64
+            rust_target: x86_64-linux-android
+            flavor: x86_64
     env:
       CI: 'true'
       JAVA_VERSION: '17'
@@ -246,13 +264,13 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Cache Android FFmpeg bundle
+      - name: Cache Android FFmpeg bundle (${{ matrix.short }})
         uses: actions/cache@v4
         with:
           path: build/android-ffmpeg
-          key: android-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('scripts/build-android-ffmpeg.sh') }}
+          key: android-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ env.ANDROID_NDK_VERSION }}-${{ matrix.short }}-${{ hashFiles('scripts/build-android-ffmpeg.sh') }}
           restore-keys: |
-            android-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ env.ANDROID_NDK_VERSION }}-
+            android-ffmpeg-${{ env.FFMPEG_VERSION }}-${{ env.ANDROID_NDK_VERSION }}-${{ matrix.short }}-
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -270,7 +288,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: ${{ matrix.rust_target }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -287,9 +305,8 @@ jobs:
             nasm \
             yasm
 
-      - name: Build Android FFmpeg bundle
-        run: |
-          bash ./scripts/build-android-ffmpeg.sh
+      - name: Build Android FFmpeg bundle (${{ matrix.short }})
+        run: bash ./scripts/build-android-ffmpeg.sh --target ${{ matrix.short }}
 
       - name: Install local music notification package dependencies
         working-directory: vendor/tauri-plugin-music-notification
@@ -303,13 +320,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build Android release packages
-        run: bash ./build-android.sh
+      - name: Build Android release package (${{ matrix.flavor }})
+        run: bash ./build-android.sh --target ${{ matrix.short }} --no-aab
 
-      - name: Upload Android bundles to release
+      - name: List built APKs
+        run: |
+          find frontend/src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' \
+            -printf '%10s  %p\n' | sort -k2 || true
+
+      - name: Upload Android APK (${{ matrix.flavor }})
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            frontend/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-            frontend/src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
+            frontend/src-tauri/gen/android/app/build/outputs/apk/**/app-${{ matrix.flavor }}-*release*.apk
