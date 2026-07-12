@@ -92,6 +92,22 @@ Changes in the `web` backend inside `useAudioPlayer.ts`:
    `try/finally`), so the `isPlaying` watcher cannot pause the element
    mid-transition in reaction to the ending song's natural `pause`.
 
+5. **Overlapping switches are serialized by generation.** Rapid skips (or
+   auto-advance racing a manual skip) overlap `playSong` calls on the single
+   reused element. Each switch takes a monotonic `playbackGeneration` token and
+   re-checks it after every `await`; once a newer switch starts, an older one
+   bails instead of retrying `play()` (which would now act on the newer song's
+   `src`) or flipping `isPlaying`/`isPlayingInternal`. Only the active switch
+   clears `isPlayingInternal` in `finally`, so a stale switch can never
+   un-silence the watcher mid-transition and leave the newest song paused.
+
+6. **`MEDIA_ERR_ABORTED` is ignored.** Swapping `src` on a loading element can
+   abort the in-flight fetch; the `error` listener returns early on
+   `error.code === 1` (`MEDIA_ERR_ABORTED`) so this expected abort does not
+   reach `handlePlaybackFailure` (which would otherwise prune the current song
+   from the queue). Real failures (network/decode/unsupported) still fall
+   through.
+
 ## Sequence Diagram
 
 ### Auto-advance after a song ends (reused element)
@@ -143,6 +159,6 @@ reconciliation.
 
 ## Related Source and Tests
 
-- [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts) - `ensureAudioElement`, `webBackend.playSong`, the `playing`/`pause` listeners, the `isPlaying` watch, and `waitForAudioReady`
-- [`frontend/src/composables/__tests__/useAudioPlayer.isplaying.test.ts`](../frontend/src/composables/__tests__/useAudioPlayer.isplaying.test.ts) - web click-to-play and `AbortError` retry/recovery regression tests
+- [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts) - `ensureAudioElement`, `webBackend.playSong` (incl. the `playbackGeneration` overlap guard), the `playing`/`pause`/`error` listeners, the `isPlaying` watch, and `waitForAudioReady`
+- [`frontend/src/composables/__tests__/useAudioPlayer.isplaying.test.ts`](../frontend/src/composables/__tests__/useAudioPlayer.isplaying.test.ts) - web click-to-play, `AbortError` retry/recovery, and overlapping-switch (rapid skip) regression tests
 - [`frontend/src/composables/__tests__/useAudioPlayer.autoadvance.repro.test.ts`](../frontend/src/composables/__tests__/useAudioPlayer.autoadvance.repro.test.ts) - web auto-advance (song ends -> next song keeps playing) regression tests, modeling Safari's `NotAllowedError` autoplay policy

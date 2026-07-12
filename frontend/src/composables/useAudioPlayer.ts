@@ -118,6 +118,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   let lastStartedSongIdentity: string | null = null;
   let pendingSeekTargetMs: number | null = null;
   let pendingPlaySeekTime: number | undefined;
+  // Monotonic token for the active song switch. Overlapping web playSong calls
+  // share one HTMLAudioElement, so a stale switch must not retry play() or touch
+  // isPlaying/isPlayingInternal after a newer switch has taken over the element.
+  // Each switch records its generation and bails (after every await) once a
+  // newer one starts. See docs/web-playback-isplaying.md.
+  let playbackGeneration = 0;
   let sourceCheckInFlight = false;
 
   const loadPluginApi = async (): Promise<MusicNotificationApi> => {
@@ -1156,6 +1162,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       onSongEnd?.();
     });
     audio.addEventListener("error", () => {
+      // MEDIA_ERR_ABORTED (code 1) is expected when swapping `src` aborts an
+      // in-flight load on the reused element (rapid skip). It is not a failure
+      // — falling through to handlePlaybackFailure would prune the current song
+      // from the queue. Real failures (network/decode/unsupported) still fall
+      // through. See docs/web-playback-isplaying.md.
+      if (audio.error && audio.error.code === 1) {
+        return;
+      }
       const failedSong = currentSong.value;
       const err = audio.error;
       const nameByCode: Record<number, string> = {
@@ -1222,7 +1236,15 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     },
     usesRawPlaybackPath: () => false,
     playSong: async (song, seekTime, queueOverride) => {
+      // Each switch gets a unique generation. Overlapping switches (rapid skips,
+      // or auto-advance racing a manual skip) share one HTMLAudioElement, so a
+      // stale switch must not retry play() or flip isPlaying/isPlayingInternal
+      // after a newer switch took over the element. We check after every await
+      // and bail; only the active switch clears isPlayingInternal in finally.
+      // See docs/web-playback-isplaying.md.
+      const myGeneration = ++playbackGeneration;
       const preparedSong = await prepareSongForPlayback(song);
+      if (myGeneration !== playbackGeneration) return;
       // Hold the watcher silent for the entire song switch. The song that just
       // ended fires a natural "pause" that flips isPlaying to false; without
       // this guard the isPlaying watcher would pause the element mid-switch.
@@ -1269,10 +1291,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         duration.value = 0;
         persistPlaybackSession(activeQueue.value, preparedSong);
         await notifyPlaybackQueueStart(activeQueue.value, currentIndex.value);
+        if (myGeneration !== playbackGeneration) return;
 
         maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value);
 
         await new Promise((resolve) => setTimeout(resolve, 50));
+        if (myGeneration !== playbackGeneration) return;
 
         console.log("[web-playback] calling audio.play()", {
           songId: preparedSong.id,
@@ -1282,6 +1306,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         });
         try {
           await audio.play();
+          if (myGeneration !== playbackGeneration) return;
           console.log("[web-playback] play() resolved -> isPlaying=true", {
             songId: preparedSong.id,
             paused: audio.paused,
@@ -1308,13 +1333,16 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
             );
             try {
               await waitForAudioReady(audio, 2000);
+              if (myGeneration !== playbackGeneration) return;
               await audio.play();
+              if (myGeneration !== playbackGeneration) return;
               console.log(
                 "[web-playback] play() retry resolved -> isPlaying=true",
                 { songId: preparedSong.id },
               );
               isPlaying.value = true;
             } catch (retryError) {
+              if (myGeneration !== playbackGeneration) return;
               console.warn(
                 "[web-playback] play() retry did not start, reconciling",
                 { songId: preparedSong.id },
@@ -1322,6 +1350,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
               isPlaying.value = !audio.paused;
             }
           } else {
+            if (myGeneration !== playbackGeneration) return;
             console.error("[web-playback] play() REJECTED -> isPlaying=false", {
               songId: preparedSong.id,
               errorName,
@@ -1333,7 +1362,11 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
           }
         }
       } finally {
-        isPlayingInternal = false;
+        // Only the active switch may clear the guard; a stale switch that bailed
+        // leaves isPlayingInternal to whichever newer switch owns it.
+        if (myGeneration === playbackGeneration) {
+          isPlayingInternal = false;
+        }
       }
     },
     play: async () => {
