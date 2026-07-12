@@ -107,18 +107,18 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
   });
 
   // Reproduces the browser-only bug: when the source is still loading the
-  // browser interrupts play() with AbortError ("removed from the document"),
-  // but the element recovers and plays anyway. isPlaying must follow the real
-  // "playing" state, not the rejected play() promise. The catch must not throw
-  // and must not pin isPlaying=false.
-  it("keeps isPlaying=true when play() rejects with AbortError and element recovers", async () => {
+  // browser interrupts play() with AbortError ("removed from the document").
+  // isPlaying must follow the real "playing" state, not the rejected play()
+  // promise. The catch must not throw, and on auto-advance (no user gesture to
+  // resume the interrupted element) it must wait for the source to be ready and
+  // start playback explicitly so the song does not sit paused.
+  it("recovers and plays when play() rejects with AbortError", async () => {
     const abortError = new Error(
       "The play() request was interrupted by a call to pause().",
     );
     abortError.name = "AbortError";
 
     const listeners: Record<string, Array<(event?: unknown) => void>> = {};
-    let playCallCount = 0;
     const rejectingAudio = {
       src: "",
       paused: true,
@@ -131,9 +131,19 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
       error: null as MediaError | null,
       play: vi.fn(() => {
         playCallCount += 1;
-        return playCallCount === 1
-          ? Promise.reject(abortError)
-          : Promise.resolve(undefined);
+        if (playCallCount === 1) {
+          // First attempt is interrupted while the source is still loading.
+          // The source finishes loading shortly after, signaling "canplay".
+          setTimeout(() => {
+            rejectingAudio.readyState = 4;
+            (listeners["canplay"] ?? []).forEach((cb) => cb());
+          }, 0);
+          return Promise.reject(abortError);
+        }
+        // Retry once the source is ready: playback actually starts.
+        rejectingAudio.paused = false;
+        (listeners["playing"] ?? []).forEach((cb) => cb());
+        return Promise.resolve(undefined);
       }),
       pause: vi.fn(),
       addEventListener: vi.fn(
@@ -144,6 +154,7 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
       ),
       removeEventListener: vi.fn(),
     };
+    let playCallCount = 0;
     global.Audio = vi.fn(() => rejectingAudio) as unknown as typeof Audio;
 
     const { playSong, isPlaying } = useAudioPlayer({
@@ -153,14 +164,8 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
     // Must not throw: AbortError is an interrupt, not an autoplay block.
     await playSong(mockSongs[0]);
 
-    expect(rejectingAudio.play).toHaveBeenCalled();
-    // While the element is still paused/loading, isPlaying stays false.
-    expect(isPlaying.value).toBe(false);
-
-    // The browser recovers and the element actually starts playing.
-    rejectingAudio.paused = false;
-    (listeners["playing"] ?? []).forEach((cb) => cb());
-
+    // The first attempt was interrupted, then retried once the source loaded.
+    expect(rejectingAudio.play).toHaveBeenCalledTimes(2);
     expect(isPlaying.value).toBe(true);
   });
 });

@@ -117,6 +117,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   let pluginApiPromise: Promise<MusicNotificationApi> | null = null;
   let lastStartedSongIdentity: string | null = null;
   let pendingSeekTargetMs: number | null = null;
+  let pendingPlaySeekTime: number | undefined;
   let sourceCheckInFlight = false;
 
   const loadPluginApi = async (): Promise<MusicNotificationApi> => {
@@ -1085,24 +1086,130 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  // Resolves once the element has buffered enough to play, with a timeout
+  // fallback. Used to retry play() after an AbortError: on auto-advance there
+  // is no user gesture to resume an interrupted element, so we wait for the
+  // source to be ready and start playback explicitly. See
+  // docs/web-playback-isplaying.md.
+  const waitForAudioReady = (
+    audio: HTMLAudioElement,
+    timeoutMs: number,
+  ): Promise<void> =>
+    new Promise((resolve) => {
+      if (audio.readyState >= 2) {
+        resolve();
+        return;
+      }
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        audio.removeEventListener("canplay", finish);
+        resolve();
+      };
+      audio.addEventListener("canplay", finish);
+      setTimeout(finish, timeoutMs);
+    });
+
+  // A single HTMLAudioElement is reused across every song. Safari/WebKit only
+  // allow play() on an element that a user gesture has "unlocked"; a brand-new
+  // element created on auto-advance (no gesture) is blocked with
+  // NotAllowedError, so the next song would sit paused. Reusing the element the
+  // user unlocked by tapping play lets us swap `src` and keep going. Listeners
+  // are attached exactly once and read reactive state, so they stay correct no
+  // matter which song is loaded. See docs/web-playback-isplaying.md.
+  const ensureAudioElement = (): HTMLAudioElement => {
+    if (audioElement.value) {
+      return audioElement.value;
+    }
+    const audio = new Audio();
+    audio.addEventListener("timeupdate", () => {
+      currentTime.value = audio.currentTime || 0;
+    });
+    audio.addEventListener("loadedmetadata", () => {
+      duration.value = audio.duration || 0;
+      if (pendingPlaySeekTime === undefined) {
+        return;
+      }
+      const clampedTime = Math.max(
+        0,
+        Math.min(pendingPlaySeekTime, duration.value || pendingPlaySeekTime),
+      );
+      audio.currentTime = clampedTime;
+      currentTime.value = clampedTime;
+      pendingPlaySeekTime = undefined;
+    });
+    audio.addEventListener("seeked", () => {
+      currentTime.value = audio.currentTime || 0;
+    });
+    audio.addEventListener("seeking", () => {
+      currentTime.value = audio.currentTime || 0;
+    });
+    audio.addEventListener("ended", () => {
+      if (playMode.value === "loop") {
+        if (currentSong.value) {
+          void playSong(currentSong.value);
+        }
+      } else {
+        void nextSong();
+      }
+      onSongEnd?.();
+    });
+    audio.addEventListener("error", () => {
+      const failedSong = currentSong.value;
+      const err = audio.error;
+      const nameByCode: Record<number, string> = {
+        1: "MEDIA_ERR_ABORTED",
+        2: "MEDIA_ERR_NETWORK",
+        3: "MEDIA_ERR_DECODE",
+        4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
+      };
+      console.warn("[web-playback] ERROR event -> handlePlaybackFailure", {
+        songId: failedSong ? failedSong.id : null,
+        url: audio.src,
+        error: err
+          ? {
+              code: err.code,
+              message: err.message,
+              name: nameByCode[err.code] || "UNKNOWN",
+            }
+          : null,
+        readyState: audio.readyState,
+        networkState: audio.networkState,
+      });
+      void handlePlaybackFailure();
+    });
+    // isPlaying mirrors the element's real state. Scoped to the current
+    // element (always this one, but the guard is cheap insurance) so a stale
+    // element can never flip the UI. toRaw() unwraps Vue's reactive proxy so
+    // the identity check holds for real HTMLAudioElement values and test
+    // doubles alike.
+    audio.addEventListener("playing", () => {
+      if (toRaw(audioElement.value) !== toRaw(audio)) return;
+      if (!isPlaying.value) {
+        console.log("[web-playback] media:playing -> isPlaying=true", {
+          songId: currentSong.value ? currentSong.value.id : null,
+        });
+        isPlaying.value = true;
+      }
+    });
+    audio.addEventListener("pause", () => {
+      if (toRaw(audioElement.value) !== toRaw(audio)) return;
+      if (isPlaying.value) {
+        console.log("[web-playback] media:pause -> isPlaying=false", {
+          songId: currentSong.value ? currentSong.value.id : null,
+        });
+        isPlaying.value = false;
+      }
+    });
+    audioElement.value = audio;
+    return audio;
+  };
+
   webBackend = {
     kind: "web",
     init: async () => {
-      audioElement.value = new Audio();
-      audioElement.value.addEventListener("timeupdate", () => {
-        currentTime.value = audioElement.value?.currentTime || 0;
-      });
-      audioElement.value.addEventListener("ended", () => {
-        if (playMode.value === "loop") {
-          if (currentSong.value) {
-            void playSong(currentSong.value);
-          }
-        } else {
-          void nextSong();
-        }
-        onSongEnd?.();
-      });
-
+      ensureAudioElement();
       restoreWebPlaybackSession();
       startSourcePolling();
       await reconcileQueueSources();
@@ -1116,184 +1223,114 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     usesRawPlaybackPath: () => false,
     playSong: async (song, seekTime, queueOverride) => {
       const preparedSong = await prepareSongForPlayback(song);
-      pendingSeekTargetMs = null;
-      const sourceQueue = getBaseQueue(queueOverride);
-      activeQueue.value = sourceQueue.map((sourceSong) => {
-        if (!songsMatch(sourceSong, preparedSong)) {
-          return sourceSong;
-        }
-        return preparedSong;
-      });
-
-      if (audioElement.value && !audioElement.value.paused) {
-        audioElement.value.pause();
-      }
-
-      const newAudio = new Audio();
-      const sourceUrl = buildSongPlaybackUrl(preparedSong, seekTime);
-      console.log("[web-playback] playSong", {
-        songId: preparedSong.id,
-        songName: preparedSong.name,
-        sourceUrl,
-        seekTime: seekTime === undefined ? null : seekTime,
-        queueSize: activeQueue.value.length,
-        sourceKey: getSongSourceKey(preparedSong),
-        usesRawPlaybackPath: shouldUseRawPlaybackPath(preparedSong),
-        origin: typeof window !== "undefined" ? window.location.origin : null,
-      });
-      newAudio.src = sourceUrl;
-      newAudio.preload = "auto";
-
-      const describeMediaError = () => {
-        const err = newAudio.error;
-        if (!err) return null;
-        const nameByCode: Record<number, string> = {
-          1: "MEDIA_ERR_ABORTED",
-          2: "MEDIA_ERR_NETWORK",
-          3: "MEDIA_ERR_DECODE",
-          4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
-        };
-        return {
-          code: err.code,
-          message: err.message,
-          name: nameByCode[err.code] || "UNKNOWN",
-        };
-      };
-
-      newAudio.addEventListener("loadedmetadata", () => {
-        duration.value = newAudio.duration || 0;
-        if (seekTime === undefined) {
-          return;
-        }
-
-        const clampedTime = Math.max(
-          0,
-          Math.min(seekTime, duration.value || seekTime),
-        );
-        newAudio.currentTime = clampedTime;
-        currentTime.value = clampedTime;
-      });
-
-      newAudio.addEventListener("timeupdate", () => {
-        currentTime.value = newAudio.currentTime || 0;
-      });
-
-      newAudio.addEventListener("seeked", () => {
-        currentTime.value = newAudio.currentTime || 0;
-      });
-
-      newAudio.addEventListener("seeking", () => {
-        currentTime.value = newAudio.currentTime || 0;
-      });
-
-      newAudio.addEventListener("ended", () => {
-        if (playMode.value === "loop") {
-          if (currentSong.value) {
-            void playSong(currentSong.value);
+      // Hold the watcher silent for the entire song switch. The song that just
+      // ended fires a natural "pause" that flips isPlaying to false; without
+      // this guard the isPlaying watcher would pause the element mid-switch.
+      isPlayingInternal = true;
+      try {
+        pendingSeekTargetMs = null;
+        const sourceQueue = getBaseQueue(queueOverride);
+        activeQueue.value = sourceQueue.map((sourceSong) => {
+          if (!songsMatch(sourceSong, preparedSong)) {
+            return sourceSong;
           }
-        } else {
-          void nextSong();
+          return preparedSong;
+        });
+
+        // Reuse the single unlocked element. Safari/WebKit block play() on a
+        // brand-new element without a user gesture (NotAllowedError), so
+        // creating one per song left auto-advance paused. Swapping `src` on the
+        // element the user already unlocked keeps playback going. See
+        // docs/web-playback-isplaying.md.
+        const audio = ensureAudioElement();
+        if (!audio.paused) {
+          audio.pause();
         }
-        onSongEnd?.();
-      });
-      newAudio.addEventListener("error", () => {
-        console.warn("[web-playback] ERROR event -> handlePlaybackFailure", {
+
+        const sourceUrl = buildSongPlaybackUrl(preparedSong, seekTime);
+        console.log("[web-playback] playSong", {
           songId: preparedSong.id,
           songName: preparedSong.name,
-          url: sourceUrl,
-          error: describeMediaError(),
-          readyState: newAudio.readyState,
-          networkState: newAudio.networkState,
+          sourceUrl,
+          seekTime: seekTime === undefined ? null : seekTime,
+          queueSize: activeQueue.value.length,
+          sourceKey: getSongSourceKey(preparedSong),
+          usesRawPlaybackPath: shouldUseRawPlaybackPath(preparedSong),
+          origin: typeof window !== "undefined" ? window.location.origin : null,
         });
-        void handlePlaybackFailure();
-      });
+        pendingPlaySeekTime = seekTime;
+        audio.src = sourceUrl;
+        audio.preload = "auto";
 
-      // isPlaying must follow the element's real state. play()'s promise can
-      // reject with AbortError when playback is interrupted before it begins
-      // (common with a detached element whose remote source is still loading),
-      // yet the element often recovers and plays anyway. The media events are
-      // the source of truth, so mirror them — scoped to whichever element is
-      // currently active so a stale/old element cannot flip the UI. toRaw()
-      // unwraps Vue's reactive proxy so the identity check holds for both real
-      // HTMLAudioElement values (not proxied) and test doubles (plain objects
-      // that ref() wraps in a reactive proxy).
-      newAudio.addEventListener("playing", () => {
-        if (toRaw(audioElement.value) !== toRaw(newAudio)) return;
-        if (!isPlaying.value) {
-          console.log("[web-playback] media:playing -> isPlaying=true", {
+        currentSong.value = preparedSong;
+        currentIndex.value = activeQueue.value.findIndex((queueSong) =>
+          songsMatch(queueSong, preparedSong),
+        );
+        duration.value = 0;
+        persistPlaybackSession(activeQueue.value, preparedSong);
+        await notifyPlaybackQueueStart(activeQueue.value, currentIndex.value);
+
+        maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        console.log("[web-playback] calling audio.play()", {
+          songId: preparedSong.id,
+          readyState: audio.readyState,
+          networkState: audio.networkState,
+          paused: audio.paused,
+        });
+        try {
+          await audio.play();
+          console.log("[web-playback] play() resolved -> isPlaying=true", {
             songId: preparedSong.id,
+            paused: audio.paused,
+            readyState: audio.readyState,
           });
           isPlaying.value = true;
-        }
-      });
-      newAudio.addEventListener("pause", () => {
-        if (toRaw(audioElement.value) !== toRaw(newAudio)) return;
-        if (isPlaying.value) {
-          console.log("[web-playback] media:pause -> isPlaying=false", {
-            songId: preparedSong.id,
-          });
-          isPlaying.value = false;
-        }
-      });
-
-      audioElement.value = newAudio;
-      currentSong.value = preparedSong;
-      currentIndex.value = activeQueue.value.findIndex((queueSong) =>
-        songsMatch(queueSong, preparedSong),
-      );
-      duration.value = 0;
-      persistPlaybackSession(activeQueue.value, preparedSong);
-      await notifyPlaybackQueueStart(activeQueue.value, currentIndex.value);
-      isPlayingInternal = true;
-
-      maybeEmitSongStart(activeQueue.value, preparedSong, currentIndex.value);
-
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      console.log("[web-playback] calling newAudio.play()", {
-        songId: preparedSong.id,
-        readyState: newAudio.readyState,
-        networkState: newAudio.networkState,
-        paused: newAudio.paused,
-      });
-      try {
-        await newAudio.play();
-        console.log("[web-playback] play() resolved -> isPlaying=true", {
-          songId: preparedSong.id,
-          paused: newAudio.paused,
-          readyState: newAudio.readyState,
-        });
-        isPlaying.value = true;
-      } catch (error) {
-        const errorName = error instanceof Error ? error.name : String(error);
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        if (errorName === "AbortError") {
-          // play() was interrupted before playback began — typically because the
-          // source was still loading (readyState 0) and the browser paused the
-          // detached element. This is NOT an autoplay block (that is
-          // NotAllowedError): the element usually recovers and plays on its own,
-          // and the playing/pause listeners above mirror that into isPlaying.
-          // Reconcile with the real state instead of forcing a failure.
-          console.warn(
-            "[web-playback] play() interrupted (AbortError), reconciling",
-            {
+        } catch (error) {
+          const errorName = error instanceof Error ? error.name : String(error);
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          if (errorName === "AbortError") {
+            // play() was interrupted before playback began — typically the
+            // source was still loading. Wait for it to be ready, then start
+            // playback explicitly. (NotAllowedError is a separate, hard
+            // autoplay block that reusing the unlocked element avoids.)
+            console.warn(
+              "[web-playback] play() interrupted (AbortError), retrying once ready",
+              {
+                songId: preparedSong.id,
+                paused: audio.paused,
+                readyState: audio.readyState,
+                url: sourceUrl,
+              },
+            );
+            try {
+              await waitForAudioReady(audio, 2000);
+              await audio.play();
+              console.log(
+                "[web-playback] play() retry resolved -> isPlaying=true",
+                { songId: preparedSong.id },
+              );
+              isPlaying.value = true;
+            } catch (retryError) {
+              console.warn(
+                "[web-playback] play() retry did not start, reconciling",
+                { songId: preparedSong.id },
+              );
+              isPlaying.value = !audio.paused;
+            }
+          } else {
+            console.error("[web-playback] play() REJECTED -> isPlaying=false", {
               songId: preparedSong.id,
-              paused: newAudio.paused,
-              readyState: newAudio.readyState,
+              errorName,
+              errorMessage,
               url: sourceUrl,
-            },
-          );
-          isPlaying.value = !newAudio.paused;
-        } else {
-          console.error("[web-playback] play() REJECTED -> isPlaying=false", {
-            songId: preparedSong.id,
-            errorName,
-            errorMessage,
-            url: sourceUrl,
-          });
-          isPlaying.value = false;
-          throw new PlaybackStartError("Autoplay was blocked by the browser");
+            });
+            isPlaying.value = false;
+            throw new PlaybackStartError("Autoplay was blocked by the browser");
+          }
         }
       } finally {
         isPlayingInternal = false;
