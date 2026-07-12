@@ -1456,6 +1456,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       _mode,
       _manualVolume,
       _fixedLufs,
+      _lufsPrecacheCount,
       currentVolume,
     ) => {
       applyWebVolume(currentVolume);

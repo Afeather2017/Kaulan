@@ -356,8 +356,9 @@ When the user changes volume mode or moves the volume slider in settings, Kaulan
 
 ### Web playback
 
-- the watcher in [`frontend/src/App.vue`](../frontend/src/App.vue) recalculates the effective volume immediately
-- [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts) applies that value directly to `HTMLAudioElement.volume`
+- the watcher in [`frontend/src/composables/useAppShell.ts`](../frontend/src/composables/useAppShell.ts) recalculates the effective volume immediately when volume settings, current-song LUFS, or queue LUFS metadata changes
+- [`frontend/src/stores/player.ts`](../frontend/src/stores/player.ts) forwards the calculated volume through `syncNormalization()`
+- [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts) applies that calculated current volume directly to `HTMLAudioElement.volume`
 - if the current song still has `lufs = null`, [`frontend/src/composables/useVolume.ts`](../frontend/src/composables/useVolume.ts) falls back to `manualVolume`
 
 ### Android playback
@@ -443,9 +444,11 @@ sequenceDiagram
 
 | Path | Responsibility |
 |------|----------------|
-| `frontend/src/App.vue` | frontend LUFS request, UI metadata sync, next-song pre-cache |
-| `frontend/src/composables/useAudioPlayer.ts` | pre-play song preparation, queue/session application |
+| `frontend/src/composables/useAppShell.ts` | frontend LUFS request, UI metadata sync, next-song pre-cache, and volume normalization watcher |
+| `frontend/src/stores/player.ts` | player state, volume calculation wiring, and normalization sync forwarding |
+| `frontend/src/composables/useAudioPlayer.ts` | pre-play song preparation, queue/session application, and web audio volume application |
 | `frontend/src/composables/useVolume.ts` | normalization math and null-LUFS fallback |
+| `frontend/src/composables/__tests__/useAudioPlayer.volume.test.ts` | web LUFS volume application and loop replay regression tests |
 | `backend/src/handlers/lufs.rs` | LUFS pre-cache API |
 | `tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt` | Android native pre-play LUFS resolution |
 | `tauri-plugin-music-notification/permissions/default.toml` | Android plugin ACL default permission set |
