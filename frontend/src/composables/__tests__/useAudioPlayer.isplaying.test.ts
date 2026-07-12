@@ -163,4 +163,126 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
 
     expect(isPlaying.value).toBe(true);
   });
+
+  // Reproduces the bug where seeking while paused left isPlaying=false after
+  // the user pressed resume. After a seek the element sits at HAVE_CURRENT_DATA
+  // and Chrome emits `play` (paused flipped) but never `playing` (data not yet
+  // buffered for continuous advance). The UI must reflect that the user pressed
+  // play, so the `play` event — not just `playing` — drives isPlaying=true.
+  it("flips isPlaying=true on the `play` event after seek-while-paused (no `playing`)", async () => {
+    const listeners: Record<string, Array<(event?: unknown) => void>> = {};
+    const audio = {
+      src: "",
+      paused: true,
+      ended: false,
+      readyState: 0,
+      networkState: 0,
+      duration: 100,
+      currentTime: 0,
+      volume: 1,
+      error: null as MediaError | null,
+      play: vi.fn().mockResolvedValue(undefined),
+      pause: vi.fn(),
+      addEventListener: vi.fn(
+        (event: string, cb: (event?: unknown) => void) => {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(cb);
+        },
+      ),
+      removeEventListener: vi.fn(),
+    };
+    global.Audio = vi.fn(() => audio) as unknown as typeof Audio;
+
+    const { playSong, play, pause, seekToTime, isPlaying, duration } =
+      useAudioPlayer({
+        songs: () => mockSongs,
+      });
+
+    // 1. Start the song. play() resolves, then `playing` fires.
+    await playSong(mockSongs[0]);
+    audio.paused = false;
+    audio.readyState = 4;
+    audio.duration = 100;
+    (listeners["loadedmetadata"] ?? []).forEach((cb) => cb());
+    (listeners["playing"] ?? []).forEach((cb) => cb());
+    expect(isPlaying.value).toBe(true);
+
+    // 2. User pauses.
+    await pause();
+    audio.paused = true;
+    (listeners["pause"] ?? []).forEach((cb) => cb());
+    expect(isPlaying.value).toBe(false);
+
+    // 3. User clicks the progress bar while paused.
+    await seekToTime(40);
+    expect(audio.currentTime).toBe(40);
+    // After the seek the element is still paused but now at HAVE_CURRENT_DATA.
+    audio.readyState = 2;
+    expect(isPlaying.value).toBe(false);
+
+    // 4. User clicks resume. The browser fires `play` but, because the seek
+    //    left the element with only current-frame data, `playing` never fires.
+    await play();
+    audio.paused = false;
+    (listeners["play"] ?? []).forEach((cb) => cb());
+
+    expect(isPlaying.value).toBe(true);
+
+    // 5. Pause must still work — the user can actually stop playback.
+    await pause();
+    audio.paused = true;
+    (listeners["pause"] ?? []).forEach((cb) => cb());
+    expect(isPlaying.value).toBe(false);
+    expect(duration.value).toBe(100);
+  });
+
+  // Reproduces the unhandled-rejection side effect: when the user pauses while
+  // a play() is still pending (common right after seek-while-paused), Chrome
+  // rejects play() with AbortError. That's benign — pause already drove the
+  // state — so play() must swallow AbortError instead of propagating it.
+  it("does not throw when play() rejects with AbortError because the user paused mid-resume", async () => {
+    const abortError = new Error("The operation was aborted.");
+    abortError.name = "AbortError";
+
+    const listeners: Record<string, Array<(event?: unknown) => void>> = {};
+    let playCallCount = 0;
+    const audio = {
+      src: "",
+      paused: true,
+      ended: false,
+      readyState: 2,
+      networkState: 2,
+      duration: 100,
+      currentTime: 40,
+      volume: 1,
+      error: null as MediaError | null,
+      play: vi.fn(() => {
+        playCallCount += 1;
+        return playCallCount === 1
+          ? Promise.reject(abortError)
+          : Promise.resolve(undefined);
+      }),
+      pause: vi.fn(),
+      addEventListener: vi.fn(
+        (event: string, cb: (event?: unknown) => void) => {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(cb);
+        },
+      ),
+      removeEventListener: vi.fn(),
+    };
+    global.Audio = vi.fn(() => audio) as unknown as typeof Audio;
+
+    const { play } = useAudioPlayer({
+      songs: () => mockSongs,
+    });
+
+    // The user clicks resume; play() rejects with AbortError because the user
+    // immediately pressed pause. The handler must not propagate the rejection.
+    await expect(play()).resolves.toBeUndefined();
+
+    // The `pause` listener already mirrored the real state to isPlaying.
+    audio.paused = true;
+    (listeners["pause"] ?? []).forEach((cb) => cb());
+  });
 });
