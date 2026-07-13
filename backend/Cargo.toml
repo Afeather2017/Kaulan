@@ -45,3 +45,6 @@ rusty_ffmpeg = { path = "../vendor/rusty_ffmpeg", features = ["link_vcpkg_ffmpeg
 
 [target.'cfg(not(windows))'.dependencies]
 rusty_ffmpeg = { path = "../vendor/rusty_ffmpeg", features = ["link_system_ffmpeg", "ffmpeg8_1"] }
+
+[dev-dependencies]
+wiremock = "0.6"

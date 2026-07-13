@@ -41,6 +41,17 @@ interface CreateDownloadJobResponse {
   job_id?: string | null;
 }
 
+/**
+ * Request body for `POST /api/library/import-from-remote` (Tauri runtimes).
+ * The local backend pulls each item's audio (and lyrics) from the remote server.
+ * Related docs: `docs/library-import.md`.
+ */
+export interface ImportFromRemoteRequest {
+  remote_api_base: string;
+  items: Array<{ music_id: number; filename?: string }>;
+  include_lyrics?: boolean;
+}
+
 type JobWaiter = {
   resolve: (snapshot: DownloadJobSnapshot) => void;
   reject: (error: Error) => void;
@@ -195,29 +206,29 @@ export const useDownloadsStore = defineStore("downloads", () => {
       waiters.set(jobKey, pendingWaiters);
     });
 
-  const startDownloadJob = async (
+  /**
+   * Register a freshly created job (online download or remote-library import)
+   * and begin polling it. Shared by `startDownloadJob` and `startImportJob`.
+   */
+  const registerJob = (
     apiBase: string,
     title: string,
     resultKey: string,
-    request: Record<string, unknown>,
-  ) => {
-    const response = await fetch(`${apiBase}/download/jobs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    const payload = (await response.json()) as CreateDownloadJobResponse;
-    if (!response.ok || !payload.success || !payload.job_id) {
+    sourceLabel: string,
+    payload: CreateDownloadJobResponse,
+    queuedMessage: string,
+  ): { key: string; jobId: string } => {
+    if (!payload.success || !payload.job_id) {
       throw new Error(payload.message || "下载任务创建失败");
     }
 
     const snapshot: DownloadJobSnapshot = {
       job_id: payload.job_id,
-      source: String(request.source ?? "unknown"),
+      source: sourceLabel,
       state: "queued",
       phase: "queued",
       percent: null,
-      message: payload.message || `Queued download: ${title}`,
+      message: queuedMessage,
       detail: null,
       filename: null,
       warning: null,
@@ -241,6 +252,61 @@ export const useDownloadsStore = defineStore("downloads", () => {
     };
   };
 
+  const startDownloadJob = async (
+    apiBase: string,
+    title: string,
+    resultKey: string,
+    request: Record<string, unknown>,
+  ) => {
+    const response = await fetch(`${apiBase}/download/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    const payload = (await response.json()) as CreateDownloadJobResponse;
+    if (!response.ok) {
+      throw new Error(payload.message || "下载任务创建失败");
+    }
+    return registerJob(
+      apiBase,
+      title,
+      resultKey,
+      String(request.source ?? "unknown"),
+      payload,
+      payload.message || `Queued download: ${title}`,
+    );
+  };
+
+  /**
+   * Start a remote-library import job on the LOCAL backend (Tauri runtimes
+   * only). The local backend pulls the selected tracks from `remote_api_base`
+   * into its `download_root`. Progress is polled through the same job store as
+   * online downloads.
+   */
+  const startImportJob = async (
+    apiBase: string,
+    title: string,
+    request: ImportFromRemoteRequest,
+  ) => {
+    const response = await fetch(`${apiBase}/library/import-from-remote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    const payload = (await response.json()) as CreateDownloadJobResponse;
+    if (!response.ok) {
+      throw new Error(payload.message || "导入任务创建失败");
+    }
+    return registerJob(
+      apiBase,
+      title,
+      "import",
+      "import",
+      payload,
+      payload.message || `Queued import: ${title}`,
+    );
+  };
+
   return {
     jobs,
     activeJobs,
@@ -248,6 +314,7 @@ export const useDownloadsStore = defineStore("downloads", () => {
     ensurePolling,
     pollJobs,
     startDownloadJob,
+    startImportJob,
     waitForJob,
   };
 });

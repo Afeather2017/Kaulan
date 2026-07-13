@@ -83,6 +83,13 @@
         多选
       </button>
       <button
+        v-if="canDownloadToLocal"
+        class="source-menu-action"
+        @click="$emit('startSongListDownloadSelection')"
+      >
+        下载到本机
+      </button>
+      <button
         class="source-menu-action danger-action"
         @click="$emit('startSongListDeleteSelection')"
       >
@@ -121,6 +128,7 @@ defineProps<{
   selectedSourceMenuGroup: LibrarySourceGroup | null;
   selectedSongListMenuTitle: string | null;
   selectedCollectionMenuName: string | null;
+  canDownloadToLocal: boolean;
 }>();
 
 defineEmits<{
@@ -134,6 +142,7 @@ defineEmits<{
   (e: "deleteSource", group: LibrarySourceGroup): void;
   (e: "closeSongListMenu"): void;
   (e: "startSongListCollectionSelection"): void;
+  (e: "startSongListDownloadSelection"): void;
   (e: "startSongListDeleteSelection"): void;
   (e: "closeCollectionMenu"): void;
   (e: "renameCollection"): void;

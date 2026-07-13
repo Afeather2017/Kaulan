@@ -26,7 +26,13 @@ import type {
   LibrarySourceGroup,
   LibrarySourceGroupSummary,
 } from "@/types/library";
-import { resolveSourceApiBase } from "@/utils/api";
+import {
+  getLocalApiBase,
+  isAbsoluteHttpApiBase,
+  isTauriWebview,
+  resolveSourceApiBase,
+} from "@/utils/api";
+import { downloadBlob, downloadFromUrl } from "@/utils/browserDownload";
 import {
   applySharedLinkApiBase,
   buildSharedSongUrl,
@@ -76,6 +82,8 @@ export function useAppShell() {
         return "移除收藏夹";
       case "delete":
         return "删除";
+      case "download":
+        return "下载到本机";
       default:
         return "";
     }
@@ -621,6 +629,166 @@ export function useAppShell() {
     startSongSelection("delete");
   };
 
+  const startSongListDownloadSelection = () => {
+    startSongSelection("download");
+  };
+
+  // The API base of the source currently being browsed (first visible song).
+  const currentSourceApiBase = computed(() => {
+    const first = visibleSongs.value[0];
+    return first ? resolveSourceApiBase(first.source_key) : null;
+  });
+
+  // The "下载到本机" action is only meaningful when browsing a REMOTE source.
+  // Tauri shells additionally require the local backend to be online (it
+  // receives the import); plain browsers download directly from the remote
+  // server and need no local backend.
+  const canDownloadToLocal = computed(() => {
+    const base = currentSourceApiBase.value;
+    if (!isAbsoluteHttpApiBase(base)) {
+      return false;
+    }
+    if (isTauriWebview()) {
+      // Import into the local backend: skip songs already on the local source
+      // (they are already on this device) and require the local backend online.
+      if (base === getLocalApiBase()) {
+        return false;
+      }
+      return library.sourceGroups.value.some(
+        (group) => group.apiBase === getLocalApiBase() && group.isOnline,
+      );
+    }
+    // Plain browser: every visible song lives on a server (the "local" source is
+    // just the hosting server, still remote to the user's device), so the
+    // browser can always save it.
+    return true;
+  });
+
+  const LYRIC_WEBVTT_PATTERN = /^\s*WEBVTT/;
+
+  const downloadSongLyricsToBrowser = async (
+    remoteApiBase: string,
+    song: MusicInfo,
+    stem: string,
+  ): Promise<void> => {
+    try {
+      const response = await fetch(`${remoteApiBase}/lyrics/id/${song.id}`);
+      if (!response.ok) {
+        return;
+      }
+      const text = await response.text();
+      if (!text.trim()) {
+        return;
+      }
+      const ext = LYRIC_WEBVTT_PATTERN.test(text) ? "vtt" : "lrc";
+      downloadBlob(
+        new Blob([text], { type: "text/plain;charset=utf-8" }),
+        `${stem}.${ext}`,
+      );
+    } catch (error) {
+      // Lyrics are best-effort; a missing sidecar is not a failure.
+      console.error(`Failed to fetch lyrics for ${song.name}:`, error);
+    }
+  };
+
+  // Plain-browser runtime: fetch each file directly from the remote server and
+  // let the browser save it. The hosting/local backend is not involved.
+  const downloadViaBrowser = async (songs: MusicInfo[]) => {
+    let saved = 0;
+    let failed = 0;
+    for (const song of songs) {
+      const remoteApiBase = resolveSourceApiBase(song.source_key);
+      const filename = song.name || `remote-${song.id}`;
+      const stem = filename.replace(/\.[^.]+$/, "") || filename;
+      try {
+        await downloadFromUrl(`${remoteApiBase}/music/id/${song.id}`, filename);
+        await downloadSongLyricsToBrowser(remoteApiBase, song, stem);
+        saved += 1;
+      } catch (error) {
+        failed += 1;
+        console.error(`Failed to download ${filename}:`, error);
+      }
+    }
+    if (failed === 0) {
+      alert(`已通过浏览器下载 ${saved} 首歌曲`);
+    } else {
+      alert(`下载完成：成功 ${saved}，失败 ${failed}`);
+    }
+  };
+
+  // Tauri runtime: ask the local backend to pull the songs from the remote
+  // server into its library. Tracked via the shared downloads store.
+  const downloadViaLocalBackend = async (songs: MusicInfo[]) => {
+    const localApiBase = getLocalApiBase();
+    const byRemote = new Map<string, MusicInfo[]>();
+    for (const song of songs) {
+      const remoteApiBase = resolveSourceApiBase(song.source_key);
+      const bucket = byRemote.get(remoteApiBase);
+      if (bucket) {
+        bucket.push(song);
+      } else {
+        byRemote.set(remoteApiBase, [song]);
+      }
+    }
+
+    const keys: string[] = [];
+    for (const [remoteApiBase, groupSongs] of byRemote) {
+      try {
+        const { key } = await downloadsStore.startImportJob(
+          localApiBase,
+          `从远端导入 ${groupSongs.length} 首`,
+          {
+            remote_api_base: remoteApiBase,
+            items: groupSongs.map((song) => ({
+              music_id: song.id,
+              filename: song.name,
+            })),
+            include_lyrics: true,
+          },
+        );
+        keys.push(key);
+      } catch (error) {
+        alert(`创建导入任务失败: ${error}`);
+        return;
+      }
+    }
+
+    const results = await Promise.allSettled(
+      keys.map((key) => downloadsStore.waitForJob(key)),
+    );
+    await libraryStore.refreshSingleSource(localApiBase);
+    await playerStore.refreshAndroidSession();
+
+    const failed = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed.length === 0) {
+      alert(`已导入 ${songs.length} 首歌曲到本机`);
+    } else {
+      alert(`部分歌曲导入失败（${failed.length}/${keys.length}）`);
+    }
+  };
+
+  const downloadSelectedToLocal = async () => {
+    const selectedVisibleSongs = visibleSongs.value.filter((song) =>
+      selection.selectedSongs.value.has(song.rowKey || buildSongRowKey(song)),
+    );
+    const remoteSongs = selectedVisibleSongs.filter((song) =>
+      isAbsoluteHttpApiBase(song.source_key),
+    );
+    if (remoteSongs.length === 0) {
+      alert("没有可下载的远端歌曲");
+      return;
+    }
+
+    if (isTauriWebview()) {
+      await downloadViaLocalBackend(remoteSongs);
+    } else {
+      await downloadViaBrowser(remoteSongs);
+    }
+    clearSongSelection();
+  };
+
   const handleRetrySourceConnection = async (apiBase: string) => {
     await libraryStore.retrySourceConnection(apiBase);
   };
@@ -851,6 +1019,9 @@ export function useAppShell() {
         return;
       case "delete":
         await deleteSelectedSongs();
+        return;
+      case "download":
+        await downloadSelectedToLocal();
         return;
       default:
         return;
@@ -1092,6 +1263,8 @@ export function useAppShell() {
     closeSongListMenu,
     startSongListCollectionSelection,
     startSongListDeleteSelection,
+    startSongListDownloadSelection,
+    canDownloadToLocal,
     closeCollectionMenu: collectionsStore.closeCollectionMenu,
     renameCollection,
     deleteCollectionFromMenu,

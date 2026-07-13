@@ -84,6 +84,10 @@ pub enum DownloadSource {
     Youtube,
     Netease,
     Bilibili,
+    /// Library import job: pulling a track from a remote Kaulan server into the
+    /// local `download_root`. Inert for the provider system (`provider(Import)`
+    /// returns `None`); used only as the `source` label of an import job.
+    Import,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +180,38 @@ pub struct CreateDownloadJobResponse {
     pub success: bool,
     pub message: String,
     pub job_id: Option<String>,
+}
+
+/// One track to pull from a remote Kaulan server during a library import.
+///
+/// `filename` is the remote track's display filename (with extension) — the
+/// frontend's `MusicInfo.name` — used to preserve a human-readable local
+/// filename. The extension is still validated/derived server-side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportRemoteItem {
+    pub music_id: i32,
+    #[serde(default)]
+    pub filename: Option<String>,
+}
+
+/// Request body for `POST /api/library/import-from-remote`.
+///
+/// The local backend fetches each item's audio (and, when `include_lyrics` is
+/// true, its lyrics sidecar) from `remote_api_base` and writes them under its
+/// `download_root`, then refreshes its library database.
+///
+/// Related documentation: `docs/library-import.md`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportFromRemoteRequest {
+    /// Absolute http(s) API base of the remote server, e.g. `http://192.168.1.10:2080/api`.
+    pub remote_api_base: String,
+    pub items: Vec<ImportRemoteItem>,
+    /// When `None`, lyrics are included (default behavior).
+    #[serde(default)]
+    pub include_lyrics: Option<bool>,
+    /// Optional subdirectory under `download_root`; reuse the download target resolver.
+    #[serde(default)]
+    pub target_subdir: Option<String>,
 }
 
 pub type DownloadJobSnapshot = download_core::DownloadProgressSnapshot;
