@@ -1207,6 +1207,21 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         isPlaying.value = true;
       }
     });
+    // `play` fires the moment paused flips to false; `playing` only fires once
+    // enough data is buffered for continuous advance. After a seek while paused
+    // the element can sit at HAVE_CURRENT_DATA and emit `play` but never
+    // `playing`, so relying on `playing` alone left isPlaying=false even though
+    // the user had pressed resume. The `play` event is the reliable signal that
+    // the user pressed play, so it drives isPlaying too.
+    audio.addEventListener("play", () => {
+      if (toRaw(audioElement.value) !== toRaw(audio)) return;
+      if (!isPlaying.value) {
+        console.log("[web-playback] media:play -> isPlaying=true", {
+          songId: currentSong.value ? currentSong.value.id : null,
+        });
+        isPlaying.value = true;
+      }
+    });
     audio.addEventListener("pause", () => {
       if (toRaw(audioElement.value) !== toRaw(audio)) return;
       if (isPlaying.value) {
@@ -1403,7 +1418,27 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
           await playSong(currentSong.value);
           return;
         }
-        await audioElement.value.play();
+        try {
+          await audioElement.value.play();
+        } catch (err) {
+          const errorName = err instanceof Error ? err.name : String(err);
+          if (errorName === "AbortError") {
+            // The pending play() was interrupted — typically because the user
+            // pressed pause before the seek-target buffer filled. Not an error:
+            // the play/pause listeners already mirror the element's real state,
+            // so reconcile instead of propagating a spurious rejection.
+            console.warn(
+              "[web-playback] play() interrupted (AbortError), reconciling",
+              {
+                paused: audioElement.value.paused,
+                readyState: audioElement.value.readyState,
+              },
+            );
+            isPlaying.value = !audioElement.value.paused;
+            return;
+          }
+          throw err;
+        }
         isPlaying.value = true;
       }
     },

@@ -169,6 +169,78 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
     expect(isPlaying.value).toBe(true);
   });
 
+  // Reproduces the bug where seeking while paused left isPlaying=false after
+  // the user pressed resume. After a seek the element sits at HAVE_CURRENT_DATA
+  // and Chrome emits `play` (paused flipped) but never `playing` (data not yet
+  // buffered for continuous advance). The UI must reflect that the user pressed
+  // play, so the `play` event — not just `playing` — drives isPlaying=true.
+  it("flips isPlaying=true on the `play` event after seek-while-paused (no `playing`)", async () => {
+    const listeners: Record<string, Array<(event?: unknown) => void>> = {};
+    const audio = {
+      src: "",
+      paused: true,
+      ended: false,
+      readyState: 0,
+      networkState: 0,
+      duration: 100,
+      currentTime: 0,
+      volume: 1,
+      error: null as MediaError | null,
+      play: vi.fn().mockResolvedValue(undefined),
+      pause: vi.fn(),
+      addEventListener: vi.fn(
+        (event: string, cb: (event?: unknown) => void) => {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(cb);
+        },
+      ),
+      removeEventListener: vi.fn(),
+    };
+    global.Audio = vi.fn(() => audio) as unknown as typeof Audio;
+
+    const { playSong, play, pause, seekToTime, isPlaying, duration } =
+      useAudioPlayer({
+        songs: () => mockSongs,
+      });
+
+    // 1. Start the song. play() resolves, then `playing` fires.
+    await playSong(mockSongs[0]);
+    audio.paused = false;
+    audio.readyState = 4;
+    audio.duration = 100;
+    (listeners["loadedmetadata"] ?? []).forEach((cb) => cb());
+    (listeners["playing"] ?? []).forEach((cb) => cb());
+    expect(isPlaying.value).toBe(true);
+
+    // 2. User pauses.
+    await pause();
+    audio.paused = true;
+    (listeners["pause"] ?? []).forEach((cb) => cb());
+    expect(isPlaying.value).toBe(false);
+
+    // 3. User clicks the progress bar while paused.
+    await seekToTime(40);
+    expect(audio.currentTime).toBe(40);
+    // After the seek the element is still paused but now at HAVE_CURRENT_DATA.
+    audio.readyState = 2;
+    expect(isPlaying.value).toBe(false);
+
+    // 4. User clicks resume. The browser fires `play` but, because the seek
+    //    left the element with only current-frame data, `playing` never fires.
+    await play();
+    audio.paused = false;
+    (listeners["play"] ?? []).forEach((cb) => cb());
+
+    expect(isPlaying.value).toBe(true);
+
+    // 5. Pause must still work — the user can actually stop playback.
+    await pause();
+    audio.paused = true;
+    (listeners["pause"] ?? []).forEach((cb) => cb());
+    expect(isPlaying.value).toBe(false);
+    expect(duration.value).toBe(100);
+  });
+
   // Regression: rapid skips overlap playSong calls on the single reused
   // HTMLAudioElement. When a newer switch changes `src` while an older switch's
   // play() is still pending, the older promise rejects with AbortError. The
@@ -261,5 +333,59 @@ describe("useAudioPlayer - click from playlist flips isPlaying (web)", () => {
       deferred.resolve();
     }
     await Promise.allSettled([aPromise, bPromise]);
+  });
+
+  // Reproduces the unhandled-rejection side effect of seek-while-paused: when
+  // the user resumes and play() is still pending, pressing pause before the
+  // seek-target buffer fills makes Chrome reject play() with AbortError. That is
+  // benign — the pause listener already mirrored the state — so the resume
+  // webBackend.play() must swallow AbortError instead of surfacing an unhandled
+  // rejection. This exercises the play() catch (not playSong's), so a current
+  // song + audio element must exist first.
+  it("does not throw when resume play() rejects with AbortError because the user paused mid-resume", async () => {
+    const abortError = new Error("The operation was aborted.");
+    abortError.name = "AbortError";
+
+    const listeners: Record<string, Array<(event?: unknown) => void>> = {};
+    const audio = {
+      src: "",
+      paused: true,
+      ended: false,
+      readyState: 4,
+      networkState: 4,
+      duration: 100,
+      currentTime: 40,
+      volume: 1,
+      error: null as MediaError | null,
+      play: vi.fn().mockResolvedValue(undefined),
+      pause: vi.fn(),
+      addEventListener: vi.fn(
+        (event: string, cb: (event?: unknown) => void) => {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(cb);
+        },
+      ),
+      removeEventListener: vi.fn(),
+    };
+    global.Audio = vi.fn(() => audio) as unknown as typeof Audio;
+
+    const { playSong, play, pause, isPlaying } = useAudioPlayer({
+      songs: () => mockSongs,
+    });
+
+    // Start playback, then pause. This establishes a current song and an audio
+    // element so the call below takes the resume path (webBackend.play), not
+    // playSong.
+    await playSong(mockSongs[0]);
+    await pause();
+    expect(isPlaying.value).toBe(false);
+
+    // The user clicks resume, then immediately pauses before the buffer fills.
+    // play() rejects with AbortError; the resume handler must not propagate the
+    // rejection and must reconcile isPlaying from the element's real state.
+    audio.play = vi.fn(() => Promise.reject(abortError));
+    audio.paused = true;
+    await expect(play()).resolves.toBeUndefined();
+    expect(isPlaying.value).toBe(false);
   });
 });
