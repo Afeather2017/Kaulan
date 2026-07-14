@@ -265,6 +265,7 @@
       :selected-source-menu-group="selectedSourceMenuGroup"
       :selected-song-list-menu-title="selectedSongListMenuTitle"
       :selected-collection-menu-name="selectedCollectionMenuName"
+      :can-download-to-local="canDownloadToLocal"
       @close-source-menu="closeSourceMenu"
       @refresh-source="handleUpdateSourceDatabase"
       @upload-to-source="openUploadForSource"
@@ -275,6 +276,7 @@
       @delete-source="handleDeleteSource"
       @close-song-list-menu="closeSongListMenu"
       @start-song-list-collection-selection="startSongListCollectionSelection"
+      @start-song-list-download-selection="startSongListDownloadSelection"
       @start-song-list-delete-selection="startSongListDeleteSelection"
       @close-collection-menu="closeCollectionMenu"
       @rename-collection="renameCollection"
@@ -416,7 +418,9 @@ const {
   closeSourceMenu,
   closeSongListMenu,
   startSongListCollectionSelection,
+  startSongListDownloadSelection,
   startSongListDeleteSelection,
+  canDownloadToLocal,
   closeCollectionMenu,
   renameCollection,
   deleteCollectionFromMenu,

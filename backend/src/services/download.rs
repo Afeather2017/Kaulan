@@ -484,6 +484,7 @@ impl DownloadSource {
             DownloadSource::Youtube => "youtube",
             DownloadSource::Netease => "netease",
             DownloadSource::Bilibili => "bilibili",
+            DownloadSource::Import => "import",
         }
     }
 }

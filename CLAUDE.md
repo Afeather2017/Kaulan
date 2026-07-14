@@ -116,6 +116,7 @@ backend/src/
 │   ├── playlists.rs # Playlist API endpoints (folder-based)
 │   ├── settings.rs  # Settings API endpoints
 │   ├── upload.rs    # File upload API endpoints
+│   ├── library_import.rs # Remote-library import endpoint (pull tracks from a remote Kaulan server into local download_root)
 │   └── database.rs  # Database update API endpoints
 ├── services/
 │   ├── mod.rs       # Service exports
@@ -249,6 +250,7 @@ frontend/src-tauri/src/
 ### Music Endpoints
 - `GET /api/music/{filename}` - Stream audio file
 - `GET /api/music` - Get all music from database
+- `GET /api/music/id/{id}` - Stream audio by ID; `?position=` seeks (0.0–1.0) and `?download=1` sends `Content-Disposition: attachment` (RFC 6266 `filename` + UTF-8 `filename*=`) so the browser saves instead of plays — used by the browser "download to local" flow; see [`docs/library-import.md`](docs/library-import.md)
 
 ### Lyrics Endpoints
 - `GET /api/lyrics/{filename}` - Stream LRC lyrics file
@@ -273,6 +275,7 @@ frontend/src-tauri/src/
 ### Other Endpoints
 - `POST /api/generate-lufs` - Generate LUFS values via FFmpeg (debug mode only)
 - `POST /api/music/{id}/precache-lufs` - Pre-cache LUFS for next song (non-blocking)
+- `POST /api/library/import-from-remote` - (Tauri runtimes) Pull selected tracks (audio + lyrics) from a remote Kaulan server into the local `download_root`; returns a job id pollable via `GET /api/download/jobs/{id}`. See [`docs/library-import.md`](docs/library-import.md)
 
 ### Static Frontend Routes
 - `GET /` - Serve the built Vue app from `frontend/dist/index.html`

@@ -17,6 +17,7 @@ use crate::database::establish_connection;
 use crate::handlers::database;
 use crate::handlers::discovery;
 use crate::handlers::download;
+use crate::handlers::library_import;
 use crate::handlers::lufs;
 use crate::handlers::lyrics;
 use crate::handlers::music;
@@ -37,6 +38,7 @@ pub use download::{
     get_download_directory_tree, get_download_job, get_download_jobs, get_online_provider_statuses,
     get_preview_track, search_lyrics, search_online,
 };
+pub use library_import::import_from_remote;
 pub use lufs::precache_lufs;
 pub use lyrics::{get_lyrics, get_lyrics_by_id, update_lyrics_by_id};
 pub use music::{delete_music_batch, get_all_music, get_music, get_music_by_id, get_music_cover};
@@ -411,6 +413,8 @@ pub async fn start_server(
                 .service(get_download_jobs)
                 .service(get_download_job)
                 .service(download_track)
+                // Remote-library import endpoint (Tauri runtimes)
+                .service(import_from_remote)
                 // File upload endpoints
                 .service(get_directory_tree)
                 .service(upload_files)

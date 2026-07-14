@@ -1,6 +1,10 @@
 import { ref } from "vue";
 
-export type SongSelectionAction = "collection" | "remove" | "delete";
+export type SongSelectionAction =
+  | "collection"
+  | "remove"
+  | "delete"
+  | "download";
 
 export function useSelection() {
   // Song selection state

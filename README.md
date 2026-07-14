@@ -17,6 +17,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Real-time Search** - Search across all songs instantly
 - **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
+- **Remote Library Import** - Browse another Kaulan server's library and download its songs (audio + lyrics) into your own library — into the app library on desktop/Android, or directly to the device in a plain browser
 - **Standalone Web Hosting** - The backend can serve the built Vue app from `frontend/dist`
 - **Shared Song Links** - Open `http://server_ip/?id={songId}` in a browser to load the player from that server and start the shared song
 
@@ -328,6 +329,10 @@ Search Netease lyric candidates for any selected result.
 
 Download the selected provider track into the configured online download root and optionally save a matching `.lrc` file beside it.
 
+#### POST /api/library/import-from-remote
+
+(Tauri/desktop/Android runtimes) Pull selected tracks from a remote Kaulan server into the local backend's download root, refreshing the local library. Returns a download job id pollable via `GET /api/download/jobs/{id}`. Plain browsers do not call this — they download each file directly. See [`docs/library-import.md`](docs/library-import.md).
+
 **Parameters:**
 
 - `id` (path parameter) - The music ID to stream
@@ -335,6 +340,7 @@ Download the selected provider track into the configured online download root an
   - `0.0` = Start of file
   - `0.5` = Middle of file
   - `1.0` = End of file
+- `download` (query parameter, optional) - Controls `Content-Disposition`. `1`/`true`/`yes` (or a bare flag) sends `Content-Disposition: attachment; filename="..."; filename*=UTF-8''...` so the browser saves the file via its download manager instead of playing it inline; `0`/`false`/`no` or omitted leaves it as a normal inline stream. Applied to every 2xx response (including Range/206) so resumed downloads keep the filename. Used by the browser "download to local" flow; see [`docs/library-import.md`](docs/library-import.md).
 
 **Response:** Audio file binary data (audio/mpeg)
 

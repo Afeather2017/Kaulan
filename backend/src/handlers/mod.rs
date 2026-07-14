@@ -5,6 +5,7 @@
 pub mod database;
 pub mod discovery;
 pub mod download;
+pub mod library_import;
 pub mod lufs;
 pub mod lyrics;
 pub mod music;

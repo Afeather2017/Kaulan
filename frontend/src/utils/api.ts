@@ -28,7 +28,7 @@ function appendApiPath(pathname: string): string {
   return `${trimmedPath}/api`;
 }
 
-function isTauriWebview(): boolean {
+export function isTauriWebview(): boolean {
   if (typeof window === "undefined") {
     return false;
   }

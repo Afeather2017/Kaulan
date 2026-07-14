@@ -552,51 +552,19 @@ async fn execute_download_request(
         err
     })?;
 
-    let mut warning = None;
-    if let Some(job_id) = job_id.as_deref() {
-        data.download_jobs
-            .update_phase(
-                job_id,
-                body.source,
-                DownloadProgressPhase::EmbeddingCover,
-                "Embedding cover art",
-                None,
-            )
-            .await;
-    }
-    if let Some(cover_url) = output.cover_url.as_deref() {
-        if let Err(err) =
-            download_service::attach_cover_art_from_url(&output.final_path, cover_url).await
-        {
-            warn!(
-                "[DOWNLOAD] Failed to attach cover art to {}: {}",
-                output.final_path.display(),
-                err
-            );
-            append_warning(&mut warning, format!("封面写入失败: {err}"));
-        }
-    }
-
-    if let Some(job_id) = job_id.as_deref() {
-        data.download_jobs
-            .update_phase(
-                job_id,
-                body.source,
-                DownloadProgressPhase::SavingLyrics,
-                "Saving lyrics",
-                None,
-            )
-            .await;
-    }
-    let lyric_filename = if let Some(lyric_id) = body.lyric_selection.as_deref() {
-        match write_selected_lyric(lyric_id, &output.final_path).await {
-            Ok(Some(path)) => path.file_name().map(|v| v.to_string_lossy().to_string()),
+    // Resolve lyric text (Netease) before finalizing so the shared core can
+    // write the sidecar uniformly for both online downloads and remote-library
+    // imports.
+    let mut lyric_warning = None;
+    let lyric = if let Some(lyric_id) = body.lyric_selection.as_deref() {
+        match fetch_merged_lyric_text(lyric_id).await {
+            Ok(Some(text)) => Some(LyricSidecar::Text(text)),
             Ok(None) => {
-                append_warning(&mut warning, "未获取到可用歌词".to_string());
+                lyric_warning = Some("未获取到可用歌词".to_string());
                 None
             }
             Err(err) => {
-                append_warning(&mut warning, format!("歌词下载失败: {err}"));
+                lyric_warning = Some(format!("歌词下载失败: {err}"));
                 None
             }
         }
@@ -604,38 +572,21 @@ async fn execute_download_request(
         None
     };
 
-    if let Some(job_id) = job_id.as_deref() {
-        data.download_jobs
-            .update_phase(
-                job_id,
-                body.source,
-                DownloadProgressPhase::RefreshingLibrary,
-                "Refreshing library",
-                None,
-            )
-            .await;
-    }
-    let library_roots = [
-        data.music_path.as_ref().as_str(),
-        data.download_root.as_ref().as_str(),
-    ];
-    if let Err(err) = scanner::update_database_with_roots(&library_roots, &data.db_conn).await {
-        warn!(
-            "[DOWNLOAD] Database update after online download failed: {}",
-            err
-        );
-        append_warning(&mut warning, format!("刷新曲库失败: {err}"));
-    }
+    let (warning, lyric_filename) = finalize_downloaded_audio(
+        &output.final_path,
+        output.cover_url.as_deref(),
+        lyric,
+        job_id.as_deref(),
+        body.source,
+        &data,
+        lyric_warning,
+    )
+    .await;
 
     let filename = output
         .final_path
         .file_name()
         .map(|value| value.to_string_lossy().to_string());
-    if let Some(job_id) = job_id.as_deref() {
-        data.download_jobs
-            .mark_completed(job_id, filename.clone(), warning.clone())
-            .await;
-    }
 
     Ok(DownloadTrackResponse {
         success: true,
@@ -666,33 +617,170 @@ fn append_warning(current: &mut Option<String>, warning: String) {
     }
 }
 
-async fn write_selected_lyric(
-    lyric_id: &str,
+/// Lyric content to write as a sidecar during finalization.
+#[derive(Debug, Clone)]
+pub(crate) enum LyricSidecar {
+    /// Raw LRC or WEBVTT text. The extension is sniffed from the content.
+    Text(String),
+}
+
+/// Choose the sidecar extension for lyric text.
+///
+/// The remote lyrics endpoint always returns `text/plain`, so the format must
+/// be sniffed from the body: a `WEBVTT` header (after any BOM/whitespace) →
+/// `.vtt`, otherwise `.lrc`.
+pub(crate) fn lyric_sidecar_extension(text: &str) -> &'static str {
+    let trimmed = text.trim_start_matches('\u{feff}').trim_start();
+    if trimmed.starts_with("WEBVTT") {
+        "vtt"
+    } else {
+        "lrc"
+    }
+}
+
+/// Shared finalization for any freshly downloaded audio file.
+///
+/// Used by both the online-provider download path (`execute_download_request`)
+/// and the remote-library import path (`handlers::library_import`). Performs,
+/// as applicable: cover-art embedding, lyric sidecar creation, library database
+/// refresh, and job completion. Returns `(warning, lyric_filename)`.
+///
+/// Related documentation: `docs/library-import.md`
+pub(crate) async fn finalize_downloaded_audio(
     audio_path: &Path,
-) -> Result<Option<PathBuf>, String> {
+    cover_url: Option<&str>,
+    lyric: Option<LyricSidecar>,
+    job_id: Option<&str>,
+    source: DownloadSource,
+    data: &web::Data<AppState>,
+    extra_warning: Option<String>,
+) -> (Option<String>, Option<String>) {
+    let mut warning = extra_warning;
+    let mut lyric_filename = None;
+
+    if cover_url.is_some() {
+        if let Some(job_id) = job_id {
+            data.download_jobs
+                .update_phase(
+                    job_id,
+                    source,
+                    DownloadProgressPhase::EmbeddingCover,
+                    "Embedding cover art",
+                    None,
+                )
+                .await;
+        }
+        if let Some(cover_url) = cover_url {
+            if let Err(err) =
+                download_service::attach_cover_art_from_url(audio_path, cover_url).await
+            {
+                warn!(
+                    "[DOWNLOAD] Failed to attach cover art to {}: {}",
+                    audio_path.display(),
+                    err
+                );
+                append_warning(&mut warning, format!("封面写入失败: {err}"));
+            }
+        }
+    }
+
+    if let Some(LyricSidecar::Text(text)) = lyric.as_ref() {
+        if let Some(job_id) = job_id {
+            data.download_jobs
+                .update_phase(
+                    job_id,
+                    source,
+                    DownloadProgressPhase::SavingLyrics,
+                    "Saving lyrics",
+                    None,
+                )
+                .await;
+        }
+        let ext = lyric_sidecar_extension(text);
+        let lyric_path = audio_path.with_extension(ext);
+        match fs::write(&lyric_path, text) {
+            Ok(()) => {
+                lyric_filename = lyric_path
+                    .file_name()
+                    .map(|value| value.to_string_lossy().to_string());
+            }
+            Err(err) => {
+                warn!(
+                    "[DOWNLOAD] Failed to write lyric sidecar {}: {}",
+                    lyric_path.display(),
+                    err
+                );
+                append_warning(&mut warning, format!("歌词保存失败: {err}"));
+            }
+        }
+    }
+
+    if let Some(job_id) = job_id {
+        data.download_jobs
+            .update_phase(
+                job_id,
+                source,
+                DownloadProgressPhase::RefreshingLibrary,
+                "Refreshing library",
+                None,
+            )
+            .await;
+    }
+    let library_roots = [
+        data.music_path.as_ref().as_str(),
+        data.download_root.as_ref().as_str(),
+    ];
+    if let Err(err) = scanner::update_database_with_roots(&library_roots, &data.db_conn).await {
+        warn!("[DOWNLOAD] Database update after download failed: {}", err);
+        append_warning(&mut warning, format!("刷新曲库失败: {err}"));
+    }
+
+    let filename = audio_path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string());
+    if let Some(job_id) = job_id {
+        data.download_jobs
+            .mark_completed(job_id, filename, warning.clone())
+            .await;
+    }
+
+    (warning, lyric_filename)
+}
+
+/// Fetch and merge Netease lyric text for a track id without writing a sidecar.
+///
+/// Returns `Ok(None)` when the provider has no usable lyric content; the caller
+/// decides whether that warrants a warning. Used by both the online-download
+/// finalization path and (indirectly) `apply_lyric`.
+async fn fetch_merged_lyric_text(lyric_id: &str) -> Result<Option<String>, String> {
     let track_id = lyric_id
         .parse::<u64>()
         .map_err(|_| "无效的歌词歌曲 ID".to_string())?;
-    let audio_path = audio_path.to_path_buf();
 
-    task::spawn_blocking(move || -> Result<Option<PathBuf>, String> {
+    task::spawn_blocking(move || -> Result<Option<String>, String> {
         let client = NeteaseClient::new().map_err(|e| e.to_string())?;
         let lyric = client.track_lyric(track_id).map_err(|e| match e {
             NeteaseError::Other(message) => message,
             other => other.to_string(),
         })?;
 
-        let merged = merge_lyric_content(lyric.lrc, lyric.tlyric);
-        let Some(content) = merged else {
-            return Ok(None);
-        };
-
-        let lyric_path = audio_path.with_extension("lrc");
-        fs::write(&lyric_path, content).map_err(|e| e.to_string())?;
-        Ok(Some(lyric_path))
+        Ok(merge_lyric_content(lyric.lrc, lyric.tlyric))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+async fn write_selected_lyric(
+    lyric_id: &str,
+    audio_path: &Path,
+) -> Result<Option<PathBuf>, String> {
+    let Some(content) = fetch_merged_lyric_text(lyric_id).await? else {
+        return Ok(None);
+    };
+
+    let lyric_path = audio_path.to_path_buf().with_extension("lrc");
+    fs::write(&lyric_path, &content).map_err(|e| e.to_string())?;
+    Ok(Some(lyric_path))
 }
 
 fn merge_lyric_content(original: Option<String>, translated: Option<String>) -> Option<String> {
@@ -778,7 +866,10 @@ fn build_directory_tree(dir_path: &Path, base_path: &Path) -> Option<DirectoryNo
     })
 }
 
-fn resolve_target_dir(base_dir: &Path, target_subdir: Option<&str>) -> Result<PathBuf, String> {
+pub(crate) fn resolve_target_dir(
+    base_dir: &Path,
+    target_subdir: Option<&str>,
+) -> Result<PathBuf, String> {
     let requested_subdir = target_subdir.unwrap_or("").trim();
     let requested_path = if requested_subdir.is_empty() {
         base_dir.to_path_buf()
@@ -818,8 +909,8 @@ fn join_artists(artists: &[netease_api::types::Artist]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_lyric, create_download_job, download_track, get_download_jobs, merge_lyric_content,
-        resolve_target_dir, ApplyLyricRequest,
+        apply_lyric, create_download_job, download_track, get_download_jobs,
+        lyric_sidecar_extension, merge_lyric_content, resolve_target_dir, ApplyLyricRequest,
     };
     use crate::types::AppState;
     use actix_web::{test as actix_test, web, App};
@@ -874,6 +965,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(merged, "[00:01.00]hello\n[00:01.00]你好");
+    }
+
+    #[test]
+    fn lyric_sidecar_extension_sniffs_format_from_content() {
+        assert_eq!(lyric_sidecar_extension("[00:01.00]hi"), "lrc");
+        assert_eq!(lyric_sidecar_extension("WEBVTT\n\n00:00:01.000 -->"), "vtt");
+        // Leading BOM and whitespace must not defeat the WEBVTT sniff.
+        assert_eq!(
+            lyric_sidecar_extension("\u{feff}  WEBVTT\n\n00:00:01.000"),
+            "vtt"
+        );
     }
 
     #[test]

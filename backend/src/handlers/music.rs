@@ -21,6 +21,7 @@
 
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity, Model as MusicModel};
 use crate::file_ops::{get_file_reader, source_remove_file};
+use crate::services::download::sanitize_filename;
 use crate::types::{
     AppState, DeleteMusicFailure, DeleteMusicRequest, DeleteMusicResponse, MusicResponse,
 };
@@ -43,6 +44,14 @@ struct MusicQueryParams {
 
     /// Total track duration in seconds, required when `t` is used.
     duration: Option<f64>,
+
+    /// When set (`?download=1`), send `Content-Disposition: attachment` so the
+    /// browser saves the file via its download manager instead of playing it
+    /// inline. Used by the browser "download to local" flow; playback omits it.
+    /// Accepted as a string so `1`/`true`/`yes` (and a bare flag) count as on,
+    /// while `0`/`false`/`no` count as off; see [`is_download_requested`].
+    #[serde(default)]
+    download: Option<String>,
 }
 
 /// Stream a music file by filename
@@ -137,12 +146,19 @@ pub async fn get_music(path: web::Path<String>, data: web::Data<AppState>) -> im
 ///   - `0.0` = beginning of file
 ///   - `0.5` = middle of file
 ///   - `1.0` = end of file
+/// * `download` - Optional flag (`1`/`true`/`yes`, or `0`/`false`/`no`). When on,
+///   the response carries `Content-Disposition: attachment; filename="...";
+///   filename*=UTF-8''...` so the browser saves the file via its download
+///   manager instead of playing it inline (used by the browser "download to
+///   local" flow; see `docs/library-import.md`). Absent for normal playback.
 ///
 /// # Returns
 /// - Audio file stream with an extension-aware audio content type if found
 /// - HTTP 206 (Partial Content) if `position` parameter is provided
 /// - HTTP 206 (Partial Content) if Range header is present
 /// - HTTP 200 OK for normal full file streaming
+/// - `Content-Disposition: attachment` header present on every 2xx response
+///   when `download=1` is set (so resume/Range requests keep the filename too)
 /// - `404 Not Found` if music not in database or file missing
 /// - `500 Internal Server Error` for database errors
 ///
@@ -181,6 +197,14 @@ pub async fn get_music_by_id(
             debug!(
                 "Found music in database: id={}, filename={}, file_path={}",
                 music.id, music.filename, music.file_path
+            );
+
+            // Compute the Content-Disposition once so every response branch
+            // (seek 206, Range 206, full 200) stays consistent. Only set when
+            // the caller asked for a download; absent for normal playback.
+            let disposition = download_disposition(
+                is_download_requested(query.download.as_deref()),
+                &music.filename,
             );
 
             let file_reader = get_file_reader();
@@ -288,6 +312,9 @@ pub async fn get_music_by_id(
                         if let Some((header_name, header_value)) = seek_header {
                             response.insert_header((header_name, header_value));
                         }
+                        if let Some(value) = disposition.as_deref() {
+                            response.insert_header(("Content-Disposition", value));
+                        }
 
                         return response.streaming(stream.map_err(actix_web::Error::from));
                     }
@@ -313,22 +340,26 @@ pub async fn get_music_by_id(
                                 let content_length = end.saturating_sub(start).saturating_add(1);
                                 info!("[ACCESS] GET /api/music/id/{} - Status: 206, Range: bytes={}-{}", id, start, end);
 
-                                return HttpResponse::PartialContent()
-                                    .insert_header((
-                                        "Content-Type",
-                                        audio_content_type(&music.filename),
-                                    ))
-                                    .insert_header(("Content-Length", content_length.to_string()))
-                                    .insert_header((
-                                        "Content-Range",
-                                        format!("bytes {}-{}/{}", start, end, size),
-                                    ))
-                                    .insert_header(("Accept-Ranges", "bytes"))
-                                    .insert_header((
-                                        "Cache-Control",
-                                        "public, max-age=86400, must-revalidate",
-                                    ))
-                                    .streaming(stream.map_err(actix_web::Error::from));
+                                let mut response = HttpResponse::PartialContent();
+                                response.insert_header((
+                                    "Content-Type",
+                                    audio_content_type(&music.filename),
+                                ));
+                                response
+                                    .insert_header(("Content-Length", content_length.to_string()));
+                                response.insert_header((
+                                    "Content-Range",
+                                    format!("bytes {}-{}/{}", start, end, size),
+                                ));
+                                response.insert_header(("Accept-Ranges", "bytes"));
+                                response.insert_header((
+                                    "Cache-Control",
+                                    "public, max-age=86400, must-revalidate",
+                                ));
+                                if let Some(value) = disposition.as_deref() {
+                                    response.insert_header(("Content-Disposition", value));
+                                }
+                                return response.streaming(stream.map_err(actix_web::Error::from));
                             }
                             Err(e) => {
                                 warn!("Could not seek in file: {} - Error: {}", music.file_path, e);
@@ -355,6 +386,9 @@ pub async fn get_music_by_id(
                     // Add Content-Length if available (helps browser determine duration)
                     if let Some(size) = file_size {
                         response.insert_header(("Content-Length", size.to_string()));
+                    }
+                    if let Some(value) = disposition.as_deref() {
+                        response.insert_header(("Content-Disposition", value));
                     }
 
                     response.streaming(stream.map_err(actix_web::Error::from))
@@ -425,6 +459,105 @@ fn audio_content_type(filename: &str) -> &'static str {
         Some("webm") => "audio/webm",
         Some("mp3") => "audio/mpeg",
         _ => "application/octet-stream",
+    }
+}
+
+/// Interpret the `download` query value leniently: presence (and any value
+/// other than an explicit off-token) counts as a download request. Accepts
+/// `1`/`true`/`yes` and a bare flag, while `0`/`false`/`no` and absence do not.
+fn is_download_requested(value: Option<&str>) -> bool {
+    match value.map(str::trim) {
+        Some("0" | "false" | "no") => false,
+        Some(_) => true,
+        None => false,
+    }
+}
+
+/// Build an RFC 6266 `Content-Disposition: attachment` value for `filename`
+/// when a download is requested.
+///
+/// Returns `None` for normal playback so the header is omitted entirely and
+/// streaming behavior is unchanged. Both the legacy `filename="..."` form
+/// (ASCII-safe, via `sanitize_filename`) and the `filename*=UTF-8''...` form
+/// (percent-encoded) are emitted so non-ASCII names render correctly across
+/// browsers.
+///
+/// Related documentation: `docs/library-import.md`
+fn download_disposition(download: bool, filename: &str) -> Option<String> {
+    if !download {
+        return None;
+    }
+    let ascii = ascii_filename(filename);
+    let encoded = percent_encode_filename(filename);
+    Some(format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        ascii, encoded
+    ))
+}
+
+/// ASCII-only fallback for the legacy `filename="..."` token (RFC 6266 keeps
+/// that quoted form to visible ASCII). The real name, including any non-ASCII
+/// characters, travels in the percent-encoded `filename*=` token instead, so
+/// the whole header value stays ASCII and parseable end-to-end.
+fn ascii_filename(filename: &str) -> String {
+    let sanitized = sanitize_filename(filename);
+    let mut out = String::with_capacity(sanitized.len());
+    for ch in sanitized.chars() {
+        if ch.is_ascii() && !ch.is_ascii_control() {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.trim_matches('_').is_empty() {
+        "download".to_string()
+    } else {
+        out
+    }
+}
+
+/// Percent-encode a filename for the `filename*=` token per RFC 5987.
+///
+/// Unreserved characters (RFC 3986) are left as-is; every other byte is emitted
+/// as `%HH`. The browser's download manager then streams the body straight to
+/// disk rather than buffering it in page memory.
+fn percent_encode_filename(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if is_unreserved_byte(byte) {
+            out.push(char::from(byte));
+        } else {
+            out.push('%');
+            out.push(hex_digit(byte / 16));
+            out.push(hex_digit(byte % 16));
+        }
+    }
+    out
+}
+
+fn is_unreserved_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
+}
+
+/// Map a single nibble (0..=15) to an uppercase hex digit.
+fn hex_digit(nibble: u8) -> char {
+    match nibble {
+        0 => '0',
+        1 => '1',
+        2 => '2',
+        3 => '3',
+        4 => '4',
+        5 => '5',
+        6 => '6',
+        7 => '7',
+        8 => '8',
+        9 => '9',
+        10 => 'A',
+        11 => 'B',
+        12 => 'C',
+        13 => 'D',
+        14 => 'E',
+        _ => 'F',
     }
 }
 
@@ -664,5 +797,182 @@ pub async fn get_music_cover(path: web::Path<i32>, data: web::Data<AppState>) ->
             error!("Database error while fetching music ID {}: {}", id, e);
             HttpResponse::InternalServerError().body("Database error")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{download_disposition, get_music_by_id, percent_encode_filename};
+    use crate::entities::music::Entity as MusicEntity;
+    use crate::types::AppState;
+    use actix_web::{test as actix_test, web, App};
+    use sea_orm::EntityTrait;
+    use std::sync::Arc;
+
+    /// Build an AppState over a temp music dir and scan it so the seeded file
+    /// is in the database. Returns the app state and the id of the first song.
+    async fn make_app_state(music_dir: &std::path::Path) -> (web::Data<AppState>, i32) {
+        let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+            .await
+            .unwrap();
+        let music = MusicEntity::find().one(&db_conn).await.unwrap().unwrap();
+        let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
+            "test-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        ));
+        let app_state = web::Data::new(AppState {
+            music_path: Arc::new(music_dir.to_string_lossy().to_string()),
+            download_root: Arc::new(music_dir.to_string_lossy().to_string()),
+            preview_root: Arc::new(music_dir.join(".preview").to_string_lossy().to_string()),
+            db_conn,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
+            discovery: discovery_state,
+        });
+        (app_state, music.id)
+    }
+
+    fn disposition_header(resp: &actix_web::dev::ServiceResponse) -> Option<String> {
+        resp.headers()
+            .get("content-disposition")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    }
+
+    #[test]
+    fn disposition_is_none_unless_download_requested() {
+        assert!(download_disposition(false, "song.mp3").is_none());
+    }
+
+    #[test]
+    fn disposition_emits_attachment_with_both_filename_forms() {
+        let value = download_disposition(true, "Song.mp3").unwrap();
+        assert_eq!(
+            value,
+            "attachment; filename=\"Song.mp3\"; filename*=UTF-8''Song.mp3"
+        );
+    }
+
+    #[test]
+    fn disposition_keeps_legacy_token_ascii_for_non_ascii_names() {
+        let value = download_disposition(true, "歌曲.mp3").unwrap();
+        // Legacy quoted token is ASCII-only; the real name lives in filename*.
+        assert!(value.contains("filename=\"__.mp3\""), "{value}");
+        assert!(
+            value.contains("filename*=UTF-8''%E6%AD%8C%E6%9B%B2.mp3"),
+            "{value}"
+        );
+    }
+
+    #[test]
+    fn percent_encode_keeps_unreserved_and_encodes_cjk() {
+        // Unreserved set is left untouched.
+        assert_eq!(percent_encode_filename("a-1_.mp3~"), "a-1_.mp3~");
+        // 歌 = U+6B4C -> E6 AD 8C, 曲 = U+66F2 -> E6 9B B2.
+        assert_eq!(percent_encode_filename("歌曲"), "%E6%AD%8C%E6%9B%B2");
+    }
+
+    #[actix_web::test]
+    async fn download_flag_returns_attachment_header() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("test-song.mp3"), b"FAKE_AUDIO").unwrap();
+        let (app_state, id) = make_app_state(temp.path()).await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(get_music_by_id)).await;
+        let req = actix_test::TestRequest::get()
+            .uri(&format!("/api/music/id/{id}?download=1"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 200);
+        let disposition = disposition_header(&resp).expect("content-disposition header present");
+        assert!(disposition.starts_with("attachment"), "{disposition}");
+        assert!(
+            disposition.contains("filename=\"test-song.mp3\""),
+            "{disposition}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn no_download_flag_has_no_disposition_header() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("test-song.mp3"), b"FAKE_AUDIO").unwrap();
+        let (app_state, id) = make_app_state(temp.path()).await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(get_music_by_id)).await;
+        let req = actix_test::TestRequest::get()
+            .uri(&format!("/api/music/id/{id}"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 200);
+        assert!(disposition_header(&resp).is_none());
+    }
+
+    #[actix_web::test]
+    async fn download_false_flag_has_no_disposition_header() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("test-song.mp3"), b"FAKE_AUDIO").unwrap();
+        let (app_state, id) = make_app_state(temp.path()).await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(get_music_by_id)).await;
+        let req = actix_test::TestRequest::get()
+            .uri(&format!("/api/music/id/{id}?download=0"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 200);
+        assert!(disposition_header(&resp).is_none());
+    }
+
+    #[actix_web::test]
+    async fn download_flag_with_non_ascii_filename_emits_filename_star() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("歌曲.mp3"), b"FAKE_AUDIO").unwrap();
+        let (app_state, id) = make_app_state(temp.path()).await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(get_music_by_id)).await;
+        let req = actix_test::TestRequest::get()
+            .uri(&format!("/api/music/id/{id}?download=1"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 200);
+        let disposition = disposition_header(&resp).expect("content-disposition header present");
+        // The percent-encoded UTF-8 form must carry the original CJK bytes, and
+        // the legacy quoted token is an ASCII fallback.
+        assert!(
+            disposition.contains("filename*=UTF-8''%E6%AD%8C%E6%9B%B2.mp3"),
+            "{disposition}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn download_flag_with_range_returns_206_with_disposition() {
+        let temp = tempfile::tempdir().unwrap();
+        // Larger than the requested range so bytes=0-99 is valid.
+        std::fs::write(temp.path().join("test-song.mp3"), vec![b'X'; 200]).unwrap();
+        let (app_state, id) = make_app_state(temp.path()).await;
+
+        let app =
+            actix_test::init_service(App::new().app_data(app_state).service(get_music_by_id)).await;
+        let req = actix_test::TestRequest::get()
+            .uri(&format!("/api/music/id/{id}?download=1"))
+            .insert_header(("Range", "bytes=0-99"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 206);
+        assert!(resp.headers().contains_key("content-range"));
+        let disposition = disposition_header(&resp).expect("content-disposition header present");
+        assert!(disposition.starts_with("attachment"), "{disposition}");
     }
 }
