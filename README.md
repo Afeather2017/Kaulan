@@ -179,6 +179,23 @@ The staged FFmpeg bundle is written under `build/android-ffmpeg/android/...` and
 consumed automatically by the vendored `rusty_ffmpeg` build script during Android
 cross-compilation.
 
+### Building for Arch Linux (`pacman`)
+
+Tauri does not natively produce `pacman` packages. The repo ships a converter
+script that turns the Tauri `.deb` into `.pkg.tar.zst`:
+
+```bash
+./build-arch.sh                 # builds the .deb, then converts
+./build-arch.sh --no-build      # reuses the most recent .deb in target/
+```
+
+The output lands at `target/arch/kaulan-<version>-1-<arch>.pkg.tar.zst` and can
+be installed with `sudo pacman -U <file>`. The release workflow also runs this
+step automatically on the Linux legs and attaches the package to each GitHub
+release. See [`docs/arch-linux-build.md`](docs/arch-linux-build.md) for details,
+and [`docs/default-music-app.md`](docs/default-music-app.md) for how to set
+Kaulan as the default audio handler afterwards.
+
 ## How to Use
 
 ### 1. Setting Up Your Music Library

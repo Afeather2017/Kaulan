@@ -225,6 +225,25 @@ jobs:
           releaseId: ${{ github.event.release.id }}
           tagName: ${{ github.event.release.tag_name }}
 
+      # Convert the Tauri .deb into a pacman package (.pkg.tar.zst) so Arch
+      # users can install via `pacman -U` instead of repackaging by hand.
+      # Only the Linux legs of the matrix produce a .deb.
+      - name: Install Arch packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y zstd binutils
+
+      - name: Build Arch Linux pacman package
+        if: runner.os == 'Linux'
+        run: ./build-arch.sh --no-build
+
+      - name: Upload Arch Linux package
+        if: runner.os == 'Linux'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            target/arch/kaulan-*.pkg.tar.zst
+
   release-android:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     name: Release Android (${{ matrix.abi }})
