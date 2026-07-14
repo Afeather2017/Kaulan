@@ -250,6 +250,7 @@ frontend/src-tauri/src/
 ### Music Endpoints
 - `GET /api/music/{filename}` - Stream audio file
 - `GET /api/music` - Get all music from database
+- `GET /api/music/id/{id}` - Stream audio by ID; `?position=` seeks (0.0–1.0) and `?download=1` sends `Content-Disposition: attachment` (RFC 6266 `filename` + UTF-8 `filename*=`) so the browser saves instead of plays — used by the browser "download to local" flow; see [`docs/library-import.md`](docs/library-import.md)
 
 ### Lyrics Endpoints
 - `GET /api/lyrics/{filename}` - Stream LRC lyrics file

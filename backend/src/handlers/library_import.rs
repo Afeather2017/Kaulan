@@ -13,9 +13,7 @@
 //! Related documentation:
 //! - `docs/library-import.md`
 
-use crate::file_ops::{
-    is_std_fs_path, source_exists, source_remove_file, source_write_file, SUPPORTED_EXTENSIONS,
-};
+use crate::file_ops::{is_std_fs_path, source_exists, source_write_file, SUPPORTED_EXTENSIONS};
 use crate::handlers::download::{lyric_sidecar_extension, resolve_target_dir};
 use crate::services::download::sanitize_filename;
 use crate::services::scanner;
@@ -24,8 +22,10 @@ use crate::types::{
 };
 use actix_web::{post, web, HttpResponse};
 use download_core::DownloadProgressPhase;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -56,6 +56,22 @@ pub async fn import_from_remote(
             });
         }
     };
+
+    // SSRF guard: resolve the remote host and refuse internal targets (cloud
+    // metadata, link-local, loopback, unspecified). Redirect-following is also
+    // disabled on the client so a 3xx cannot bypass this check. See
+    // `remote_host_is_safe` for the exact policy.
+    if !remote_host_is_safe(&remote_base).await {
+        warn!(
+            "[IMPORT] Rejecting import request: remote host resolves to a blocked range: {}",
+            remote_base
+        );
+        return HttpResponse::BadRequest().json(CreateDownloadJobResponse {
+            success: false,
+            message: "不允许的远端服务器地址".to_string(),
+            job_id: None,
+        });
+    }
 
     if request.items.is_empty() {
         return HttpResponse::BadRequest().json(CreateDownloadJobResponse {
@@ -157,6 +173,11 @@ async fn run_import_job(
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(IMPORT_HTTP_TIMEOUT)
+        // Do NOT follow redirects: the remote host was validated against
+        // blocked ranges in `remote_host_is_safe`, but a 3xx from that host to
+        // an internal address (e.g. cloud metadata) would silently bypass the
+        // check. A non-2xx (including 3xx) is treated as a fetch failure.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("无法创建 HTTP 客户端: {e}"))?;
 
@@ -292,14 +313,18 @@ async fn import_one(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let bytes = read_bounded_bytes(response, IMPORT_MAX_BYTES_PER_ITEM)
-        .await
-        .map_err(|e| format!("读取远端音频失败: {e}"))?;
 
     let final_ext = if known_ext {
         file_ext
     } else {
-        content_type_to_extension(&content_type).to_string()
+        match content_type_to_extension(&content_type) {
+            Some(ext) => ext.to_string(),
+            None => {
+                return Err(format!(
+                    "远端返回了非音频内容类型，无法导入: {content_type}"
+                ));
+            }
+        }
     };
     let final_path = target_dir.join(format!("{stem}.{final_ext}"));
 
@@ -312,11 +337,11 @@ async fn import_one(
         return Ok(ImportOutcome::Skipped("已存在，跳过".to_string()));
     }
 
-    let final_str = final_path.to_string_lossy().to_string();
-    if let Err(e) = source_write_file(&final_str, &bytes).await {
-        let _ = source_remove_file(&final_str).await;
-        return Err(format!("写入本机失败: {e}"));
-    }
+    // Stream the body straight to a temp file, bounding memory to one chunk and
+    // enforcing the size cap DURING the write (not after). The target is
+    // guaranteed to be a StdFs path by the handler's `is_std_fs_path` guard, so
+    // plain `tokio::fs` is safe; a `.part` → rename leaves no partial file.
+    stream_bounded_to_file(response, &final_path, IMPORT_MAX_BYTES_PER_ITEM).await?;
 
     // Lyrics are best-effort: a missing sidecar (404) or write failure must not
     // fail the whole import.
@@ -374,23 +399,62 @@ async fn write_lyric_sidecar(
     }
 }
 
-/// Read the response body, rejecting items that exceed the size cap.
-async fn read_bounded_bytes(
-    response: reqwest::Response,
+/// Stream `response` to `dest`, aborting (and deleting the partial file) if the
+/// body exceeds `max_bytes`.
+///
+/// Writes to a sibling `.part` temp file and renames it into place on success,
+/// so an oversized or interrupted download never leaves a half-written audio
+/// file. Memory is bounded by a single chunk — the body is never buffered
+/// whole — and the cap is enforced while bytes flow, so an oversized file is
+/// rejected before it fills memory/disk. `dest` must be on a StdFs path (the
+/// import handler rejects non-filesystem targets), so plain `tokio::fs` is used
+/// directly. Returns the number of bytes written.
+async fn stream_bounded_to_file(
+    mut response: reqwest::Response,
+    dest: &Path,
     max_bytes: usize,
-) -> Result<Vec<u8>, String> {
-    let bytes = response
-        .bytes()
+) -> Result<u64, String> {
+    let dir = dest.parent().unwrap_or_else(|| Path::new("."));
+    let part_path = dir.join(format!(".{}.part", Uuid::new_v4().simple()));
+
+    let mut file = tokio::fs::File::create(&part_path)
         .await
-        .map_err(|e| format!("读取响应失败: {e}"))?;
-    if bytes.len() > max_bytes {
-        return Err(format!(
-            "文件过大（{} 字节，上限 {}）",
-            bytes.len(),
-            max_bytes
-        ));
+        .map_err(|e| format!("创建临时文件失败: {e}"))?;
+
+    let mut total: u64 = 0;
+    loop {
+        let chunk = response
+            .chunk()
+            .await
+            .map_err(|e| format!("读取远端音频失败: {e}"))?;
+        let Some(chunk) = chunk else {
+            break;
+        };
+        total = total.saturating_add(chunk.len() as u64);
+        if total > max_bytes as u64 {
+            // Abort before writing the overflowing chunk; drop the partial file.
+            let _ = tokio::fs::remove_file(&part_path).await;
+            return Err(format!("文件过大（已读取 {total} 字节，上限 {max_bytes}）"));
+        }
+        if let Err(e) = file.write_all(&chunk).await {
+            let _ = tokio::fs::remove_file(&part_path).await;
+            return Err(format!("写入本机失败: {e}"));
+        }
     }
-    Ok(bytes.to_vec())
+
+    // Flush before the rename so all bytes hit disk; the rename is atomic on the
+    // same filesystem, so `dest` only ever appears complete.
+    if let Err(e) = file.flush().await {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(format!("写入本机失败: {e}"));
+    }
+    drop(file);
+
+    if let Err(e) = tokio::fs::rename(&part_path, dest).await {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(format!("移动临时文件失败: {e}"));
+    }
+    Ok(total)
 }
 
 /// Validate and normalize the remote API base URL.
@@ -413,20 +477,91 @@ fn validate_remote_api_base(raw: &str) -> Result<String, String> {
     Ok(base)
 }
 
+/// Pure SSRF predicate: is `ip` in a range we refuse to import from?
+///
+/// Always blocks the high-value SSRF targets — link-local (which includes the
+/// cloud metadata address `169.254.169.254`), unspecified, and IPv4-mapped-v6
+/// forms of the same. Loopback is blocked when `block_loopback` is true.
+///
+/// RFC1918 / ULA private ranges are deliberately **not** blocked: importing
+/// from another Kaulan server on the LAN is this feature's intended use, so a
+/// blanket private-range ban would break it. The remaining risk (loopback
+/// services on the device) is gated by `block_loopback` instead.
+fn is_blocked_ip(ip: IpAddr, block_loopback: bool) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_link_local() || v4.is_unspecified() || (block_loopback && v4.is_loopback())
+        }
+        IpAddr::V6(v6) => {
+            v6.is_unicast_link_local()
+                || v6.is_unspecified()
+                || (block_loopback && v6.is_loopback())
+                // Catch ::ffff:a.b.c.d mapped forms of the above.
+                || v6
+                    .to_ipv4_mapped()
+                    .is_some_and(|v4| is_blocked_ip(IpAddr::V4(v4), block_loopback))
+        }
+    }
+}
+
+/// Runtime variant of [`is_blocked_ip`]: loopback is blocked in production but
+/// exempted under `cfg(test)` because `wiremock` serves its mocks on
+/// `127.0.0.1` (link-local / unspecified / metadata stay blocked in all
+/// configurations).
+fn runtime_blocked(ip: IpAddr) -> bool {
+    is_blocked_ip(ip, !cfg!(test))
+}
+
+/// Resolve `remote_base` and return `false` if any resolved address lands in a
+/// blocked range (SSRF mitigation). Returns `false` on parse or resolver
+/// failure so a broken or hostile name cannot slip through. A host is only safe
+/// when **every** resolved address is safe.
+///
+/// Residual gap: a DNS name that resolves to a safe address here but to an
+/// internal one when `reqwest` re-resolves (DNS rebinding) is not fully closed;
+/// disabling redirects limits the practical impact. Pinning the resolved IP
+/// would break TLS hostname verification for https remotes, so it is not done.
+async fn remote_host_is_safe(remote_base: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(remote_base) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let port = url.port_or_known_default().unwrap_or(80);
+    let target = format!("{host}:{port}");
+    let Ok(addrs) = tokio::net::lookup_host(target).await else {
+        return false;
+    };
+    let resolved: Vec<_> = addrs.collect();
+    if resolved.is_empty() {
+        return false;
+    }
+    resolved.iter().all(|addr| !runtime_blocked(addr.ip()))
+}
+
 /// Map an audio `Content-Type` to a file extension (lowercase, no dot).
-fn content_type_to_extension(content_type: &str) -> &'static str {
+///
+/// Returns `None` for anything that is not a recognized audio type, so a
+/// non-audio response (e.g. an HTML error page that still returned 200) is
+/// rejected at import time rather than mislabeled as `.mp3`. The generic
+/// `application/octet-stream` is intentionally accepted (as `mp3`) because many
+/// audio servers send it.
+fn content_type_to_extension(content_type: &str) -> Option<&'static str> {
     let lower = content_type.to_ascii_lowercase();
     let mime = lower.split(';').next().unwrap_or("").trim();
     match mime {
-        "audio/mpeg" | "audio/mp3" => "mp3",
-        "audio/flac" | "audio/x-flac" => "flac",
-        "audio/ogg" => "ogg",
-        "audio/wav" | "audio/x-wav" => "wav",
-        "audio/mp4" | "audio/m4a" | "audio/x-m4a" => "m4a",
-        "audio/aac" => "aac",
-        "audio/opus" => "opus",
-        "audio/webm" | "audio/x-matroska" | "audio/x-mka" => "mka",
-        _ => "mp3",
+        "audio/mpeg" | "audio/mp3" => Some("mp3"),
+        "audio/flac" | "audio/x-flac" => Some("flac"),
+        "audio/ogg" => Some("ogg"),
+        "audio/wav" | "audio/x-wav" => Some("wav"),
+        "audio/mp4" | "audio/m4a" | "audio/x-m4a" => Some("m4a"),
+        "audio/aac" => Some("aac"),
+        "audio/opus" => Some("opus"),
+        "audio/webm" | "audio/x-matroska" | "audio/x-mka" => Some("mka"),
+        // Generic binary: many audio servers send this; default to mp3.
+        "application/octet-stream" => Some("mp3"),
+        _ => None,
     }
 }
 
@@ -472,8 +607,9 @@ fn display_label(item: &ImportRemoteItem) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        content_type_to_extension, import_from_remote, parse_filename_parts,
-        validate_remote_api_base, IMPORT_MAX_BYTES_PER_ITEM,
+        content_type_to_extension, import_from_remote, is_blocked_ip, parse_filename_parts,
+        remote_host_is_safe, stream_bounded_to_file, validate_remote_api_base,
+        IMPORT_MAX_BYTES_PER_ITEM,
     };
     use crate::services::download::DownloadJobStore;
     use crate::types::{AppState, CreateDownloadJobResponse, DownloadJobSnapshot};
@@ -504,11 +640,22 @@ mod tests {
 
     #[test]
     fn content_type_maps_common_audio_types() {
-        assert_eq!(content_type_to_extension("audio/mpeg"), "mp3");
-        assert_eq!(content_type_to_extension("audio/flac"), "flac");
-        assert_eq!(content_type_to_extension("audio/mp4"), "m4a");
-        assert_eq!(content_type_to_extension("audio/ogg; codecs=opus"), "ogg");
-        assert_eq!(content_type_to_extension("application/octet-stream"), "mp3");
+        assert_eq!(content_type_to_extension("audio/mpeg"), Some("mp3"));
+        assert_eq!(content_type_to_extension("audio/flac"), Some("flac"));
+        assert_eq!(content_type_to_extension("audio/mp4"), Some("m4a"));
+        assert_eq!(
+            content_type_to_extension("audio/ogg; codecs=opus"),
+            Some("ogg")
+        );
+        // Generic binary is treated as mp3 (common for audio servers).
+        assert_eq!(
+            content_type_to_extension("application/octet-stream"),
+            Some("mp3")
+        );
+        // Clearly non-audio types are refused rather than mislabeled as mp3.
+        assert_eq!(content_type_to_extension("text/html"), None);
+        assert_eq!(content_type_to_extension("application/json"), None);
+        assert_eq!(content_type_to_extension(""), None);
     }
 
     #[test]
@@ -535,6 +682,124 @@ mod tests {
     #[test]
     fn max_bytes_per_item_is_half_gigibyte() {
         assert_eq!(IMPORT_MAX_BYTES_PER_ITEM, 512 * 1024 * 1024);
+    }
+
+    #[test]
+    fn blocked_ip_refuses_metadata_loopback_and_unspecified() {
+        // Cloud metadata (link-local) is the primary SSRF target.
+        assert!(is_blocked_ip("169.254.169.254".parse().unwrap(), true));
+        assert!(is_blocked_ip("169.254.0.1".parse().unwrap(), true));
+        // Loopback and unspecified are blocked in production mode.
+        assert!(is_blocked_ip("127.0.0.1".parse().unwrap(), true));
+        assert!(is_blocked_ip("127.1.2.3".parse().unwrap(), true));
+        assert!(is_blocked_ip("::1".parse().unwrap(), true));
+        assert!(is_blocked_ip("0.0.0.0".parse().unwrap(), true));
+        assert!(is_blocked_ip("::".parse().unwrap(), true));
+        // IPv6 link-local.
+        assert!(is_blocked_ip("fe80::1".parse().unwrap(), true));
+        // IPv4-mapped-v6 metadata must not sneak through as IPv6.
+        assert!(is_blocked_ip(
+            "::ffff:169.254.169.254".parse().unwrap(),
+            true
+        ));
+    }
+
+    #[test]
+    fn blocked_ip_allows_public_and_private_ranges() {
+        // Public internet is fine.
+        assert!(!is_blocked_ip("8.8.8.8".parse().unwrap(), true));
+        // RFC1918 private ranges are deliberately allowed: importing from a LAN
+        // Kaulan server is the feature's intended purpose.
+        assert!(!is_blocked_ip("192.168.1.10".parse().unwrap(), true));
+        assert!(!is_blocked_ip("10.0.0.5".parse().unwrap(), true));
+        assert!(!is_blocked_ip("172.16.0.2".parse().unwrap(), true));
+    }
+
+    #[test]
+    fn blocked_ip_loopback_exemption_is_independent_of_link_local() {
+        // With loopback exempted (test/wiremock mode), loopback is allowed but
+        // metadata/link-local/unspecified must still be blocked.
+        assert!(!is_blocked_ip("127.0.0.1".parse().unwrap(), false));
+        assert!(is_blocked_ip("169.254.169.254".parse().unwrap(), false));
+        assert!(is_blocked_ip("0.0.0.0".parse().unwrap(), false));
+    }
+
+    #[actix_web::test]
+    async fn remote_host_is_safe_accepts_loopback_literal_under_test() {
+        // wiremock binds 127.0.0.1, so loopback must be reachable from tests.
+        assert!(remote_host_is_safe("http://127.0.0.1:2080/api").await);
+    }
+
+    #[actix_web::test]
+    async fn remote_host_is_safe_rejects_metadata_address() {
+        // A literal link-local IP needs no network/DNS to resolve.
+        assert!(!remote_host_is_safe("http://169.254.169.254/api").await);
+    }
+
+    #[actix_web::test]
+    async fn stream_writes_full_body_and_renames_into_place() {
+        let temp = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/music/id/1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(b"HELLO".to_vec())
+                    .insert_header("content-type", "audio/mpeg"),
+            )
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("{}/api/music/id/1", server.uri()))
+            .send()
+            .await
+            .unwrap();
+        let dest = temp.path().join("ok.mp3");
+        let written = stream_bounded_to_file(resp, &dest, 1024).await.unwrap();
+        assert_eq!(written, 5);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"HELLO");
+        // Only the final file remains — no leftover .part temp.
+        assert_eq!(
+            std::fs::read_dir(temp.path()).unwrap().count(),
+            1,
+            "no partial temp should remain"
+        );
+    }
+
+    #[actix_web::test]
+    async fn stream_aborts_on_overflow_and_leaves_no_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/music/id/1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(vec![b'X'; 1000])
+                    .insert_header("content-type", "audio/mpeg"),
+            )
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("{}/api/music/id/1", server.uri()))
+            .send()
+            .await
+            .unwrap();
+        let dest = temp.path().join("big.mp3");
+        let err = stream_bounded_to_file(resp, &dest, 100)
+            .await
+            .expect_err("oversized body must be rejected");
+        assert!(err.contains("文件过大"), "{err}");
+        assert!(!dest.exists(), "no final file on overflow");
+        // No partial .part temp left behind either.
+        assert_eq!(
+            std::fs::read_dir(temp.path()).unwrap().count(),
+            0,
+            "no partial temp should remain"
+        );
     }
 
     async fn make_app_state(download_root: &std::path::Path) -> web::Data<AppState> {
@@ -626,6 +891,32 @@ mod tests {
         .to_request();
         let resp = actix_test::call_service(&app, req).await;
         assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn import_rejects_metadata_remote_base_with_http_400() {
+        let temp = tempfile::tempdir().unwrap();
+        let app_state = make_app_state(temp.path()).await;
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(import_from_remote),
+        )
+        .await;
+
+        // 169.254.169.254 is the cloud-metadata address; it must be refused
+        // before any job is created, with no fetch attempted.
+        let req = post_import(
+            "http://169.254.169.254/api",
+            &[serde_json::json!({"music_id": 1, "filename": "track.mp3"})],
+            true,
+        )
+        .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+        let body: CreateDownloadJobResponse = actix_test::read_body_json(resp).await;
+        assert!(!body.success);
+        assert!(body.job_id.is_none(), "no job should be created for SSRF");
     }
 
     #[actix_web::test]

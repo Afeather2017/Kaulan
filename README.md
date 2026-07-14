@@ -340,6 +340,7 @@ Download the selected provider track into the configured online download root an
   - `0.0` = Start of file
   - `0.5` = Middle of file
   - `1.0` = End of file
+- `download` (query parameter, optional) - Controls `Content-Disposition`. `1`/`true`/`yes` (or a bare flag) sends `Content-Disposition: attachment; filename="..."; filename*=UTF-8''...` so the browser saves the file via its download manager instead of playing it inline; `0`/`false`/`no` or omitted leaves it as a normal inline stream. Applied to every 2xx response (including Range/206) so resumed downloads keep the filename. Used by the browser "download to local" flow; see [`docs/library-import.md`](docs/library-import.md).
 
 **Response:** Audio file binary data (audio/mpeg)
 

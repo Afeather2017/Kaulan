@@ -45,9 +45,11 @@ sequenceDiagram
 
 The import creates one background job per batch (polled through the same
 `DownloadJobStore` and `GET /api/download/jobs/{id}` endpoint as online
-downloads). Items are processed sequentially, so peak memory is bounded by the
-largest single file (`IMPORT_MAX_BYTES_PER_ITEM` soft-caps a single item at
-512 MiB).
+downloads). Items are processed sequentially. Each item is **streamed to a
+temp file chunk-by-chunk and renamed into place**, so peak memory is bounded by
+a single chunk (not the file size) — a large track never fills RAM. The size cap
+(`IMPORT_MAX_BYTES_PER_ITEM`, 512 MiB) is enforced *during* the write: an
+oversized item is aborted and its partial file is deleted.
 
 **Idempotent:** if the target file already exists locally, the item is skipped
 with a warning (`已存在，跳过`) and the remote audio endpoint is **not** hit.
@@ -126,8 +128,33 @@ asynchronous job and returns immediately.
 **Responses**
 
 - `200 OK` — `{ "success": true, "message": "导入任务已创建", "job_id": "<uuid>" }`
-- `400 Bad Request` — empty `items`, invalid/non-http `remote_api_base`, or invalid `target_subdir`
+- `400 Bad Request` — empty `items`, invalid/non-http `remote_api_base`, an `remote_api_base` that resolves to a blocked (internal) address, or invalid `target_subdir`
 - `500 Internal Server Error` — the resolved target is not a writable filesystem path
+
+### Security: SSRF protection
+
+The local backend fetches from a caller-supplied `remote_api_base`, so this
+endpoint is an SSRF surface. Two mitigations are enforced (see
+`backend/src/handlers/library_import.rs`):
+
+1. **Host allow/deny by resolved IP.** Before any fetch, `remote_host_is_safe`
+   resolves the host and rejects it if **any** resolved address is internal.
+   Blocked: link-local (`169.254.0.0/16` — includes the cloud-metadata
+   `169.254.169.254` — and IPv6 `fe80::/10`), unspecified (`0.0.0.0`, `::`),
+   and loopback (`127.0.0.0/8`, `::1`, incl. IPv4-mapped-v6 forms). A resolver
+   failure is treated as unsafe. **RFC1918 / ULA private ranges are
+   intentionally allowed**, because importing from another Kaulan server on the
+   LAN is this feature's purpose.
+2. **No redirect following.** The reqwest client is built with
+   `redirect::Policy::none()`, so a `3xx` from the validated host to an
+   internal address cannot bypass the host check; any `3xx` is treated as a
+   fetch failure.
+
+Residual gap: a DNS name that resolves to a safe address during validation but
+to an internal one when `reqwest` re-resolves (DNS rebinding) is not fully
+closed; disabling redirects limits the practical impact. Pinning the resolved
+IP would break TLS hostname verification for `https` remotes, so it is not
+done.
 
 Progress is then polled with `GET /api/download/jobs/{job_id}` (shared with
 online downloads); the job `source` label is `"import"`. The job ends:

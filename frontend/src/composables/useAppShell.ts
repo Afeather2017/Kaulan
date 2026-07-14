@@ -668,7 +668,10 @@ export function useAppShell() {
     return true;
   });
 
-  const LYRIC_WEBVTT_PATTERN = /^\s*WEBVTT/;
+  // Mirror the backend's `lyric_sidecar_extension`: a leading BOM and/or
+  // whitespace before the `WEBVTT` header must not defeat the sniff. (`\s`
+  // alone does not match the BOM U+FEFF, so it is listed explicitly.)
+  const LYRIC_WEBVTT_PATTERN = /^[\s\uFEFF]*WEBVTT/;
 
   const downloadSongLyricsToBrowser = async (
     remoteApiBase: string,
@@ -702,29 +705,23 @@ export function useAppShell() {
   const NATIVE_DOWNLOAD_STAGGER_MS = 400;
 
   const downloadViaBrowser = async (songs: MusicInfo[]) => {
-    let started = 0;
     for (const song of songs) {
       const remoteApiBase = resolveSourceApiBase(song.source_key);
       const filename = song.name || `remote-${song.id}`;
       const stem = filename.replace(/\.[^.]+$/, "") || filename;
-      try {
-        triggerAnchorDownload(
-          `${remoteApiBase}/music/id/${song.id}?download=1`,
-        );
-        started += 1;
-        // Stagger so the browser registers each as a distinct download (and
-        // trips the one-time "allow multiple downloads" prompt once, not per
-        // file) rather than treating the batch as automatic-download abuse.
-        await sleep(NATIVE_DOWNLOAD_STAGGER_MS);
-        // Lyrics are tiny; keep fetching them as text and best-effort saving.
-        await downloadSongLyricsToBrowser(remoteApiBase, song, stem);
-      } catch (error) {
-        console.error(`Failed to start download for ${filename}:`, error);
-      }
+      triggerAnchorDownload(`${remoteApiBase}/music/id/${song.id}?download=1`);
+      // Stagger so the browser registers each as a distinct download (and
+      // trips the one-time "allow multiple downloads" prompt once, not per
+      // file) rather than treating the batch as automatic-download abuse.
+      await sleep(NATIVE_DOWNLOAD_STAGGER_MS);
+      // Lyrics are tiny; keep fetching them as text and best-effort saving.
+      await downloadSongLyricsToBrowser(remoteApiBase, song, stem);
     }
-    // Native downloads are fire-and-forget; we can only report how many we
-    // dispatched, not which succeeded (the browser's download list shows that).
-    alert(`已开始下载 ${started} 首歌曲到本机（见浏览器下载列表）`);
+    // Native downloads are fire-and-forget: `triggerAnchorDownload` only hands
+    // the URL to the browser's download manager (it cannot throw), and the
+    // lyrics fetch swallows its own errors. We can report only how many we
+    // dispatched; the browser's download list shows actual results.
+    alert(`已开始下载 ${songs.length} 首歌曲到本机（见浏览器下载列表）`);
   };
 
   // Tauri runtime: ask the local backend to pull the songs from the remote
