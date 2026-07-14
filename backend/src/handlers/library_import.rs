@@ -168,7 +168,10 @@ async fn run_import_job(
     let mut warnings: Vec<String> = Vec::new();
 
     for (index, item) in request.items.iter().enumerate() {
-        let percent = (index * 100) / total.max(1);
+        let percent = index
+            .saturating_mul(100)
+            .checked_div(total.max(1))
+            .unwrap_or(0);
         let label = display_label(item);
 
         data.download_jobs
@@ -176,15 +179,15 @@ async fn run_import_job(
                 job_id,
                 DownloadSource::Import,
                 DownloadProgressPhase::Downloading,
-                format!("正在导入 {}/{total}: {label}", index + 1),
+                format!("正在导入 {}/{total}: {label}", index.saturating_add(1)),
                 Some(format!("{percent}%")),
             )
             .await;
 
         match import_one(&client, &remote_base, item, &target_dir, include_lyrics).await {
-            Ok(ImportOutcome::Imported) => imported += 1,
+            Ok(ImportOutcome::Imported) => imported = imported.saturating_add(1),
             Ok(ImportOutcome::Skipped(reason)) => {
-                skipped += 1;
+                skipped = skipped.saturating_add(1);
                 warn!(
                     "[IMPORT] job={} skipped id={}: {}",
                     job_id, item.music_id, reason
@@ -192,7 +195,7 @@ async fn run_import_job(
                 warnings.push(format!("{label}: {reason}"));
             }
             Err(err) => {
-                failed += 1;
+                failed = failed.saturating_add(1);
                 warn!(
                     "[IMPORT] job={} failed id={}: {}",
                     job_id, item.music_id, err
