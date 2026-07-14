@@ -421,6 +421,10 @@ async fn stream_bounded_to_file(
         .await
         .map_err(|e| format!("创建临时文件失败: {e}"))?;
 
+    // Compare in u64 to avoid `as` conversions (banned by CI clippy). usize can
+    // only be larger than u64 on a >64-bit target, which this crate does not
+    // target; clamp to u64::MAX there so an absurd value trips the cap.
+    let max_bytes = u64::try_from(max_bytes).unwrap_or(u64::MAX);
     let mut total: u64 = 0;
     loop {
         let chunk = response
@@ -430,8 +434,8 @@ async fn stream_bounded_to_file(
         let Some(chunk) = chunk else {
             break;
         };
-        total = total.saturating_add(chunk.len() as u64);
-        if total > max_bytes as u64 {
+        total = total.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        if total > max_bytes {
             // Abort before writing the overflowing chunk; drop the partial file.
             let _ = tokio::fs::remove_file(&part_path).await;
             return Err(format!("文件过大（已读取 {total} 字节，上限 {max_bytes}）"));
