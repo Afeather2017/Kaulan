@@ -32,7 +32,7 @@ import {
   isTauriWebview,
   resolveSourceApiBase,
 } from "@/utils/api";
-import { downloadBlob, downloadFromUrl } from "@/utils/browserDownload";
+import { downloadBlob, triggerAnchorDownload } from "@/utils/browserDownload";
 import {
   applySharedLinkApiBase,
   buildSharedSongUrl,
@@ -43,6 +43,10 @@ import {
 // Related documentation:
 // - `docs/runtime-platform-capabilities.md`
 // - `docs/android/playback-session.md`
+
+/** Resolve after `ms` milliseconds. Used to stagger native browser downloads. */
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => window.setTimeout(resolve, ms));
 
 export function useAppShell() {
   const uiStore = useUiStore();
@@ -691,29 +695,36 @@ export function useAppShell() {
     }
   };
 
-  // Plain-browser runtime: fetch each file directly from the remote server and
-  // let the browser save it. The hosting/local backend is not involved.
+  // Plain-browser runtime: hand each file to the browser's native download
+  // manager. The browser GETs the audio with `?download=1` and streams it
+  // straight to disk, so even very large files are never buffered in page
+  // memory. The hosting/local backend is not involved.
+  const NATIVE_DOWNLOAD_STAGGER_MS = 400;
+
   const downloadViaBrowser = async (songs: MusicInfo[]) => {
-    let saved = 0;
-    let failed = 0;
+    let started = 0;
     for (const song of songs) {
       const remoteApiBase = resolveSourceApiBase(song.source_key);
       const filename = song.name || `remote-${song.id}`;
       const stem = filename.replace(/\.[^.]+$/, "") || filename;
       try {
-        await downloadFromUrl(`${remoteApiBase}/music/id/${song.id}`, filename);
+        triggerAnchorDownload(
+          `${remoteApiBase}/music/id/${song.id}?download=1`,
+        );
+        started += 1;
+        // Stagger so the browser registers each as a distinct download (and
+        // trips the one-time "allow multiple downloads" prompt once, not per
+        // file) rather than treating the batch as automatic-download abuse.
+        await sleep(NATIVE_DOWNLOAD_STAGGER_MS);
+        // Lyrics are tiny; keep fetching them as text and best-effort saving.
         await downloadSongLyricsToBrowser(remoteApiBase, song, stem);
-        saved += 1;
       } catch (error) {
-        failed += 1;
-        console.error(`Failed to download ${filename}:`, error);
+        console.error(`Failed to start download for ${filename}:`, error);
       }
     }
-    if (failed === 0) {
-      alert(`已通过浏览器下载 ${saved} 首歌曲`);
-    } else {
-      alert(`下载完成：成功 ${saved}，失败 ${failed}`);
-    }
+    // Native downloads are fire-and-forget; we can only report how many we
+    // dispatched, not which succeeded (the browser's download list shows that).
+    alert(`已开始下载 ${started} 首歌曲到本机（见浏览器下载列表）`);
   };
 
   // Tauri runtime: ask the local backend to pull the songs from the remote

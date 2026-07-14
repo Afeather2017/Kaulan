@@ -14,8 +14,8 @@ the user is browsing a **remote** source. Songs already on the local/source
 server are not offered for download.
 
 Related source files:
-- Backend: `backend/src/handlers/library_import.rs`, `backend/src/handlers/download.rs` (`finalize_downloaded_audio`, `resolve_target_dir`, `lyric_sidecar_extension`), `backend/src/types/mod.rs` (`ImportFromRemoteRequest`)
-- Frontend: `frontend/src/composables/useAppShell.ts` (`downloadSelectedToLocal`, `canDownloadToLocal`), `frontend/src/stores/downloads.ts` (`startImportJob`), `frontend/src/utils/browserDownload.ts`, `frontend/src/components/AppActionSheets.vue`
+- Backend: `backend/src/handlers/library_import.rs`, `backend/src/handlers/download.rs` (`finalize_downloaded_audio`, `resolve_target_dir`, `lyric_sidecar_extension`), `backend/src/handlers/music.rs` (`get_music_by_id` `?download=1` → `Content-Disposition: attachment`, `download_disposition`), `backend/src/types/mod.rs` (`ImportFromRemoteRequest`)
+- Frontend: `frontend/src/composables/useAppShell.ts` (`downloadSelectedToLocal`, `downloadViaBrowser`, `canDownloadToLocal`), `frontend/src/stores/downloads.ts` (`startImportJob`), `frontend/src/utils/browserDownload.ts` (`triggerAnchorDownload`), `frontend/src/components/AppActionSheets.vue`
 
 ## How it works
 
@@ -60,27 +60,39 @@ sanitized via the shared `sanitize_filename`. The lyric sidecar extension is
 sniffed from the body (`WEBVTT` header → `.vtt`, otherwise `.lrc`), because the
 remote lyrics endpoint always returns `text/plain`.
 
-### Plain browser — direct download
+### Plain browser — native download
 
 ```mermaid
 sequenceDiagram
     participant UI as Frontend (browser)
     participant Remote as Remote Kaulan server
-    participant Device as User device
+    participant Device as User device (browser download manager)
 
-    UI->>Remote: GET /api/music/id/{id}  (CORS open)
-    Remote-->>UI: 200 audio
-    UI->>Device: <a download> (browser save)
+    UI->>Remote: GET /api/music/id/{id}?download=1  (anchor click)
+    Remote-->>Device: 200 audio + Content-Disposition: attachment; filename=...
+    Note over Device: browser streams body straight to disk (no page-memory buffer)
     UI->>Remote: GET /api/lyrics/id/{id}
     Remote-->>UI: 200 text or 404
     UI->>Device: <a download> (.lrc/.vtt) if present
 ```
 
-The hosting/local backend is **not** involved — the browser fetches each file
-directly from the remote server (whose CORS policy allows any origin) and saves
-it via a blob URL. The file does **not** join any library. One browser save is
-triggered per file; for a batch this is one audio file (plus an optional lyrics
-file) per selected song.
+The hosting/local backend is **not** involved. Audio is downloaded
+**natively**: the frontend triggers an anchor click to
+`GET /api/music/id/{id}?download=1`, and the remote server responds with
+`Content-Disposition: attachment; filename="..."; filename*=UTF-8''...`. The
+browser's own download manager then issues the GET and **streams the body
+straight to disk** — the bytes never enter the page's JS heap, so even very
+large files cannot crash the tab. Progress and resume are handled by the
+browser's download UI. (This is why the `?download=1` flag exists: without
+`Content-Disposition: attachment`, a cross-origin `<a download>` would
+open/play the `audio/*` response instead of saving it.)
+
+For a multi-select batch the frontend staggers the anchor clicks (~400 ms
+apart) so the browser registers each as a distinct download; the user sees one
+"allow multiple downloads" prompt per site, then the files queue in the
+download manager. Lyrics sidecars are tiny, so they are still fetched as text
+and saved as a blob (one optional `.lrc`/`.vtt` per song). Downloaded files do
+**not** join any library.
 
 ## API
 

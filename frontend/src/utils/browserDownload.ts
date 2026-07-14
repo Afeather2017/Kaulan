@@ -2,9 +2,13 @@
  * Browser-side file download helpers.
  *
  * Used by the plain-browser runtime to save remote tracks directly to the
- * user's device. The bytes are fetched from the remote server (CORS is open)
- * and handed to the browser as a blob, so the hosting/local backend is never
- * involved. Tauri runtimes do not use this — they import via the local backend.
+ * user's device. Audio files are downloaded NATIVELY: the browser issues the
+ * GET and streams the body straight to disk via its download manager (the
+ * backend sends `Content-Disposition: attachment` when `?download=1` is set),
+ * so large files are never buffered into page memory. Lyrics sidecars are tiny,
+ * so they are still fetched as text and saved as a blob.
+ *
+ * Tauri runtimes do not use this — they import via the local backend.
  *
  * Related documentation: `docs/library-import.md`
  *
@@ -14,7 +18,8 @@
 const OBJECT_URL_REVOKE_DELAY_MS = 30_000;
 
 /**
- * Save a blob to the user's device with the given filename.
+ * Save a blob to the user's device with the given filename. Used for small,
+ * already-in-memory payloads (e.g. lyrics text).
  */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -24,19 +29,22 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * Fetch `url` (cross-origin OK when the remote backend allows any origin) and
- * save the response body to the user's device. Throws on a non-OK response.
+ * Trigger a NATIVE browser download of `url`. The browser's download manager
+ * fetches and streams the response to disk directly — no `fetch`, no blob, no
+ * page-memory buffering — which is why this is used for (potentially large)
+ * audio files. The remote endpoint must send
+ * `Content-Disposition: attachment; filename=...` (via `?download=1`) so the
+ * browser saves rather than plays the cross-origin response; the `download`
+ * attribute is intentionally omitted because browsers ignore it cross-origin.
  */
-export async function downloadFromUrl(
-  url: string,
-  filename: string,
-): Promise<void> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`下载失败 (${response.status})`);
-  }
-  const blob = await response.blob();
-  downloadBlob(blob, filename);
+export function triggerAnchorDownload(url: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
 }
 
 function triggerDownload(url: string, filename: string): void {
