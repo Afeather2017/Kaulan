@@ -36,6 +36,7 @@ const BILIBILI_LOGIN_URL: &str = "https://www.bilibili.com/";
 const YOUTUBE_LOGIN_URL: &str = "https://www.youtube.com/";
 const NCMDUMP_CONFIG_DIR_ENV: &str = "NCMDUMP_CONFIG_DIR";
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 const LAUNCH_FILE_ENV: &str = "KAULAN_LAUNCH_FILE";
 
 /// Extensions whose OS-level "open with Kaulan" launches should hand the file
