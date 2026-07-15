@@ -216,6 +216,51 @@ curl 'http://localhost:2080/api/music/path?p=/etc/passwd'
 # → HTTP 400 (extension whitelist)
 ```
 
+## Testing on Windows
+
+End-to-end smoke test after installing the MSI or NSIS bundle produced by
+`npm run tauri build`. The installer writes the file-association registry
+entries; running the raw `.exe` from `target/` will **not** register them.
+
+```powershell
+# 1. Confirm the installer wrote the ProgID + shell/open/command entries.
+#    First find the ProgID Kaulan registered — Tauri derives it from the
+#    bundle identifier (afeather.kaulan), so try that directly.
+reg query "HKCU\Software\Classes\afeather.kaulan\shell\open\command"
+#    → (Default) REG_SZ "C:\...\kaulan.exe" "%1"
+
+#    Or start from the extension and walk to the ProgID:
+reg query "HKCU\Software\Classes\.mp3" /ve
+#    → (Default) REG_SZ <ProgID>  (if Kaulan is the user's default for .mp3)
+#    If another app owns .mp3, the ProgID entry above is still present
+#    under HKCU\Software\Classes\<ProgID> so "Open with" works.
+
+# 2. Cold start (app not running)
+Start-Process "$env:USERPROFILE\Music\test.mp3"
+# → Kaulan launches and auto-plays (or shows the "click to play" prompt if
+#   the browser blocks autoplay).
+
+# 3. Warm start (app already running)
+Start-Process "$env:USERPROFILE\Music\other.flac"
+# → No second window; current song switches within ~1s. The second instance
+#   exits after forwarding argv to the running one via the single-instance
+#   plugin (named-pipe based on Windows).
+
+# 4. Security
+curl "http://localhost:2080/api/music/path?p=$env:WINDIR/win.ini"
+# → HTTP 400 (extension whitelist)
+```
+
+To make Kaulan the **default** for a file type (rather than just an "Open with"
+option), use one of:
+
+- **Settings UI**: Settings → Apps → Default apps → "Choose default apps by
+  file type" → select `.mp3` → Kaulan.
+- **`cmd.exe`**: `assoc .mp3=<ProgID>` where `<ProgID>` is the value found in
+  step 1 above (e.g., `afeather.kaulan`). Run as the user; no admin needed
+  for per-user associations. Verify with `assoc .mp3` and
+  `ftype <ProgID>`.
+
 Backend unit tests live in [`backend/src/handlers/launch.rs`](../backend/src/handlers/launch.rs)
 and [`backend/src/handlers/music.rs`](../backend/src/handlers/music.rs) — run
 with `cd backend && cargo test`.

@@ -55,8 +55,10 @@ impl LaunchBroker {
 
     /// Stash a new launch path and notify all SSE subscribers.
     pub fn set_path(&self, path: String) {
-        *self.path.lock().expect("launch path mutex poisoned") = Some(path);
-        let mut subs = self.subscribers.lock().expect("subscribers mutex poisoned");
+        let mut guard = self.path.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = Some(path);
+        drop(guard);
+        let mut subs = self.subscribers.lock().unwrap_or_else(|e| e.into_inner());
         // try_send both notifies live subscribers and prunes disconnected ones.
         subs.retain(|tx| tx.try_send(()).is_ok());
     }
@@ -64,7 +66,7 @@ impl LaunchBroker {
     /// Atomically take (clear) the stashed path. Returns `None` if nothing
     /// pending or already consumed.
     pub fn take_path(&self) -> Option<String> {
-        self.path.lock().expect("launch path mutex poisoned").take()
+        self.path.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 
     /// Register a new SSE subscriber. Each live subscriber receives a `()`
@@ -74,7 +76,7 @@ impl LaunchBroker {
         let (tx, rx) = tokio::sync::mpsc::channel(8);
         self.subscribers
             .lock()
-            .expect("subscribers mutex poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .push(tx);
         rx
     }
