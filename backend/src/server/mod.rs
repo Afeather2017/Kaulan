@@ -42,10 +42,10 @@ pub use download::{
 pub use launch::{get_launch_events, get_launch_pending};
 pub use library_import::import_from_remote;
 pub use lufs::precache_lufs;
-pub use lyrics::{get_lyrics, get_lyrics_by_id, update_lyrics_by_id};
+pub use lyrics::{get_lyrics, get_lyrics_by_id, get_lyrics_by_path, update_lyrics_by_id};
 pub use music::{
     delete_music_batch, get_all_music, get_music, get_music_by_id, get_music_by_path,
-    get_music_cover,
+    get_music_cover, get_music_cover_by_path,
 };
 pub use playlists::{get_all_playlists, get_playlist};
 pub use settings::{get_media_types, get_music_directory, set_media_types, set_music_directory};
@@ -401,6 +401,7 @@ pub async fn start_server(
                 // `/api/music/path?p=...` matches `get_music` with
                 // `filename="path"` and returns a 404 the audio element can't
                 // decode (manifests as a `NotSupportedError` on `play()`).
+                .service(get_music_cover_by_path)
                 .service(get_music_cover)
                 .service(get_music_by_id)
                 .service(get_music_by_path)
@@ -411,7 +412,10 @@ pub async fn start_server(
                 // Launch-file handoff (open-as-default-app flow)
                 .service(get_launch_pending)
                 .service(get_launch_events)
-                // Lyrics endpoints (ID-based first, then filename-based)
+                // Lyrics endpoints. Same static-before-dynamic ordering as the
+                // music block above: /api/lyrics/path must precede
+                // /api/lyrics/{filename} or it matches with filename="path".
+                .service(get_lyrics_by_path)
                 .service(get_lyrics_by_id)
                 .service(get_lyrics)
                 .service(update_lyrics_by_id)

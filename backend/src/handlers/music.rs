@@ -819,6 +819,117 @@ async fn remove_sidecar_lyrics(file_path: &str) {
     }
 }
 
+/// Query parameters for path-based cover art (the "open as default app" flow).
+///
+/// Mirrors [`PathQueryParams`] but only needs the path itself — cover extraction
+/// has no seek/download semantics.
+#[derive(Deserialize)]
+struct CoverPathQuery {
+    p: String,
+}
+
+/// Extract embedded cover art for an arbitrary filesystem audio path.
+///
+/// Used by the "open file as default app" flow so the click-open player shows
+/// the same cover art as regular playlist playback. Mirrors the security
+/// gating of [`get_music_by_path`]: extension whitelist on desktop, accept
+/// `content://` URIs on Android (where the OS already validated the MIME type
+/// via the launch intent).
+///
+/// # Query Parameters
+/// * `p` (required) — URL-encoded absolute filesystem path, or `content://`
+///   URI on Android
+///
+/// # Returns
+/// - Image data with appropriate `Content-Type` if cover art is embedded
+/// - `400 Bad Request` when `p` is `content://` (desktop), has no extension,
+///   or has a non-audio extension
+/// - `404 Not Found` when the file is missing or has no embedded cover art
+/// - `500 Internal Server Error` on FFmpeg/task errors
+///
+/// See `docs/default-music-app.md` for the full launch flow.
+/// Shared cover-art extraction pipeline.
+///
+/// Materializes the source (no-op for filesystem paths, temp-file streaming
+/// for Android `content://` URIs) via [`crate::ffmpeg::prepare_input`], then
+/// runs the FFmpeg probe on a blocking thread to avoid stalling the async
+/// runtime. Both [`get_music_cover`] (DB-id lookup) and [`get_music_cover_by_path`]
+/// (launch-handoff path) go through this so any fix to content:// handling
+/// lives in one place.
+async fn extract_cover_response(file_path: &str, access_tag: &str) -> HttpResponse {
+    info!("[ACCESS] GET {} - Started", access_tag);
+
+    match crate::ffmpeg::prepare_input(file_path).await {
+        Ok(prepared_input) => {
+            let result = tokio::task::spawn_blocking(move || {
+                let prepared = prepared_input;
+                crate::ffmpeg::extract_cover_art(prepared.path())
+            })
+            .await;
+
+            match result {
+                Ok(Ok(Some((content_type, data)))) => {
+                    info!(
+                        "[ACCESS] GET {} - Status: 200, {} bytes",
+                        access_tag,
+                        data.len()
+                    );
+                    HttpResponse::Ok()
+                        .insert_header(("Content-Type", content_type))
+                        .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"))
+                        .body(data)
+                }
+                Ok(Ok(None)) => {
+                    debug!("No cover art found for {}", file_path);
+                    info!("[ACCESS] GET {} - Status: 404", access_tag);
+                    HttpResponse::NotFound().body("No cover art")
+                }
+                Ok(Err(e)) => {
+                    warn!("Failed to extract cover art for {}: {}", file_path, e);
+                    info!("[ACCESS] GET {} - Status: 404", access_tag);
+                    HttpResponse::NotFound().body("Could not extract cover art")
+                }
+                Err(e) => {
+                    error!("Task join error for cover art {}: {}", file_path, e);
+                    HttpResponse::InternalServerError().body("Internal error")
+                }
+            }
+        }
+        Err(e) => {
+            warn!("Could not prepare file for cover art {}: {}", file_path, e);
+            info!("[ACCESS] GET {} - Status: 404", access_tag);
+            HttpResponse::NotFound().body("File not found")
+        }
+    }
+}
+
+#[get("/api/music/path/cover")]
+pub async fn get_music_cover_by_path(query: web::Query<CoverPathQuery>) -> impl Responder {
+    let CoverPathQuery { p } = query.into_inner();
+
+    #[cfg(target_os = "android")]
+    if p.starts_with("content://") {
+        return extract_cover_response(&p, "/api/music/path/cover").await;
+    }
+
+    if p.starts_with("content://") {
+        return HttpResponse::BadRequest().body("content:// URIs not supported");
+    }
+
+    let ext = Path::new(&p)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    let Some(ext) = ext else {
+        return HttpResponse::BadRequest().body("File has no extension");
+    };
+    if !SUPPORTED_EXTENSIONS.contains(&ext.as_str()) {
+        return HttpResponse::BadRequest().body("Unsupported file type");
+    }
+
+    extract_cover_response(&p, "/api/music/path/cover").await
+}
+
 /// Get cover art for a music file by ID
 ///
 /// Extracts embedded cover art from audio file metadata using the shared
@@ -837,57 +948,10 @@ async fn remove_sidecar_lyrics(file_path: &str) {
 pub async fn get_music_cover(path: web::Path<i32>, data: web::Data<AppState>) -> impl Responder {
     let id = path.into_inner();
     debug!("Cover art request for music ID: {}", id);
-    info!("[ACCESS] GET /api/music/id/{}/cover - Started", id);
+    let access_tag = format!("/api/music/id/{}/cover", id);
 
     match MusicEntity::find_by_id(id).one(&data.db_conn).await {
-        Ok(Some(music)) => {
-            let file_path = music.file_path.clone();
-            match crate::ffmpeg::prepare_input(&file_path).await {
-                Ok(prepared_input) => {
-                    let result = tokio::task::spawn_blocking(move || {
-                        let prepared = prepared_input;
-                        crate::ffmpeg::extract_cover_art(prepared.path())
-                    })
-                    .await;
-
-                    match result {
-                        Ok(Ok(Some((content_type, data)))) => {
-                            info!(
-                                "[ACCESS] GET /api/music/id/{}/cover - Status: 200, {} bytes",
-                                id,
-                                data.len()
-                            );
-                            HttpResponse::Ok()
-                                .insert_header(("Content-Type", content_type))
-                                .insert_header((
-                                    "Cache-Control",
-                                    "public, max-age=86400, must-revalidate",
-                                ))
-                                .body(data)
-                        }
-                        Ok(Ok(None)) => {
-                            debug!("No cover art found for music ID: {}", id);
-                            info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
-                            HttpResponse::NotFound().body("No cover art")
-                        }
-                        Ok(Err(e)) => {
-                            warn!("Failed to extract cover art for ID {}: {}", id, e);
-                            info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
-                            HttpResponse::NotFound().body("Could not extract cover art")
-                        }
-                        Err(e) => {
-                            error!("Task join error for cover art ID {}: {}", id, e);
-                            HttpResponse::InternalServerError().body("Internal error")
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Could not prepare file for cover art ID {}: {}", id, e);
-                    info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
-                    HttpResponse::NotFound().body("File not found")
-                }
-            }
-        }
+        Ok(Some(music)) => extract_cover_response(&music.file_path, &access_tag).await,
         Ok(None) => {
             warn!("Music not found in database: ID {}", id);
             info!("[ACCESS] GET /api/music/id/{}/cover - Status: 404", id);
@@ -903,7 +967,8 @@ pub async fn get_music_cover(path: web::Path<i32>, data: web::Data<AppState>) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        download_disposition, get_music_by_id, get_music_by_path, percent_encode_filename,
+        download_disposition, get_music_by_id, get_music_by_path, get_music_cover_by_path,
+        percent_encode_filename,
     };
     use crate::entities::music::Entity as MusicEntity;
     use crate::types::AppState;
@@ -1182,5 +1247,62 @@ mod tests {
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
         assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    // --- get_music_cover_by_path tests (open-as-default-app flow) ---
+
+    fn url_encoded_cover_query(path: &str) -> String {
+        format!("/api/music/path/cover?p={}", percent_encode_filename(path))
+    }
+
+    #[actix_web::test]
+    async fn cover_by_path_rejects_non_audio_extension() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("secrets.txt");
+        std::fs::write(&file_path, b"root:x:0:0:").unwrap();
+        let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri(&url_encoded_cover_query(file_path.to_str().unwrap()))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn cover_by_path_rejects_missing_extension() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("noext");
+        std::fs::write(&file_path, b"x").unwrap();
+        let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri(&url_encoded_cover_query(file_path.to_str().unwrap()))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn cover_by_path_rejects_content_uri() {
+        let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
+        let req = actix_test::TestRequest::get()
+            .uri("/api/music/path/cover?p=content%3A%2F%2Fmedia%2Fsong.mp3")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn cover_by_path_returns_404_when_file_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("missing.mp3");
+        let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri(&url_encoded_cover_query(file_path.to_str().unwrap()))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 404);
     }
 }

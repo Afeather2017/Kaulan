@@ -50,6 +50,7 @@ export function buildLaunchSong(
       ? displayName
       : filenameFromPath(absolutePath);
   const apiBase = resolveSourceApiBase(null);
+  const encodedPath = encodeURIComponent(absolutePath);
   return {
     id: -1,
     name: nameFromFilename(filename),
@@ -58,7 +59,14 @@ export function buildLaunchSong(
     // Bypasses the DB-id playback URL — useAudioPlayer prefers stream_url when
     // present. The backend's /api/music/path handler streams via StdFs without
     // a DB lookup.
-    stream_url: `${apiBase}/music/path?p=${encodeURIComponent(absolutePath)}`,
+    stream_url: `${apiBase}/music/path?p=${encodedPath}`,
+    // Sidecar lyrics and embedded cover art for launch files go through the
+    // same path-based endpoints so the click-open flow shows the same metadata
+    // as regular playlist playback. Both endpoints return 404/400 gracefully
+    // when the file has no lyric sidecar or cover art, which the composables
+    // treat as "no lyrics/cover" without surfacing an error.
+    lyrics_url: `${apiBase}/lyrics/path?p=${encodedPath}`,
+    cover_url: `${apiBase}/music/path/cover?p=${encodedPath}`,
     source_key: null,
     is_temporary: true,
     mediaType: "audio",

@@ -108,14 +108,16 @@ sequenceDiagram
     FE->>FE: useAppShell onMounted
     FE->>BE: GET /api/launch/pending
     BE->>FE: { path: "/.../song.mp3" } (atomic take)
-    FE->>FE: buildLaunchSong → synthetic song<br/>stream_url=/api/music/path?p=...
+    FE->>FE: buildLaunchSong → synthetic song<br/>stream_url=/api/music/path?p=...<br/>lyrics_url=/api/lyrics/path?p=...<br/>cover_url=/api/music/path/cover?p=...
     FE->>FE: setPlaylistSongs([song]);<br/>playSongFromPlaylist(song, [song], 0)
     FE->>BE: <audio> GET /api/music/path?p=...
     BE->>BE: extension whitelist check ✓
     BE->>FS: read_stream(path, 1MB chunks)
     FS-->>BE: byte stream
     BE-->>FE: 200 audio/mpeg (206 on Range)
-    FE-->>User: Playback starts
+    FE->>BE: GET /api/lyrics/path?p=... (lyric composable)
+    FE->>BE: GET /api/music/path/cover?p=... (cover art)
+    FE-->>User: Playback starts with lyric panel + cover
 ```
 
 ### Warm start (app already running)
@@ -311,6 +313,33 @@ file manager.
 
 The endpoint is local-only by convention (port 2080, no auth) — same trust
 boundary as the existing `/api/music/{filename}` endpoint.
+
+### `GET /api/music/path/cover?p={url-encoded absolute path}`
+
+Extract embedded cover art for an arbitrary filesystem audio path. Mirrors
+`/api/music/id/{id}/cover` but resolves the source by path instead of DB
+lookup. Used by the launch handoff so the click-open player shows the same
+cover art as regular playlist playback.
+
+Same security gating as `/api/music/path` (extension whitelist on desktop,
+accept `content://` URIs on Android). Returns `404` when the file has no
+embedded cover art — the frontend treats this as "no cover" and falls back
+to the placeholder.
+
+### `GET /api/lyrics/path?p={url-encoded absolute path}`
+
+Stream a sidecar lyric file (`.lrc` preferred, `.vtt` fallback) for an
+arbitrary filesystem audio path. Same lookup rules as the DB-backed
+`/api/lyrics/id/{id}` — the handler derives `song.lrc` / `song.vtt`
+candidate paths from the audio filename and serves the first one that
+exists. Used by the launch handoff so a double-clicked file picks up
+same-directory lyric sidecars without a DB row.
+
+Same security gating as `/api/music/path` (extension whitelist, rejects
+`content://` URIs on every platform — Android MediaStore URIs don't carry
+a sibling filename the sidecar resolver can use). Returns `404` when no
+sidecar exists — the frontend lyric composable treats this as "no lyrics"
+without surfacing an error.
 
 ## Testing on Linux
 
