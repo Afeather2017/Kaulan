@@ -15,10 +15,16 @@ fn main() {
     // Copy FFmpeg runtime DLLs from vcpkg's installed bin next to the binary
     // so Tauri's bundler picks them up. Without this, the MSI/NSIS installer
     // ships without avformat-62.dll etc., and the installed app dies on launch
-    // with "cannot find avformat-62.dll". Desktop Windows-only.
+    // with "cannot find avformat-62.dll". Desktop Windows-only — skipped when
+    // cross-compiling (e.g. to aarch64-linux-android from a Windows host).
     #[cfg(target_os = "windows")]
-    if let Err(err) = stage_ffmpeg_dlls() {
-        panic!("failed to stage FFmpeg DLLs for bundling: {err}");
+    {
+        let target = std::env::var("TARGET").unwrap_or_default();
+        if target.ends_with("-windows") {
+            if let Err(err) = stage_ffmpeg_dlls() {
+                panic!("failed to stage FFmpeg DLLs for bundling: {err}");
+            }
+        }
     }
 
     tauri_build::build()

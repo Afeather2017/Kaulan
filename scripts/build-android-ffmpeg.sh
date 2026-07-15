@@ -102,7 +102,15 @@ parse_args() {
 }
 
 detect_android_ndk_home() {
-    if [ -n "$ANDROID_NDK_HOME" ] && [ -d "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
+    local host_tag
+    case "$(uname -s)" in
+        Linux*) host_tag="linux-x86_64" ;;
+        Darwin*) host_tag="darwin-x86_64" ;;
+        MINGW*|MSYS*|CYGWIN*) host_tag="windows-x86_64" ;;
+        *) host_tag="linux-x86_64" ;;
+    esac
+
+    if [ -n "$ANDROID_NDK_HOME" ] && [ -d "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$host_tag/bin" ]; then
         printf '%s\n' "$ANDROID_NDK_HOME"
         return 0
     fi
@@ -129,6 +137,17 @@ detect_android_ndk_home() {
     printf '%s\n' "$ndk_root/$detected"
 }
 
+# NDK prebuilt host tag — matches the OS this script runs on. Used to locate
+# the NDK toolchain binaries (clang, ld, etc.) which are host-OS-specific.
+ndk_host_tag() {
+    case "$(uname -s)" in
+        Linux*) printf '%s\n' "linux-x86_64" ;;
+        Darwin*) printf '%s\n' "darwin-x86_64" ;;
+        MINGW*|MSYS*|CYGWIN*) printf '%s\n' "windows-x86_64" ;;
+        *) printf '%s\n' "linux-x86_64" ;;
+    esac
+}
+
 copy_prebuilt_binding() {
     if [ ! -f "$ANDROID_ROOT/binding.rs" ]; then
         cp "$PROJECT_ROOT/vendor/rusty_ffmpeg/src/binding.rs" "$ANDROID_ROOT/binding.rs"
@@ -147,6 +166,28 @@ download_ffmpeg_source() {
 
     echo "Extracting FFmpeg source..."
     tar -xzf "$SRC_ARCHIVE" -C "$WORK_ROOT"
+
+    # FFmpeg's response-file recipe uses `echo $^ > $@.objs` to write the .o list
+    # before linking. On Windows, native GNU Make runs this through cmd.exe,
+    # which silently truncates the redirect when the .o list exceeds cmd.exe's
+    # ~8KB command-line limit. The @file then ends up empty or missing and the
+    # link fails. We install a tiny bash helper and patch library.mak to call it
+    # — bash's redirect isn't subject to the cmd.exe limit.
+    if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
+        local helper="$SRC_DIR/write_objs.sh"
+        cat > "$helper" <<'EOF'
+#!/bin/bash
+# Write all args (except the first) space-separated to the file named by the first arg.
+output="$1"
+shift
+printf '%s ' "$@" > "$output"
+EOF
+        chmod +x "$helper"
+        # Replace both `echo ... > $@.objs` recipes with a bash-helper call.
+        local mak="$SRC_DIR/ffbuild/library.mak"
+        sed -i 's|\$(Q)echo \$$^ > \$$@\.objs|$(Q)bash $(SRC_PATH)/write_objs.sh $$@.objs $$^|' "$mak"
+        sed -i 's|\$(Q)echo \$\$(filter %\.o,\$\$^) > \$\$@\.objs|$(Q)bash $(SRC_PATH)/write_objs.sh $$@.objs $$(filter %.o,$$^)|' "$mak"
+    fi
 }
 
 target_requested() {
@@ -197,6 +238,16 @@ build_target() {
 
         pushd "$SRC_DIR" >/dev/null
         make distclean >/dev/null 2>&1 || true
+        # FFmpeg's configure builds tiny host-side helper tools during make,
+        # so it needs a working native C compiler. On Linux CI `gcc` is the
+        # default; on Windows Git Bash there's no gcc on PATH, so fall back to
+        # LLVM clang if available.
+        local host_cc_args=()
+        if command -v gcc >/dev/null 2>&1; then
+            : # FFmpeg defaults to gcc, no flag needed.
+        elif command -v clang >/dev/null 2>&1; then
+            host_cc_args+=(--host-cc=clang --host-cflags=-O2)
+        fi
         ./configure \
             --prefix="$prefix" \
             --target-os=android \
@@ -219,6 +270,7 @@ build_target() {
             --disable-symver \
             --extra-cflags="-O2 -fPIC" \
             --extra-ldexeflags="-pie" \
+            "${host_cc_args[@]}" \
             "${extra_config[@]}"
         make -j"$(getconf _NPROCESSORS_ONLN)"
         make install
@@ -234,7 +286,7 @@ build_target() {
 parse_args "$@"
 
 ANDROID_NDK_HOME="$(detect_android_ndk_home)"
-TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$(ndk_host_tag)"
 
 if [ ! -d "$TOOLCHAIN/bin" ]; then
     echo "Android NDK toolchain not found at $TOOLCHAIN" >&2

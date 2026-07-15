@@ -32,11 +32,47 @@ set "SRC_TAURI=%FRONTEND_DIR%\src-tauri"
 set "APK_DIR=%SRC_TAURI%\gen\android\app\build\outputs\apk"
 set "ALIGNED_APK=%TEMP%\app-aligned.apk"
 set "SIGNED_APK=%TEMP%\app-signed.apk"
+set "ANDROID_FFMPEG_ROOT=%PROJECT_ROOT%build\android-ffmpeg\android"
+
+REM FFmpeg target triple matching the staged bundle. Default aarch64 — this
+REM script is for local debug builds on physical devices. Forward all CLI args
+REM to tauri; we only sniff --target here so we can point rusty_ffmpeg at the
+REM right prebuilt libs.
+set "RUST_TARGET=aarch64-linux-android"
+if /i "%~1"=="--target" (
+    if /i "%~2"=="armv7"   set "RUST_TARGET=armv7-linux-androideabi"
+    if /i "%~2"=="i686"    set "RUST_TARGET=i686-linux-android"
+    if /i "%~2"=="x86_64"  set "RUST_TARGET=x86_64-linux-android"
+)
+if /i "%~1"=="-t" (
+    if /i "%~2"=="armv7"   set "RUST_TARGET=armv7-linux-androideabi"
+    if /i "%~2"=="i686"    set "RUST_TARGET=i686-linux-android"
+    if /i "%~2"=="x86_64"  set "RUST_TARGET=x86_64-linux-android"
+)
+
+set "FFMPEG_LIBS_DIR=%ANDROID_FFMPEG_ROOT%\%RUST_TARGET%\lib"
+set "FFMPEG_INCLUDE_DIR=%ANDROID_FFMPEG_ROOT%\%RUST_TARGET%\prefix\include"
+set "FFMPEG_BINDING_PATH=%ANDROID_FFMPEG_ROOT%\binding.rs"
+set "FFMPEG_LINK_MODE=dynamic"
 
 echo === Kaulan Android Build Script ===
 echo Project root: %PROJECT_ROOT%
 echo Android build tools: %BUILD_TOOLS%
+echo FFmpeg target: %RUST_TARGET%
 echo.
+
+REM Verify staged FFmpeg bundle exists so we fail early with a clear message
+REM instead of a rusty_ffmpeg panic deep in the cargo build.
+if not exist "%FFMPEG_LIBS_DIR%" (
+    echo ERROR: Staged FFmpeg libs not found at %FFMPEG_LIBS_DIR%
+    echo Run scripts\build-android-ffmpeg.sh --target aarch64 first.
+    exit /b 1
+)
+if not exist "%FFMPEG_BINDING_PATH%" (
+    echo ERROR: FFmpeg binding.rs not found at %FFMPEG_BINDING_PATH%
+    echo Run scripts\build-android-ffmpeg.sh --target aarch64 first.
+    exit /b 1
+)
 
 REM Step 1: Build unsigned APK
 echo [1/5] Building APK with Tauri...

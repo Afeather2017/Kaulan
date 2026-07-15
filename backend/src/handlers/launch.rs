@@ -28,17 +28,23 @@ struct LaunchPendingResponse {
     /// The absolute filesystem path the OS launched Kaulan with, or `null` if
     /// no pending file (or already consumed by a previous GET).
     path: Option<String>,
+    /// Optional friendly filename (Android `content://` URIs come with a
+    /// `_display_name` from ContentResolver; desktop leaves this `null` since
+    /// the path itself ends in a filename).
+    display_name: Option<String>,
 }
 
 /// Atomically take the pending launch file path.
 ///
-/// Returns `{path: "/abs/path/to.mp3"}` if a file is pending (set by the Tauri
-/// shell on launch), or `{path: null}` otherwise. Either way the stash is
-/// cleared — the frontend gets exactly one shot at each pending launch.
+/// Returns `{path: "/abs/path/to.mp3", display_name: null}` if a file is
+/// pending (set by the Tauri shell on launch), or `{path: null, display_name:
+/// null}` otherwise. Either way the stash is cleared — the frontend gets
+/// exactly one shot at each pending launch.
 #[get("/api/launch/pending")]
 pub async fn get_launch_pending() -> impl Responder {
     let path = crate::launch_broker().take_path();
-    HttpResponse::Ok().json(LaunchPendingResponse { path })
+    let display_name = crate::launch_broker().take_display_name();
+    HttpResponse::Ok().json(LaunchPendingResponse { path, display_name })
 }
 
 /// Server-Sent Events stream that pushes a `data: {}\n\n` event each time the
@@ -85,6 +91,7 @@ mod tests {
     /// Reset the broker state between tests so they don't leak into each other.
     fn reset_broker() {
         launch_broker().take_path();
+        launch_broker().take_display_name();
     }
 
     #[actix_web::test]
@@ -101,6 +108,30 @@ mod tests {
         assert_eq!(resp.status().as_u16(), 200);
         let body: serde_json::Value = actix_test::read_body_json(resp).await;
         assert_eq!(body["path"], "/tmp/song.mp3");
+        // Desktop path-only call leaves display_name null.
+        assert!(body["display_name"].is_null());
+    }
+
+    #[actix_web::test]
+    async fn launch_pending_returns_display_name_when_set() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        reset_broker();
+        crate::set_pending_launch_file_with_name(
+            "content://media/external/audio/media/42".to_string(),
+            Some("song.mp3".to_string()),
+        );
+
+        let app = actix_test::init_service(App::new().service(get_launch_pending)).await;
+        let resp = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::get()
+                .uri("/api/launch/pending")
+                .to_request(),
+        )
+        .await;
+        let body: serde_json::Value = actix_test::read_body_json(resp).await;
+        assert_eq!(body["path"], "content://media/external/audio/media/42");
+        assert_eq!(body["display_name"], "song.mp3");
     }
 
     #[actix_web::test]
@@ -128,6 +159,7 @@ mod tests {
         .await;
         let body: serde_json::Value = actix_test::read_body_json(resp).await;
         assert!(body["path"].is_null());
+        assert!(body["display_name"].is_null());
     }
 
     #[actix_web::test]
@@ -144,6 +176,7 @@ mod tests {
         .await;
         let body: serde_json::Value = actix_test::read_body_json(resp).await;
         assert!(body["path"].is_null());
+        assert!(body["display_name"].is_null());
     }
 
     /// Broker-level test: `subscribe()` then `set_path()` delivers a notification.
@@ -160,5 +193,6 @@ mod tests {
             launch_broker().take_path(),
             Some("/tmp/warm.flac".to_string())
         );
+        assert_eq!(launch_broker().take_display_name(), None);
     }
 }

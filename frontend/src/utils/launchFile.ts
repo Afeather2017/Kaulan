@@ -32,9 +32,23 @@ function nameFromFilename(filename: string): string {
   return dot > 0 ? filename.slice(0, dot) : filename;
 }
 
-/** Build a synthetic `MusicInfo` for an arbitrary absolute audio path. */
-export function buildLaunchSong(absolutePath: string): MusicInfo {
-  const filename = filenameFromPath(absolutePath);
+/**
+ * Build a synthetic `MusicInfo` for an arbitrary absolute audio path or
+ * Android `content://` URI.
+ *
+ * `displayName` is the friendly filename Android's ContentResolver returned
+ * for the URI (e.g. "song.mp3"). When absent (desktop paths, or Android URIs
+ * without a `_display_name` column), the name is derived from the last path
+ * segment.
+ */
+export function buildLaunchSong(
+  absolutePath: string,
+  displayName?: string | null,
+): MusicInfo {
+  const filename =
+    displayName && displayName.trim().length > 0
+      ? displayName
+      : filenameFromPath(absolutePath);
   const apiBase = resolveSourceApiBase(null);
   return {
     id: -1,
@@ -64,11 +78,17 @@ export async function consumeLaunchFile(): Promise<LaunchFileResult> {
     if (!resp.ok) {
       return { hasLaunch: false, song: null };
     }
-    const data = (await resp.json()) as { path: string | null };
+    const data = (await resp.json()) as {
+      path: string | null;
+      display_name?: string | null;
+    };
     if (!data.path) {
       return { hasLaunch: false, song: null };
     }
-    return { hasLaunch: true, song: buildLaunchSong(data.path) };
+    return {
+      hasLaunch: true,
+      song: buildLaunchSong(data.path, data.display_name),
+    };
   } catch {
     return { hasLaunch: false, song: null };
   }

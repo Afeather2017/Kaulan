@@ -1,8 +1,8 @@
-# Default Music App Integration (Linux + Windows)
+# Default Music App Integration (Linux + Windows + Android)
 
-How Kaulan registers itself as a handler for audio files on Linux and Windows,
-how an OS-launched file reaches playback, and how to set Kaulan as the system
-default.
+How Kaulan registers itself as a handler for audio files on Linux, Windows,
+and Android, how an OS-launched file reaches playback, and how to set Kaulan
+as the system default.
 
 Related source:
 
@@ -10,12 +10,16 @@ Related source:
   [`backend/src/handlers/music.rs`](../backend/src/handlers/music.rs) (`get_music_by_path`,
   `build_audio_stream_response`)
 - Backend launch broker: [`backend/src/lib.rs`](../backend/src/lib.rs) (`LaunchBroker`,
-  `set_pending_launch_file`, `launch_broker`)
+  `set_pending_launch_file`, `set_pending_launch_file_with_name`, `launch_broker`)
 - Server wiring: [`backend/src/server/mod.rs`](../backend/src/server/mod.rs)
-- Tauri shell: [`frontend/src-tauri/src/lib.rs`](../frontend/src-tauri/src/lib.rs)
-  (single-instance plugin, cold-start argv capture)
+- Tauri shell (desktop): [`frontend/src-tauri/src/lib.rs`](../frontend/src-tauri/src/lib.rs)
+  (single-instance plugin, cold-start argv capture, Android JNI bridge
+  `Java_afeather_kaulan_MainActivity_nativeSetLaunchFile`)
 - Tauri config: [`frontend/src-tauri/tauri.conf.json`](../frontend/src-tauri/tauri.conf.json)
   (`bundle.fileAssociations`)
+- Android shell: [`frontend/src-tauri/gen/android/app/src/main/AndroidManifest.xml`](../frontend/src-tauri/gen/android/app/src/main/AndroidManifest.xml)
+  (VIEW intent-filter), [`frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt`](../frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt)
+  (`handleLaunchIntent`, `resolveDisplayName`)
 - Frontend consumer: [`frontend/src/utils/launchFile.ts`](../frontend/src/utils/launchFile.ts),
   [`frontend/src/composables/useAppShell.ts`](../frontend/src/composables/useAppShell.ts)
   (`openLaunchFilePlayer`)
@@ -33,6 +37,12 @@ registration entries at install time:
 - **Windows** — the MSI/NSIS installer writes `HKCR\.mp3 → Kaulan.Audio` (and
   equivalents for each extension) plus `HKCR\Kaulan.Audio\shell\open\command`
   pointing at the installed executable with `%1` as the file argument.
+- **Android** — `bundle.fileAssociations` is **not** propagated to the Android
+  manifest by Tauri's bundler. Kaulan declares the VIEW intent-filter by hand
+  in [`frontend/src-tauri/gen/android/app/src/main/AndroidManifest.xml`](../frontend/src-tauri/gen/android/app/src/main/AndroidManifest.xml),
+  matching any `content://` or `file://` URI with an `audio/*` MIME type.
+  Tauri's `fileAssociations` entry is still required so the desktop bundles
+  keep working; Android just reads its own manifest.
 
 Currently registered formats: `mp3`, `flac`, `wav`, `ogg`/`oga`, `opus`,
 `m4a`, `aac`.
@@ -62,6 +72,14 @@ Kaulan → "Set as default".
 Settings → Apps → Default apps → "Choose default apps by file type" → select
 `.mp3` → Kaulan. Or right-click a `.mp3` → "Open with" → "Choose another
 app" → Kaulan → "Always use this app".
+
+### Android
+
+Settings → Apps → Default apps → "Opening links" (or "Default apps for file
+types" on Android 13+) → Kaulan → tap any supported audio MIME type →
+"Open supported links" on. Or, the first time you tap an audio file in Files
+or a file manager, Android pops an "Open with" chooser — pick Kaulan and
+tap "Always".
 
 ## Launch Handoff Flow
 
@@ -155,6 +173,110 @@ auto-reconnects on disconnect, so we don't need to handle reconnection.
 
 Cold-start seeds (which happened *before* the SSE connection opened) are
 caught by a one-shot `GET /api/launch/pending` immediately after mount.
+
+## Android Launch Flow
+
+Android uses the *same* backend broker and frontend consumer as desktop, but
+the path that seeds the broker is different. Instead of `argv` and the
+single-instance plugin, Android uses Intents + JNI.
+
+Two runtime cases (mirroring desktop):
+
+### Cold start (app not running)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant FM as File manager / MediaStore
+    participant AMS as Android ActivityManager
+    participant MA as MainActivity (Kotlin)
+    participant JNI as nativeSetLaunchFile
+    participant BE as Actix backend (in-process, :2080)
+    participant FE as Frontend (webview)
+    participant MS as AndroidMediaStoreContent source
+
+    User->>FM: Tap song.mp3 in MediaStore
+    FM->>AMS: startActivity(VIEW, content://...)
+    AMS->>MA: onCreate(intent) (new process)
+    Note over MA: super.onCreate runs Tauri setup
+    MA->>MA: handleLaunchIntent(intent)
+    MA->>MA: resolveDisplayName(uri)<br/>via ContentResolver
+    MA->>JNI: nativeSetLaunchFile(uri, displayName)
+    JNI->>BE: kaulan::set_pending_launch_file_with_name
+    BE->>BE: LaunchBroker.set_path + notify
+    Note over BE: backend binds :2080 later
+    FE->>FE: useAppShell onMounted
+    FE->>BE: GET /api/launch/pending
+    BE->>FE: {path: "content://...", display_name: "song.mp3"}
+    FE->>FE: buildLaunchSong → synthetic song<br/>stream_url=/api/music/path?p=content://...
+    FE->>BE: <audio> GET /api/music/path?p=content://...
+    BE->>BE: cfg(target_os = "android") skips<br/>extension whitelist for content://
+    BE->>MS: open_file(uri) via ContentResolver
+    MS-->>BE: byte stream
+    BE-->>FE: 200 audio/mpeg (206 on Range)
+    FE-->>User: Playback starts
+```
+
+### Warm start (app already running)
+
+```mermaid
+sequenceDiagram
+    participant FM as File manager / MediaStore
+    participant AMS as Android ActivityManager
+    participant MA as MainActivity (running)
+    participant JNI as nativeSetLaunchFile
+    participant BE as Actix backend (:2080)
+    participant FE as Frontend (webview, mounted)
+
+    Note over FE,BE: At mount, frontend opened<br/>EventSource on /api/launch/events
+
+    FM->>AMS: startActivity(VIEW, content://...)
+    AMS->>MA: onNewIntent(intent) (singleTask)
+    MA->>MA: resolveDisplayName(uri)
+    MA->>JNI: nativeSetLaunchFile(uri, displayName)
+    JNI->>BE: kaulan::set_pending_launch_file_with_name
+    BE->>BE: stash path + display_name,<br/>notify broadcast subscribers
+    BE->>FE: SSE push: data: {}
+    FE->>FE: onmessage handler fires
+    FE->>BE: GET /api/launch/pending
+    BE->>FE: {path: "content://...", display_name: "..."}
+    FE->>FE: buildLaunchSong, setPlaylistSongs REPLACES queue
+    FE->>BE: <audio> GET /api/music/path?p=content://...
+    BE-->>FE: byte stream (via MediaStoreContent)
+    FE-->>User: New file plays
+```
+
+### Why a separate `set_pending_launch_file_with_name`
+
+- **Desktop** seeds just a path — the path itself ends in a filename the
+  frontend can derive via `filenameFromPath`.
+- **Android** seeds a `content://` URI whose last path segment is a numeric
+  MediaStore id. The frontend can't derive a useful name from it, so
+  `MainActivity` queries ContentResolver's `OpenableColumns.DISPLAY_NAME`
+  and forwards the friendly filename alongside the URI. The broker stores
+  both; `/api/launch/pending` returns `{path, display_name}` and the
+  frontend's `buildLaunchSong` prefers `display_name` when present.
+
+### Why `singleTask` launch mode matters
+
+`AndroidManifest.xml` sets `android:launchMode="singleTask"` on
+`MainActivity`. This makes Android route new VIEW intents to the existing
+activity (firing `onNewIntent`) instead of stacking new instances. Without
+it, warm-start launches would create a new Kaulan activity on top of the
+running one — the backend would still play (single process), but the user
+would see a duplicate UI and the old activity's SSE would never receive the
+new launch event.
+
+### `content://` URI permissions
+
+When Android launches Kaulan via `startActivity(VIEW, content://...)`, the
+Intent carries `FLAG_GRANT_READ_URI_PERMISSION`. This grants the Kaulan
+process temporary read access to that specific URI — even if the URI is owned
+by another app's FileProvider. The permission persists for the life of the
+Kaulan process (or until explicitly released). The `AndroidMediaStoreContent`
+file-op source opens the URI via `ContentResolver.openFileDescriptor`, which
+enforces this permission — Kaulan cannot read URIs it never received via an
+Intent.
 
 ## Backend Endpoints
 
@@ -260,6 +382,53 @@ option), use one of:
   step 1 above (e.g., `afeather.kaulan`). Run as the user; no admin needed
   for per-user associations. Verify with `assoc .mp3` and
   `ftype <ProgID>`.
+
+## Testing on Android
+
+End-to-end smoke test after `./build-android.sh --target aarch64` (or
+`build-android.bat --target aarch64` on Windows). The build stages FFmpeg and
+signs the APK; see [`build-android.sh`](../build-android.sh) /
+[`build-android.bat`](../build-android.bat) and
+[`docs/ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md) for prerequisites.
+
+```bash
+# 0. Install the built APK on a physical device (emulator won't cut it for
+#    real file-manager launches — most emulators have no audio files staged).
+adb install -r frontend/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+
+# 1. Cold start (Kaulan not running). Tap an audio file in Files or send an
+#    Intent via adb:
+adb shell am start -a android.intent.action.VIEW \
+    -d "content://media/external/audio/media/42" \
+    -t "audio/*" \
+    -n afeather.kaulan/.MainActivity
+# → Kaulan launches and auto-plays (or shows the "click to play" prompt if
+#   the webview blocks autoplay).
+
+# 2. Warm start (Kaulan already running). Send another Intent — onNewIntent
+#    fires, the SSE pushes, and the current song switches without a new UI:
+adb shell am start -a android.intent.action.VIEW \
+    -d "content://media/external/audio/media/43" \
+    -t "audio/*" \
+    -n afeather.kaulan/.MainActivity
+
+# 3. Backend logs (for verifying nativeSetLaunchFile forwarded the URI):
+adb logcat -s KaulanLaunch:* RustW:* stdout
+
+# 4. Security: content:// is only accepted on Android. From the device:
+adb shell curl 'http://localhost:2080/api/music/path?p=content://media/external/audio/media/42'
+# → streams audio. From desktop over adb forward:
+#   adb forward tcp:2080 tcp:2080
+#   curl 'http://localhost:2080/api/music/path?p=content://...' also works,
+#   proving the file_ops layer dispatches content:// to the MediaStore source.
+```
+
+To verify the intent-filter registered at install time:
+
+```bash
+adb shell dumpsys package afeather.kaulan | grep -A20 'android.intent.action.VIEW'
+# → two VIEW intent-filters (content+file schemes with audio/* MIME)
+```
 
 Backend unit tests live in [`backend/src/handlers/launch.rs`](../backend/src/handlers/launch.rs)
 and [`backend/src/handlers/music.rs`](../backend/src/handlers/music.rs) — run

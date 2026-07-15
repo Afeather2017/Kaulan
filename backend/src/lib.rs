@@ -33,7 +33,7 @@ pub use file_ops::{
 /// backend startup. See `docs/default-music-app.md`.
 pub const LAUNCH_FILE_ENV: &str = "KAULAN_LAUNCH_FILE";
 
-/// Singleton broker holding the pending launch file path and SSE subscribers.
+/// Singleton broker holding the pending launch file and SSE subscribers.
 ///
 /// One instance lives at the crate root ([`launch_broker`]) and is the single
 /// source of truth for both warm-start calls from the Tauri shell's
@@ -42,6 +42,7 @@ pub const LAUNCH_FILE_ENV: &str = "KAULAN_LAUNCH_FILE";
 /// See `handlers/launch` and `docs/default-music-app.md`.
 pub struct LaunchBroker {
     path: std::sync::Mutex<Option<String>>,
+    display_name: std::sync::Mutex<Option<String>>,
     subscribers: std::sync::Mutex<Vec<tokio::sync::mpsc::Sender<()>>>,
 }
 
@@ -49,15 +50,25 @@ impl LaunchBroker {
     fn new() -> Self {
         Self {
             path: std::sync::Mutex::new(None),
+            display_name: std::sync::Mutex::new(None),
             subscribers: std::sync::Mutex::new(Vec::new()),
         }
     }
 
     /// Stash a new launch path and notify all SSE subscribers.
-    pub fn set_path(&self, path: String) {
-        let mut guard = self.path.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = Some(path);
-        drop(guard);
+    ///
+    /// `display_name` carries an optional friendly filename (e.g. the
+    /// `_display_name` Android's ContentResolver returns for a `content://`
+    /// URI). Desktop leaves it `None` — the path itself ends in a filename.
+    pub fn set_path(&self, path: String, display_name: Option<String>) {
+        {
+            let mut guard = self.path.lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(path);
+        }
+        {
+            let mut guard = self.display_name.lock().unwrap_or_else(|e| e.into_inner());
+            *guard = display_name;
+        }
         let mut subs = self.subscribers.lock().unwrap_or_else(|e| e.into_inner());
         // try_send both notifies live subscribers and prunes disconnected ones.
         subs.retain(|tx| tx.try_send(()).is_ok());
@@ -67,6 +78,15 @@ impl LaunchBroker {
     /// pending or already consumed.
     pub fn take_path(&self) -> Option<String> {
         self.path.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+
+    /// Atomically take (clear) the stashed display name. Returns `None` if
+    /// nothing was stashed (desktop cold-start, or no name available).
+    pub fn take_display_name(&self) -> Option<String> {
+        self.display_name
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
     }
 
     /// Register a new SSE subscriber. Each live subscriber receives a `()`
@@ -95,9 +115,25 @@ pub fn launch_broker() -> &'static LaunchBroker {
 /// warm-start launches. Also called once by [`start_server`] during cold start
 /// to drain the `KAULAN_LAUNCH_FILE` env var seed.
 ///
+/// Equivalent to [`set_pending_launch_file_with_name`] with `display_name=None`
+/// — desktop paths already end in a filename the frontend can derive, so no
+/// friendly name is needed.
+///
 /// See `docs/default-music-app.md`.
 pub fn set_pending_launch_file(path: String) {
-    launch_broker().set_path(path);
+    launch_broker().set_path(path, None);
+}
+
+/// Stash a launch file path together with a friendly display name.
+///
+/// Used by Android, where the launch URI is typically a `content://` URI whose
+/// last path segment is a numeric id — the frontend can't derive a useful
+/// filename from it, so MainActivity queries `_display_name` via ContentResolver
+/// and forwards it here.
+///
+/// See `docs/default-music-app.md`.
+pub fn set_pending_launch_file_with_name(path: String, display_name: Option<String>) {
+    launch_broker().set_path(path, display_name);
 }
 
 // Re-export all handlers for integration tests

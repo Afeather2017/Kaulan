@@ -430,19 +430,31 @@ struct PathQueryParams {
 /// Used by the "open file as default app" flow when the OS launches Kaulan with
 /// a file the user double-clicked in their file manager. The path is not
 /// required to be in the `music` table — it streams directly via the `StdFs`
-/// source.
+/// source on desktop, or the `AndroidMediaStoreContent` source for Android
+/// `content://` URIs.
 ///
 /// # Security
 ///
 /// The endpoint is gated by an extension whitelist ([`SUPPORTED_EXTENSIONS`])
-/// and rejects `content://` URIs (Android-only, not used here). Without the
-/// extension guard, any local process could read arbitrary files via
-/// `?p=/etc/passwd`. With it, the surface is limited to audio files the user
-/// could already open from their file manager.
+/// and rejects `content://` URIs on desktop. Without the extension guard, any
+/// local process could read arbitrary files via `?p=/etc/passwd`. With it, the
+/// surface is limited to audio files the user could already open from their
+/// file manager.
+///
+/// On Android, `content://` URIs are accepted because that's what the launch
+/// intent carries when the user taps an audio file from a file manager or the
+/// MediaStore. The OS already validated the MIME type via the intent-filter, so
+/// the extension whitelist would just reject every MediaStore URI (their last
+/// path segment is a numeric id, not a filename). The `file_ops` layer
+/// dispatches `content://` to the MediaStore reader, which enforces Android's
+/// own URI permission grant — Kaulan can only read URIs it received via an
+/// Intent with `FLAG_GRANT_READ_URI_PERMISSION`.
 ///
 /// # Query Parameters
-/// * `p` (required) — URL-encoded absolute filesystem path
-/// * `position`, `t`, `duration` — optional seek params (same as `/api/music/id/{id}`)
+/// * `p` (required) — URL-encoded absolute filesystem path, or `content://`
+///   URI on Android
+/// * `position`, `t`, `duration` — optional seek params (same as
+///   `/api/music/id/{id}`)
 ///
 /// See `docs/default-music-app.md` for the full launch flow.
 #[get("/api/music/path")]
@@ -456,6 +468,22 @@ pub async fn get_music_by_path(
         t,
         duration,
     } = query.into_inner();
+
+    // Android: accept content:// URIs from the launch intent. The OS validated
+    // the MIME type; skip the extension whitelist (content URIs don't carry a
+    // filename in the last path segment).
+    #[cfg(target_os = "android")]
+    if p.starts_with("content://") {
+        let music_query = MusicQueryParams {
+            position,
+            t,
+            duration,
+            download: None,
+        };
+        // Filename only affects the Content-Type sniff and Content-Disposition
+        // header; pass "audio" so audio_content_type defaults to audio/mpeg.
+        return build_audio_stream_response(&p, "audio", &music_query, &req).await;
+    }
 
     if p.starts_with("content://") {
         return HttpResponse::BadRequest().body("content:// URIs not supported");

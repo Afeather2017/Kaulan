@@ -1721,6 +1721,55 @@ pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeReleaseAndroidCon
     }
 }
 
+/// JNI bridge for the open-as-default-music-app flow.
+///
+/// Called from `MainActivity.handleLaunchIntent` for both cold-start (OS
+/// launched Kaulan with a `VIEW` intent) and warm-start (singleTask forwards a
+/// new intent to the running activity). Forwards the URI and optional display
+/// name (ContentResolver `_display_name`) to the backend launch broker, which
+/// the frontend consumes via `GET /api/launch/pending` and the SSE stream on
+/// `/api/launch/events`. See `docs/default-music-app.md`.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeSetLaunchFile(
+    mut env: jni::JNIEnv,
+    _activity: JObject,
+    uri: JString,
+    display_name: JString,
+) {
+    let uri = match env.get_string(&uri) {
+        Ok(s) => s.to_string_lossy().into_owned(),
+        Err(err) => {
+            log::error!("nativeSetLaunchFile: failed to decode URI string: {err}");
+            return;
+        }
+    };
+    let display_name = if display_name.is_null() {
+        None
+    } else {
+        match env.get_string(&display_name) {
+            Ok(s) => {
+                let trimmed = s.to_string_lossy().trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            }
+            Err(err) => {
+                log::warn!("nativeSetLaunchFile: failed to decode display_name: {err}");
+                None
+            }
+        }
+    };
+    log::info!(
+        "Forwarding Android launch file to broker: uri={} display_name={:?}",
+        uri,
+        display_name
+    );
+    kaulan::set_pending_launch_file_with_name(uri, display_name);
+}
+
 /// Return true if `arg` looks like a path to an audio file Kaulan can play.
 ///
 /// Used by both the cold-start argv scan and the single-instance plugin
