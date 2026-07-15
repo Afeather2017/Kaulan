@@ -78,14 +78,41 @@ export function buildLaunchSong(
  *
  * Returns `{hasLaunch: false, song: null}` when there's no pending file or the
  * request fails — callers don't need to handle errors separately.
+ *
+ * Retries network errors (fetch throws) up to `MAX_CONSUME_ATTEMPTS` times so a
+ * cold-start launch file survives a brief boot race where the backend hasn't
+ * bound :2080 yet. HTTP responses (even non-2xx) are not retried — the broker
+ * endpoint is too simple to produce 5xx under normal load, and a 200 with
+ * `path: null` genuinely means "no pending launch".
  */
+const MAX_CONSUME_ATTEMPTS = 3;
+const CONSUME_RETRY_DELAY_MS = 500;
+
 export async function consumeLaunchFile(): Promise<LaunchFileResult> {
-  try {
-    const apiBase = resolveSourceApiBase(null);
-    const resp = await fetch(`${apiBase}/launch/pending`);
-    if (!resp.ok) {
-      return { hasLaunch: false, song: null };
+  const apiBase = resolveSourceApiBase(null);
+  const url = `${apiBase}/launch/pending`;
+
+  let resp: Response | null = null;
+  for (let attempt = 1; attempt <= MAX_CONSUME_ATTEMPTS; attempt += 1) {
+    try {
+      resp = await fetch(url);
+      break;
+    } catch {
+      // Network error — backend may not have bound :2080 yet. Retry after a
+      // short delay so cold-start launches survive the boot race.
+      if (attempt === MAX_CONSUME_ATTEMPTS) {
+        return { hasLaunch: false, song: null };
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, CONSUME_RETRY_DELAY_MS),
+      );
     }
+  }
+
+  if (!resp || !resp.ok) {
+    return { hasLaunch: false, song: null };
+  }
+  try {
     const data = (await resp.json()) as {
       path: string | null;
       display_name?: string | null;

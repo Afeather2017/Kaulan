@@ -7,6 +7,7 @@ pub mod discovery;
 pub mod download;
 pub mod launch;
 pub mod library_import;
+pub mod local_guard;
 pub mod lufs;
 pub mod lyrics;
 pub mod music;

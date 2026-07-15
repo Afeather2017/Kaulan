@@ -17,10 +17,12 @@
 //!
 //! Related documentation: `docs/default-music-app.md`
 
-use actix_web::{get, web, HttpResponse, Responder};
+use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use futures::stream;
 use futures::StreamExt;
 use serde::Serialize;
+
+use crate::handlers::local_guard::reject_non_local_peer;
 
 /// Response body for `GET /api/launch/pending`.
 #[derive(Serialize)]
@@ -40,8 +42,14 @@ struct LaunchPendingResponse {
 /// pending (set by the Tauri shell on launch), or `{path: null, display_name:
 /// null}` otherwise. Either way the stash is cleared — the frontend gets
 /// exactly one shot at each pending launch.
+///
+/// Loopback-only — the stashed path is a hint to the local frontend about
+/// what the OS launched. A remote caller has no business reading it.
 #[get("/api/launch/pending")]
-pub async fn get_launch_pending() -> impl Responder {
+pub async fn get_launch_pending(req: HttpRequest) -> impl Responder {
+    if let Some(reject) = reject_non_local_peer(&req) {
+        return reject;
+    }
     let path = crate::launch_broker().take_path();
     let display_name = crate::launch_broker().take_display_name();
     HttpResponse::Ok().json(LaunchPendingResponse { path, display_name })
@@ -54,20 +62,41 @@ pub async fn get_launch_pending() -> impl Responder {
 /// frontend can rely on this for the lifetime of the page. An initial
 /// `: connected` comment is emitted so the browser sees a 200 immediately and
 /// doesn't retry.
+///
+/// Loopback-only — same rationale as [`get_launch_pending`].
 #[get("/api/launch/events")]
-pub async fn get_launch_events() -> impl Responder {
+pub async fn get_launch_events(req: HttpRequest) -> impl Responder {
+    if let Some(reject) = reject_non_local_peer(&req) {
+        return reject;
+    }
     let rx = crate::launch_broker().subscribe();
 
     let initial = stream::once(async {
         Ok::<_, std::io::Error>(web::Bytes::from_static(b": connected\n\n"))
     });
     let events = stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|_| {
-            (
-                Ok::<_, std::io::Error>(web::Bytes::from_static(b"data: {}\n\n")),
-                rx,
-            )
-        })
+        loop {
+            match rx.recv().await {
+                Ok(()) => {
+                    return Some((
+                        Ok::<_, std::io::Error>(web::Bytes::from_static(b"data: {}\n\n")),
+                        rx,
+                    ));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // Missed events while the receiver was slow. Each event is
+                    // just a () ping, so losing some is harmless — keep
+                    // delivering future launches.
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    // No senders left. The broker holds a Sender for the
+                    // process lifetime, so this only happens at shutdown —
+                    // end the stream.
+                    return None;
+                }
+            }
+        }
     });
     let body = initial.chain(events);
 
@@ -94,6 +123,13 @@ mod tests {
         launch_broker().take_display_name();
     }
 
+    /// Loopback peer address for tests of endpoints guarded by
+    /// [`reject_non_local_peer`]. `TestRequest` defaults `peer_addr` to `None`,
+    /// which the guard treats as non-local — preset this so the guard passes.
+    fn local_peer() -> std::net::SocketAddr {
+        "127.0.0.1:0".parse().unwrap()
+    }
+
     #[actix_web::test]
     async fn launch_pending_returns_and_clears_stashed_path() {
         let _guard = TEST_LOCK.lock().unwrap();
@@ -102,6 +138,7 @@ mod tests {
 
         let app = actix_test::init_service(App::new().service(get_launch_pending)).await;
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri("/api/launch/pending")
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -125,6 +162,7 @@ mod tests {
         let resp = actix_test::call_service(
             &app,
             actix_test::TestRequest::get()
+                .peer_addr(local_peer())
                 .uri("/api/launch/pending")
                 .to_request(),
         )
@@ -144,6 +182,7 @@ mod tests {
         let _ = actix_test::call_service(
             &app,
             actix_test::TestRequest::get()
+                .peer_addr(local_peer())
                 .uri("/api/launch/pending")
                 .to_request(),
         )
@@ -153,6 +192,7 @@ mod tests {
         let resp = actix_test::call_service(
             &app,
             actix_test::TestRequest::get()
+                .peer_addr(local_peer())
                 .uri("/api/launch/pending")
                 .to_request(),
         )
@@ -170,6 +210,7 @@ mod tests {
         let resp = actix_test::call_service(
             &app,
             actix_test::TestRequest::get()
+                .peer_addr(local_peer())
                 .uri("/api/launch/pending")
                 .to_request(),
         )
@@ -177,6 +218,32 @@ mod tests {
         let body: serde_json::Value = actix_test::read_body_json(resp).await;
         assert!(body["path"].is_null());
         assert!(body["display_name"].is_null());
+    }
+
+    /// Loopback guard: a non-local peer must be rejected with 403 so the
+    /// stashed path (a hint about what the OS launched locally) is not
+    /// readable from the LAN.
+    #[actix_web::test]
+    async fn launch_pending_rejects_non_local_peer() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        reset_broker();
+        crate::set_pending_launch_file("/tmp/secret.mp3".to_string());
+
+        let app = actix_test::init_service(App::new().service(get_launch_pending)).await;
+        let resp = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::get()
+                .peer_addr("192.168.1.5:1234".parse().unwrap())
+                .uri("/api/launch/pending")
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 403);
+        // And the stash must be preserved (not consumed) on rejection.
+        assert_eq!(
+            launch_broker().take_path(),
+            Some("/tmp/secret.mp3".to_string())
+        );
     }
 
     /// Broker-level test: `subscribe()` then `set_path()` delivers a notification.
@@ -189,6 +256,11 @@ mod tests {
         crate::set_pending_launch_file("/tmp/warm.flac".to_string());
         let received = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await;
         assert!(received.is_ok(), "subscriber should receive a notification");
+        // Inner Result<(), RecvError> — Ok means the broadcast delivered.
+        assert!(
+            received.unwrap().is_ok(),
+            "broadcast recv should succeed, not lag or close"
+        );
         assert_eq!(
             launch_broker().take_path(),
             Some("/tmp/warm.flac".to_string())

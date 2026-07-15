@@ -39,19 +39,25 @@ pub const LAUNCH_FILE_ENV: &str = "KAULAN_LAUNCH_FILE";
 /// source of truth for both warm-start calls from the Tauri shell's
 /// single-instance plugin callback and the cold-start env-var seed.
 ///
+/// Subscribers are managed via a `tokio::sync::broadcast` channel: dropped
+/// receivers are pruned automatically by the broadcast runtime, and a slow
+/// receiver lags (skipping events) rather than being disconnected by
+/// backpressure. Since each event is a single `()` ping, lag is harmless.
+///
 /// See `handlers/launch` and `docs/default-music-app.md`.
 pub struct LaunchBroker {
     path: std::sync::Mutex<Option<String>>,
     display_name: std::sync::Mutex<Option<String>>,
-    subscribers: std::sync::Mutex<Vec<tokio::sync::mpsc::Sender<()>>>,
+    notify_tx: tokio::sync::broadcast::Sender<()>,
 }
 
 impl LaunchBroker {
     fn new() -> Self {
+        let (notify_tx, _) = tokio::sync::broadcast::channel(8);
         Self {
             path: std::sync::Mutex::new(None),
             display_name: std::sync::Mutex::new(None),
-            subscribers: std::sync::Mutex::new(Vec::new()),
+            notify_tx,
         }
     }
 
@@ -60,6 +66,9 @@ impl LaunchBroker {
     /// `display_name` carries an optional friendly filename (e.g. the
     /// `_display_name` Android's ContentResolver returns for a `content://`
     /// URI). Desktop leaves it `None` — the path itself ends in a filename.
+    ///
+    /// `broadcast::send` returns `Err` only when there are no receivers, which
+    /// is a no-op for our purposes (nothing to notify).
     pub fn set_path(&self, path: String, display_name: Option<String>) {
         {
             let mut guard = self.path.lock().unwrap_or_else(|e| e.into_inner());
@@ -69,9 +78,7 @@ impl LaunchBroker {
             let mut guard = self.display_name.lock().unwrap_or_else(|e| e.into_inner());
             *guard = display_name;
         }
-        let mut subs = self.subscribers.lock().unwrap_or_else(|e| e.into_inner());
-        // try_send both notifies live subscribers and prunes disconnected ones.
-        subs.retain(|tx| tx.try_send(()).is_ok());
+        let _ = self.notify_tx.send(());
     }
 
     /// Atomically take (clear) the stashed path. Returns `None` if nothing
@@ -91,14 +98,10 @@ impl LaunchBroker {
 
     /// Register a new SSE subscriber. Each live subscriber receives a `()`
     /// notification on every [`set_path`] call until the returned receiver is
-    /// dropped (at which point the next `set_path` prunes it).
-    pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<()> {
-        let (tx, rx) = tokio::sync::mpsc::channel(8);
-        self.subscribers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(tx);
-        rx
+    /// dropped. The broadcast runtime prunes dropped receivers automatically —
+    /// no manual retain() pass is needed on `set_path`.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.notify_tx.subscribe()
     }
 }
 

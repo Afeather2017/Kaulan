@@ -434,7 +434,7 @@ pub fn run() {
     // the crate does not compile on Android/iOS.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|_app, argv, _cwd| {
-        if let Some(path) = argv.iter().skip(1).find(|a| is_audio_file_arg(a)).cloned() {
+        if let Some(path) = argv.iter().skip(1).find_map(|a| launch_file_from_arg(a)) {
             log::info!("Single-instance forwarded launch file: {}", path);
             kaulan::set_pending_launch_file(path);
         }
@@ -509,7 +509,7 @@ pub fn run() {
             {
                 let launch_file = std::env::args()
                     .skip(1)
-                    .find_map(|a| is_audio_file_arg(&a).then_some(a));
+                    .find_map(|a| launch_file_from_arg(&a));
                 if let Some(ref path) = launch_file {
                     log::info!("Cold-start launch file detected: {}", path);
                     std::env::set_var(LAUNCH_FILE_ENV, path);
@@ -1771,19 +1771,38 @@ pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeSetLaunchFile(
     kaulan::set_pending_launch_file_with_name(uri, display_name);
 }
 
-/// Return true if `arg` looks like a path to an audio file Kaulan can play.
+/// If `arg` is a path to a supported audio file, return it as a normalized
+/// filesystem path. Returns `None` for flags, non-audio extensions, or paths
+/// without an extension.
+///
+/// Accepts both raw filesystem paths (the common case) and `file://` URIs
+/// (some Linux file managers pass these via `xdg-open`). For URIs, the
+/// `url` crate handles the OS-specific conversion (`Url::to_file_path`):
+/// `file:///C:/Music/song.mp3` → `C:\Music\song.mp3` on Windows,
+/// `file:///home/user/song.mp3` → `/home/user/song.mp3` on Linux. Without
+/// this normalization, a `file://` URI stored verbatim in the launch broker
+/// would later fail the extension whitelist in `/api/music/path` (which sees
+/// the URI as a single "filename" with no extension) or 404 at the filesystem.
 ///
 /// Used by both the cold-start argv scan and the single-instance plugin
 /// callback to decide whether a CLI arg should be handed off to the backend
 /// as a launch file (vs. ignored as some other flag or argument).
 #[cfg(any(target_os = "linux", target_os = "windows"))]
-fn is_audio_file_arg(arg: &str) -> bool {
-    let ext = std::path::Path::new(arg)
+fn launch_file_from_arg(arg: &str) -> Option<String> {
+    let path_str = if arg.starts_with("file://") {
+        let url = url::Url::parse(arg).ok()?;
+        let path = url.to_file_path().ok()?;
+        path.to_string_lossy().into_owned()
+    } else {
+        arg.to_string()
+    };
+
+    let ext = std::path::Path::new(&path_str)
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase());
     match ext {
-        Some(e) => SUPPORTED_AUDIO_EXT.contains(&e.as_str()),
-        None => false,
+        Some(e) if SUPPORTED_AUDIO_EXT.contains(&e.as_str()) => Some(path_str),
+        _ => None,
     }
 }

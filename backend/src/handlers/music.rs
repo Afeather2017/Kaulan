@@ -189,7 +189,15 @@ pub async fn get_music_by_id(
                 "Found music in database: id={}, filename={}, file_path={}",
                 music.id, music.filename, music.file_path
             );
-            build_audio_stream_response(&music.file_path, &music.filename, &query, &req).await
+            let access_tag = format!("/api/music/id/{}", id);
+            build_audio_stream_response(
+                &music.file_path,
+                &music.filename,
+                &query,
+                &req,
+                &access_tag,
+            )
+            .await
         }
         Ok(None) => {
             warn!("Music not found in database: ID {}", id);
@@ -212,11 +220,15 @@ pub async fn get_music_by_id(
 ///
 /// `filename` is used to derive the `Content-Type` and the optional
 /// `Content-Disposition` header (set only when `query.download` requests it).
+/// `access_tag` is the route prefix used in `[ACCESS]` log lines (e.g.
+/// `/api/music/id/42` or `/api/music/path`) so the shared log lines stay
+/// uniform across callers.
 async fn build_audio_stream_response(
     file_path: &str,
     filename: &str,
     query: &MusicQueryParams,
     req: &HttpRequest,
+    access_tag: &str,
 ) -> HttpResponse {
     // Compute the Content-Disposition once so every response branch
     // (seek 206, Range 206, full 200) stays consistent. Only set when
@@ -313,12 +325,17 @@ async fn build_audio_stream_response(
                         "Seek request for {} had no file size after validation",
                         file_path
                     );
+                    info!("[ACCESS] GET {} - Status: 500", access_tag);
                     return HttpResponse::InternalServerError()
                         .body("File size unavailable for seek request");
                 };
                 let content_length = size.saturating_sub(start);
                 let end = size.saturating_sub(1);
 
+                info!(
+                    "[ACCESS] GET {} - Status: 206, bytes={}-{}",
+                    access_tag, start, end
+                );
                 let mut response = HttpResponse::PartialContent();
                 response.insert_header(("Content-Type", audio_content_type(filename)));
                 response.insert_header(("Content-Length", content_length.to_string()));
@@ -356,6 +373,10 @@ async fn build_audio_stream_response(
                     Ok(stream) => {
                         let content_length = end.saturating_sub(start).saturating_add(1);
 
+                        info!(
+                            "[ACCESS] GET {} - Status: 206, Range: bytes={}-{}",
+                            access_tag, start, end
+                        );
                         let mut response = HttpResponse::PartialContent();
                         response.insert_header(("Content-Type", audio_content_type(filename)));
                         response.insert_header(("Content-Length", content_length.to_string()));
@@ -375,6 +396,7 @@ async fn build_audio_stream_response(
                     }
                     Err(e) => {
                         warn!("Could not seek in file: {} - Error: {}", file_path, e);
+                        info!("[ACCESS] GET {} - Status: 404", access_tag);
                         return HttpResponse::NotFound().body("File not found");
                     }
                 }
@@ -387,6 +409,7 @@ async fn build_audio_stream_response(
         Ok(stream) => {
             debug!("Streaming music file: {}", filename);
 
+            info!("[ACCESS] GET {} - Status: 200", access_tag);
             let mut response = HttpResponse::Ok();
             response.insert_header(("Content-Type", audio_content_type(filename)));
             response.insert_header(("Accept-Ranges", "bytes"));
@@ -407,6 +430,7 @@ async fn build_audio_stream_response(
                 "File not found or could not be read: {} - Error: {}",
                 file_path, e
             );
+            info!("[ACCESS] GET {} - Status: 404", access_tag);
             HttpResponse::NotFound().body("File not found")
         }
     }
@@ -462,12 +486,23 @@ pub async fn get_music_by_path(
     query: web::Query<PathQueryParams>,
     req: HttpRequest,
 ) -> impl Responder {
+    if let Some(reject) = crate::handlers::local_guard::reject_non_local_peer(&req) {
+        return reject;
+    }
+
     let PathQueryParams {
         p,
         position,
         t,
         duration,
     } = query.into_inner();
+
+    // Log path length rather than the path itself — a launch file may sit under
+    // a user directory whose full path is sensitive.
+    info!(
+        "[ACCESS] GET /api/music/path - Started (p=<{} bytes>)",
+        p.len()
+    );
 
     // Android: accept content:// URIs from the launch intent. The OS validated
     // the MIME type; skip the extension whitelist (content URIs don't carry a
@@ -482,10 +517,12 @@ pub async fn get_music_by_path(
         };
         // Filename only affects the Content-Type sniff and Content-Disposition
         // header; pass "audio" so audio_content_type defaults to audio/mpeg.
-        return build_audio_stream_response(&p, "audio", &music_query, &req).await;
+        return build_audio_stream_response(&p, "audio", &music_query, &req, "/api/music/path")
+            .await;
     }
 
     if p.starts_with("content://") {
+        info!("[ACCESS] GET /api/music/path - Status: 400");
         return HttpResponse::BadRequest().body("content:// URIs not supported");
     }
 
@@ -494,9 +531,11 @@ pub async fn get_music_by_path(
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase());
     let Some(ext) = ext else {
+        info!("[ACCESS] GET /api/music/path - Status: 400");
         return HttpResponse::BadRequest().body("File has no extension");
     };
     if !SUPPORTED_EXTENSIONS.contains(&ext.as_str()) {
+        info!("[ACCESS] GET /api/music/path - Status: 400");
         return HttpResponse::BadRequest().body("Unsupported file type");
     }
 
@@ -512,7 +551,7 @@ pub async fn get_music_by_path(
         download: None,
     };
 
-    build_audio_stream_response(&p, filename, &music_query, &req).await
+    build_audio_stream_response(&p, filename, &music_query, &req, "/api/music/path").await
 }
 
 /// Parse HTTP Range header (format: "bytes=start-end")
@@ -904,7 +943,14 @@ async fn extract_cover_response(file_path: &str, access_tag: &str) -> HttpRespon
 }
 
 #[get("/api/music/path/cover")]
-pub async fn get_music_cover_by_path(query: web::Query<CoverPathQuery>) -> impl Responder {
+pub async fn get_music_cover_by_path(
+    query: web::Query<CoverPathQuery>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Some(reject) = crate::handlers::local_guard::reject_non_local_peer(&req) {
+        return reject;
+    }
+
     let CoverPathQuery { p } = query.into_inner();
 
     #[cfg(target_os = "android")]
@@ -1150,6 +1196,13 @@ mod tests {
         format!("/api/music/path?p={}", percent_encode_filename(path))
     }
 
+    /// Loopback peer address for tests of endpoints guarded by
+    /// [`reject_non_local_peer`]. `TestRequest` defaults `peer_addr` to `None`,
+    /// which the guard treats as non-local — preset this so the guard passes.
+    fn local_peer() -> std::net::SocketAddr {
+        "127.0.0.1:0".parse().unwrap()
+    }
+
     #[actix_web::test]
     async fn music_by_path_streams_known_audio_extension() {
         let temp = tempfile::tempdir().unwrap();
@@ -1158,6 +1211,7 @@ mod tests {
         let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
 
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -1183,6 +1237,7 @@ mod tests {
         let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
 
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
             .insert_header(("Range", "bytes=10-19"))
             .to_request();
@@ -1219,6 +1274,7 @@ mod tests {
         let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
 
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -1229,6 +1285,7 @@ mod tests {
     async fn music_by_path_rejects_content_uri() {
         let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri("/api/music/path?p=content%3A%2F%2Fmedia%2Fsong.mp3")
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -1243,6 +1300,7 @@ mod tests {
         let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
 
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -1263,6 +1321,7 @@ mod tests {
         let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
 
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&url_encoded_cover_query(file_path.to_str().unwrap()))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -1277,6 +1336,7 @@ mod tests {
         let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
 
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&url_encoded_cover_query(file_path.to_str().unwrap()))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -1287,6 +1347,7 @@ mod tests {
     async fn cover_by_path_rejects_content_uri() {
         let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri("/api/music/path/cover?p=content%3A%2F%2Fmedia%2Fsong.mp3")
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
@@ -1300,6 +1361,7 @@ mod tests {
         let app = actix_test::init_service(App::new().service(get_music_cover_by_path)).await;
 
         let req = actix_test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&url_encoded_cover_query(file_path.to_str().unwrap()))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;

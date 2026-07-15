@@ -13,8 +13,9 @@ use crate::file_ops::{
     get_lyric_reader, lyric_candidate_paths, resolve_path, source_exists, source_write_file,
     PathKind, SUPPORTED_EXTENSIONS,
 };
+use crate::handlers::local_guard::reject_non_local_peer;
 use crate::types::AppState;
-use actix_web::{get, put, web, HttpResponse, Responder};
+use actix_web::{get, put, web, HttpRequest, HttpResponse, Responder};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::Deserialize;
 use std::path::Path;
@@ -130,11 +131,21 @@ struct LyricsPathQuery {
 ///
 /// # Security
 ///
-/// Gated by the same extension whitelist ([`SUPPORTED_EXTENSIONS`]) and
-/// `content://` rejection as [`crate::handlers::music::get_music_by_path`].
-/// Without the extension guard, any local process could probe for arbitrary
-/// sidecar files via `?p=/etc/passwd`. With it, the surface mirrors what
-/// `/api/music/path` already exposes.
+/// Gated by the same extension whitelist ([`SUPPORTED_EXTENSIONS`]) as
+/// [`crate::handlers::music::get_music_by_path`]. Without the extension guard,
+/// any local process could probe for arbitrary sidecar files via
+/// `?p=/etc/passwd`. With it, the surface mirrors what `/api/music/path`
+/// already exposes.
+///
+/// # Known limitation: Android `content://` asymmetry
+///
+/// Unlike [`crate::handlers::music::get_music_by_path`] and
+/// [`crate::handlers::music::get_music_cover_by_path`], this handler rejects
+/// `content://` URIs on every platform. Android MediaStore URIs don't carry a
+/// sibling filename the sidecar resolver can derive a `.lrc`/`.vtt` path from,
+/// so lyrics are unavailable for Android-launched files. Closing this gap
+/// requires a different lookup path (e.g. `MediaMetadataRetriever` for
+/// embedded lyrics) and is tracked as a follow-up.
 ///
 /// # Query Parameters
 /// * `p` (required) — URL-encoded absolute filesystem path of the audio file
@@ -147,7 +158,14 @@ struct LyricsPathQuery {
 ///
 /// See `docs/default-music-app.md` for the full launch flow.
 #[get("/api/lyrics/path")]
-pub async fn get_lyrics_by_path(query: web::Query<LyricsPathQuery>) -> impl Responder {
+pub async fn get_lyrics_by_path(
+    query: web::Query<LyricsPathQuery>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Some(reject) = reject_non_local_peer(&req) {
+        return reject;
+    }
+
     let LyricsPathQuery { p } = query.into_inner();
 
     if p.starts_with("content://") {
@@ -813,6 +831,13 @@ mod tests {
         format!("/api/lyrics/path?p={out}")
     }
 
+    /// Loopback peer address for tests of endpoints guarded by
+    /// [`reject_non_local_peer`]. `TestRequest` defaults `peer_addr` to `None`,
+    /// which the guard treats as non-local — preset this so the guard passes.
+    fn local_peer() -> std::net::SocketAddr {
+        "127.0.0.1:0".parse().unwrap()
+    }
+
     #[actix_web::test]
     async fn lyrics_by_path_serves_lrc_sidecar() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -827,6 +852,7 @@ mod tests {
 
         let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
         let req = test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&percent_encoded_query(audio_path.to_str().unwrap()))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -851,6 +877,7 @@ mod tests {
 
         let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
         let req = test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&percent_encoded_query(audio_path.to_str().unwrap()))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -869,6 +896,7 @@ mod tests {
 
         let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
         let req = test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&percent_encoded_query(audio_path.to_str().unwrap()))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -883,6 +911,7 @@ mod tests {
 
         let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
         let req = test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri(&percent_encoded_query(secret_path.to_str().unwrap()))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -893,6 +922,7 @@ mod tests {
     async fn lyrics_by_path_rejects_content_uri() {
         let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
         let req = test::TestRequest::get()
+            .peer_addr(local_peer())
             .uri("/api/lyrics/path?p=content%3A%2F%2Fmedia%2Faudio.mp3")
             .to_request();
         let resp = test::call_service(&app, req).await;
