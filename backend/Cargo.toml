@@ -48,3 +48,6 @@ rusty_ffmpeg = { path = "../vendor/rusty_ffmpeg", features = ["link_system_ffmpe
 
 [dev-dependencies]
 wiremock = "0.6"
+
+[lints]
+workspace = true
