@@ -20,7 +20,7 @@
 //! See [`docs/position-based-streaming.md`](../../../docs/position-based-streaming.md) for details.
 
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity, Model as MusicModel};
-use crate::file_ops::{get_file_reader, source_remove_file};
+use crate::file_ops::{get_file_reader, source_remove_file, SUPPORTED_EXTENSIONS};
 use crate::services::download::sanitize_filename;
 use crate::types::{
     AppState, DeleteMusicFailure, DeleteMusicRequest, DeleteMusicResponse, MusicResponse,
@@ -183,225 +183,13 @@ pub async fn get_music_by_id(
     // Simple access log
     info!("[ACCESS] GET /api/music/id/{} - Started", id);
 
-    // Parse Range header if present (for seeking support)
-    let range_header = req
-        .headers()
-        .get("Range")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
-
-    debug!("Range header: {:?}", range_header);
-
     match MusicEntity::find_by_id(id).one(&data.db_conn).await {
         Ok(Some(music)) => {
             debug!(
                 "Found music in database: id={}, filename={}, file_path={}",
                 music.id, music.filename, music.file_path
             );
-
-            // Compute the Content-Disposition once so every response branch
-            // (seek 206, Range 206, full 200) stays consistent. Only set when
-            // the caller asked for a download; absent for normal playback.
-            let disposition = download_disposition(
-                is_download_requested(query.download.as_deref()),
-                &music.filename,
-            );
-
-            let file_reader = get_file_reader();
-            debug!("File reader obtained for reading: {}", music.file_path);
-
-            // Get file size for Range support
-            let file_size = match file_reader.get_file_size(&music.file_path).await {
-                Ok(size) => {
-                    debug!("File size: {} bytes", size);
-                    Some(size)
-                }
-                Err(e) => {
-                    warn!("Could not get file size: {}", e);
-                    None
-                }
-            };
-
-            const CHUNK_SIZE: usize = 1024 * 1024;
-
-            // Handle position-based seek (highest priority)
-            // Priority: Position query parameter > legacy timestamp query parameters > Range header > Full file stream
-            let seek_request = file_size.and_then(|size| {
-                if let Some(pos) = query.position {
-                    if !(0.0..=1.0).contains(&pos) {
-                        debug!(
-                            "Invalid position parameter: position={}, falling back to normal",
-                            pos
-                        );
-                        return None;
-                    }
-
-                    let mut start_byte = proportional_byte_offset(pos, size);
-                    if start_byte >= size {
-                        start_byte = size.saturating_sub(1);
-                    }
-
-                    debug!(
-                        "Position seek: position={}%, calculated start_byte={}",
-                        pos * 100.0,
-                        start_byte
-                    );
-                    return Some((start_byte, Some(("X-Seek-Position", pos.to_string()))));
-                }
-
-                if let (Some(timestamp), Some(duration)) = (query.t, query.duration) {
-                    if duration <= 0.0 || timestamp < 0.0 || timestamp > duration {
-                        debug!(
-                            "Invalid timestamp seek parameters: t={}, duration={}, falling back to normal",
-                            timestamp, duration
-                        );
-                        return None;
-                    }
-
-                    let mut start_byte = proportional_byte_offset(timestamp / duration, size);
-                    if start_byte >= size {
-                        start_byte = size.saturating_sub(1);
-                    }
-
-                    debug!(
-                        "Timestamp seek: t={}, duration={}, calculated start_byte={}",
-                        timestamp,
-                        duration,
-                        start_byte
-                    );
-                    return Some((start_byte, Some(("X-Seek-Timestamp", timestamp.to_string()))));
-                }
-
-                None
-            });
-
-            if let Some((start, seek_header)) = seek_request {
-                match file_reader
-                    .read_stream_from(&music.file_path, CHUNK_SIZE, start)
-                    .await
-                {
-                    Ok(stream) => {
-                        let Some(size) = file_size else {
-                            warn!(
-                                "Seek request for music ID {} had no file size after validation",
-                                id
-                            );
-                            return HttpResponse::InternalServerError()
-                                .body("File size unavailable for seek request");
-                        };
-                        let content_length = size.saturating_sub(start);
-                        let end = size.saturating_sub(1);
-                        info!(
-                            "[ACCESS] GET /api/music/id/{} - Status: 206, bytes={}-{}",
-                            id, start, end
-                        );
-
-                        let mut response = HttpResponse::PartialContent();
-                        response
-                            .insert_header(("Content-Type", audio_content_type(&music.filename)));
-                        response.insert_header(("Content-Length", content_length.to_string()));
-                        response.insert_header((
-                            "Content-Range",
-                            format!("bytes {}-{}/{}", start, end, size),
-                        ));
-                        response.insert_header(("Accept-Ranges", "bytes"));
-                        response.insert_header((
-                            "Cache-Control",
-                            "public, max-age=86400, must-revalidate",
-                        ));
-                        if let Some((header_name, header_value)) = seek_header {
-                            response.insert_header((header_name, header_value));
-                        }
-                        if let Some(value) = disposition.as_deref() {
-                            response.insert_header(("Content-Disposition", value));
-                        }
-
-                        return response.streaming(stream.map_err(actix_web::Error::from));
-                    }
-                    Err(e) => {
-                        warn!("Could not seek in file: {} - Error: {}", music.file_path, e);
-                        // Fall through to Range header handling
-                    }
-                }
-            }
-
-            // Handle Range request
-            if let Some(range) = range_header {
-                if let Some(size) = file_size {
-                    // Parse Range header (format: "bytes=start-end")
-                    if let Some((start, end)) = parse_range_header(&range, size) {
-                        debug!("Range request: bytes={}-{}", start, end);
-
-                        match file_reader
-                            .read_stream_from(&music.file_path, CHUNK_SIZE, start)
-                            .await
-                        {
-                            Ok(stream) => {
-                                let content_length = end.saturating_sub(start).saturating_add(1);
-                                info!("[ACCESS] GET /api/music/id/{} - Status: 206, Range: bytes={}-{}", id, start, end);
-
-                                let mut response = HttpResponse::PartialContent();
-                                response.insert_header((
-                                    "Content-Type",
-                                    audio_content_type(&music.filename),
-                                ));
-                                response
-                                    .insert_header(("Content-Length", content_length.to_string()));
-                                response.insert_header((
-                                    "Content-Range",
-                                    format!("bytes {}-{}/{}", start, end, size),
-                                ));
-                                response.insert_header(("Accept-Ranges", "bytes"));
-                                response.insert_header((
-                                    "Cache-Control",
-                                    "public, max-age=86400, must-revalidate",
-                                ));
-                                if let Some(value) = disposition.as_deref() {
-                                    response.insert_header(("Content-Disposition", value));
-                                }
-                                return response.streaming(stream.map_err(actix_web::Error::from));
-                            }
-                            Err(e) => {
-                                warn!("Could not seek in file: {} - Error: {}", music.file_path, e);
-                                info!("[ACCESS] GET /api/music/id/{} - Status: 404", id);
-                                return HttpResponse::NotFound().body("File not found");
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Non-range request or no file size available
-            match file_reader.read_stream(&music.file_path, CHUNK_SIZE).await {
-                Ok(stream) => {
-                    debug!("Streaming music file: {} (ID: {})", music.filename, id);
-
-                    info!("[ACCESS] GET /api/music/id/{} - Status: 200", id);
-                    let mut response = HttpResponse::Ok();
-                    response.insert_header(("Content-Type", audio_content_type(&music.filename)));
-                    response.insert_header(("Accept-Ranges", "bytes"));
-                    response
-                        .insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
-
-                    // Add Content-Length if available (helps browser determine duration)
-                    if let Some(size) = file_size {
-                        response.insert_header(("Content-Length", size.to_string()));
-                    }
-                    if let Some(value) = disposition.as_deref() {
-                        response.insert_header(("Content-Disposition", value));
-                    }
-
-                    response.streaming(stream.map_err(actix_web::Error::from))
-                }
-                Err(e) => {
-                    warn!(
-                        "File not found or could not be read: {} (ID: {}) - Error: {}",
-                        music.file_path, id, e
-                    );
-                    info!("[ACCESS] GET /api/music/id/{} - Status: 404", id);
-                    HttpResponse::NotFound().body("File not found")
-                }
-            }
+            build_audio_stream_response(&music.file_path, &music.filename, &query, &req).await
         }
         Ok(None) => {
             warn!("Music not found in database: ID {}", id);
@@ -413,6 +201,290 @@ pub async fn get_music_by_id(
             HttpResponse::InternalServerError().body("Database error")
         }
     }
+}
+
+/// Build the streaming `HttpResponse` for an audio file at `file_path`.
+///
+/// Handles position-based seeking (`?position=`/`?t=`+`?duration=`), HTTP Range
+/// requests, and full-file streaming. Shared by the DB-backed
+/// `/api/music/id/{id}` endpoint and the path-based `/api/music/path` endpoint
+/// used by the "open file as default app" flow.
+///
+/// `filename` is used to derive the `Content-Type` and the optional
+/// `Content-Disposition` header (set only when `query.download` requests it).
+async fn build_audio_stream_response(
+    file_path: &str,
+    filename: &str,
+    query: &MusicQueryParams,
+    req: &HttpRequest,
+) -> HttpResponse {
+    // Compute the Content-Disposition once so every response branch
+    // (seek 206, Range 206, full 200) stays consistent. Only set when
+    // the caller asked for a download; absent for normal playback.
+    let disposition =
+        download_disposition(is_download_requested(query.download.as_deref()), filename);
+
+    let file_reader = get_file_reader();
+    debug!("File reader obtained for reading: {}", file_path);
+
+    // Parse Range header if present (for seeking support)
+    let range_header = req
+        .headers()
+        .get("Range")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    debug!("Range header: {:?}", range_header);
+
+    // Get file size for Range support
+    let file_size = match file_reader.get_file_size(file_path).await {
+        Ok(size) => {
+            debug!("File size: {} bytes", size);
+            Some(size)
+        }
+        Err(e) => {
+            warn!("Could not get file size: {}", e);
+            None
+        }
+    };
+
+    const CHUNK_SIZE: usize = 1024 * 1024;
+
+    // Handle position-based seek (highest priority)
+    // Priority: Position query parameter > legacy timestamp query parameters > Range header > Full file stream
+    let seek_request = file_size.and_then(|size| {
+        if let Some(pos) = query.position {
+            if !(0.0..=1.0).contains(&pos) {
+                debug!(
+                    "Invalid position parameter: position={}, falling back to normal",
+                    pos
+                );
+                return None;
+            }
+
+            let mut start_byte = proportional_byte_offset(pos, size);
+            if start_byte >= size {
+                start_byte = size.saturating_sub(1);
+            }
+
+            debug!(
+                "Position seek: position={}%, calculated start_byte={}",
+                pos * 100.0,
+                start_byte
+            );
+            return Some((start_byte, Some(("X-Seek-Position", pos.to_string()))));
+        }
+
+        if let (Some(timestamp), Some(duration)) = (query.t, query.duration) {
+            if duration <= 0.0 || timestamp < 0.0 || timestamp > duration {
+                debug!(
+                    "Invalid timestamp seek parameters: t={}, duration={}, falling back to normal",
+                    timestamp, duration
+                );
+                return None;
+            }
+
+            let mut start_byte = proportional_byte_offset(timestamp / duration, size);
+            if start_byte >= size {
+                start_byte = size.saturating_sub(1);
+            }
+
+            debug!(
+                "Timestamp seek: t={}, duration={}, calculated start_byte={}",
+                timestamp, duration, start_byte
+            );
+            return Some((
+                start_byte,
+                Some(("X-Seek-Timestamp", timestamp.to_string())),
+            ));
+        }
+
+        None
+    });
+
+    if let Some((start, seek_header)) = seek_request {
+        match file_reader
+            .read_stream_from(file_path, CHUNK_SIZE, start)
+            .await
+        {
+            Ok(stream) => {
+                let Some(size) = file_size else {
+                    warn!(
+                        "Seek request for {} had no file size after validation",
+                        file_path
+                    );
+                    return HttpResponse::InternalServerError()
+                        .body("File size unavailable for seek request");
+                };
+                let content_length = size.saturating_sub(start);
+                let end = size.saturating_sub(1);
+
+                let mut response = HttpResponse::PartialContent();
+                response.insert_header(("Content-Type", audio_content_type(filename)));
+                response.insert_header(("Content-Length", content_length.to_string()));
+                response
+                    .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, size)));
+                response.insert_header(("Accept-Ranges", "bytes"));
+                response.insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
+                if let Some((header_name, header_value)) = seek_header {
+                    response.insert_header((header_name, header_value));
+                }
+                if let Some(value) = disposition.as_deref() {
+                    response.insert_header(("Content-Disposition", value));
+                }
+
+                return response.streaming(stream.map_err(actix_web::Error::from));
+            }
+            Err(e) => {
+                warn!("Could not seek in file: {} - Error: {}", file_path, e);
+                // Fall through to Range header handling
+            }
+        }
+    }
+
+    // Handle Range request
+    if let Some(range) = range_header {
+        if let Some(size) = file_size {
+            // Parse Range header (format: "bytes=start-end")
+            if let Some((start, end)) = parse_range_header(&range, size) {
+                debug!("Range request: bytes={}-{}", start, end);
+
+                match file_reader
+                    .read_stream_from(file_path, CHUNK_SIZE, start)
+                    .await
+                {
+                    Ok(stream) => {
+                        let content_length = end.saturating_sub(start).saturating_add(1);
+
+                        let mut response = HttpResponse::PartialContent();
+                        response.insert_header(("Content-Type", audio_content_type(filename)));
+                        response.insert_header(("Content-Length", content_length.to_string()));
+                        response.insert_header((
+                            "Content-Range",
+                            format!("bytes {}-{}/{}", start, end, size),
+                        ));
+                        response.insert_header(("Accept-Ranges", "bytes"));
+                        response.insert_header((
+                            "Cache-Control",
+                            "public, max-age=86400, must-revalidate",
+                        ));
+                        if let Some(value) = disposition.as_deref() {
+                            response.insert_header(("Content-Disposition", value));
+                        }
+                        return response.streaming(stream.map_err(actix_web::Error::from));
+                    }
+                    Err(e) => {
+                        warn!("Could not seek in file: {} - Error: {}", file_path, e);
+                        return HttpResponse::NotFound().body("File not found");
+                    }
+                }
+            }
+        }
+    }
+
+    // Non-range request or no file size available
+    match file_reader.read_stream(file_path, CHUNK_SIZE).await {
+        Ok(stream) => {
+            debug!("Streaming music file: {}", filename);
+
+            let mut response = HttpResponse::Ok();
+            response.insert_header(("Content-Type", audio_content_type(filename)));
+            response.insert_header(("Accept-Ranges", "bytes"));
+            response.insert_header(("Cache-Control", "public, max-age=86400, must-revalidate"));
+
+            // Add Content-Length if available (helps browser determine duration)
+            if let Some(size) = file_size {
+                response.insert_header(("Content-Length", size.to_string()));
+            }
+            if let Some(value) = disposition.as_deref() {
+                response.insert_header(("Content-Disposition", value));
+            }
+
+            response.streaming(stream.map_err(actix_web::Error::from))
+        }
+        Err(e) => {
+            warn!(
+                "File not found or could not be read: {} - Error: {}",
+                file_path, e
+            );
+            HttpResponse::NotFound().body("File not found")
+        }
+    }
+}
+
+/// Query parameters for path-based streaming (the "open as default app" flow).
+///
+/// `p` is the URL-encoded absolute filesystem path. The optional `position`,
+/// `t`, and `duration` fields mirror [`MusicQueryParams`] for seek support.
+/// `download` is intentionally absent — downloads are always DB-id based.
+#[derive(Deserialize)]
+struct PathQueryParams {
+    p: String,
+    position: Option<f64>,
+    t: Option<f64>,
+    duration: Option<f64>,
+}
+
+/// Stream an arbitrary filesystem audio file by absolute path.
+///
+/// Used by the "open file as default app" flow when the OS launches Kaulan with
+/// a file the user double-clicked in their file manager. The path is not
+/// required to be in the `music` table — it streams directly via the `StdFs`
+/// source.
+///
+/// # Security
+///
+/// The endpoint is gated by an extension whitelist ([`SUPPORTED_EXTENSIONS`])
+/// and rejects `content://` URIs (Android-only, not used here). Without the
+/// extension guard, any local process could read arbitrary files via
+/// `?p=/etc/passwd`. With it, the surface is limited to audio files the user
+/// could already open from their file manager.
+///
+/// # Query Parameters
+/// * `p` (required) — URL-encoded absolute filesystem path
+/// * `position`, `t`, `duration` — optional seek params (same as `/api/music/id/{id}`)
+///
+/// See `docs/default-music-app.md` for the full launch flow.
+#[get("/api/music/path")]
+pub async fn get_music_by_path(
+    query: web::Query<PathQueryParams>,
+    req: HttpRequest,
+) -> impl Responder {
+    let PathQueryParams {
+        p,
+        position,
+        t,
+        duration,
+    } = query.into_inner();
+
+    if p.starts_with("content://") {
+        return HttpResponse::BadRequest().body("content:// URIs not supported");
+    }
+
+    let ext = Path::new(&p)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    let Some(ext) = ext else {
+        return HttpResponse::BadRequest().body("File has no extension");
+    };
+    if !SUPPORTED_EXTENSIONS.contains(&ext.as_str()) {
+        return HttpResponse::BadRequest().body("Unsupported file type");
+    }
+
+    let filename = Path::new(&p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("audio");
+
+    let music_query = MusicQueryParams {
+        position,
+        t,
+        duration,
+        download: None,
+    };
+
+    build_audio_stream_response(&p, filename, &music_query, &req).await
 }
 
 /// Parse HTTP Range header (format: "bytes=start-end")
@@ -802,9 +874,12 @@ pub async fn get_music_cover(path: web::Path<i32>, data: web::Data<AppState>) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{download_disposition, get_music_by_id, percent_encode_filename};
+    use super::{
+        download_disposition, get_music_by_id, get_music_by_path, percent_encode_filename,
+    };
     use crate::entities::music::Entity as MusicEntity;
     use crate::types::AppState;
+    use actix_web::body::to_bytes;
     use actix_web::{test as actix_test, web, App};
     use sea_orm::EntityTrait;
     use std::sync::Arc;
@@ -974,5 +1049,110 @@ mod tests {
         assert!(resp.headers().contains_key("content-range"));
         let disposition = disposition_header(&resp).expect("content-disposition header present");
         assert!(disposition.starts_with("attachment"), "{disposition}");
+    }
+
+    // --- get_music_by_path tests (open-as-default-app flow) ---
+
+    fn url_encoded_path_query(path: &str) -> String {
+        format!("/api/music/path?p={}", percent_encode_filename(path))
+    }
+
+    #[actix_web::test]
+    async fn music_by_path_streams_known_audio_extension() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("external.mp3");
+        std::fs::write(&file_path, b"FAKE_AUDIO_BYTES").unwrap();
+        let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 200);
+        assert_eq!(
+            resp.headers()
+                .get("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "audio/mpeg"
+        );
+        let bytes = to_bytes(resp.into_body()).await.unwrap();
+        assert_eq!(bytes.as_ref(), b"FAKE_AUDIO_BYTES");
+    }
+
+    #[actix_web::test]
+    async fn music_by_path_honors_range_header() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("ranged.flac");
+        std::fs::write(&file_path, vec![b'A'; 200]).unwrap();
+        let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
+            .insert_header(("Range", "bytes=10-19"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 206);
+        // Content-Range + Content-Length advertise the slice; the body stream
+        // itself starts at byte 10 and the browser truncates to Content-Length
+        // (existing /api/music/id/{id} Range behavior — see download_flag_with_range).
+        assert!(resp.headers().contains_key("content-range"));
+        assert_eq!(
+            resp.headers()
+                .get("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "10"
+        );
+        assert_eq!(
+            resp.headers()
+                .get("content-range")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "bytes 10-19/200"
+        );
+    }
+
+    #[actix_web::test]
+    async fn music_by_path_rejects_non_audio_extension() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("secrets.txt");
+        std::fs::write(&file_path, b"root:x:0:0:").unwrap();
+        let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn music_by_path_rejects_content_uri() {
+        let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
+        let req = actix_test::TestRequest::get()
+            .uri("/api/music/path?p=content%3A%2F%2Fmedia%2Fsong.mp3")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn music_by_path_rejects_missing_extension() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("noext");
+        std::fs::write(&file_path, b"x").unwrap();
+        let app = actix_test::init_service(App::new().service(get_music_by_path)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri(&url_encoded_path_query(file_path.to_str().unwrap()))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
     }
 }

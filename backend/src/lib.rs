@@ -26,6 +26,78 @@ pub use file_ops::{
     MusicFileInfo, MusicFileLister, ReadSeekSendSync, SUPPORTED_EXTENSIONS,
 };
 
+/// Environment variable that carries the cold-start launch file path.
+///
+/// Set by the Tauri shell before [`start_server`] runs (see
+/// `frontend/src-tauri/src/lib.rs`), drained into [`launch_broker`] during
+/// backend startup. See `docs/default-music-app.md`.
+pub const LAUNCH_FILE_ENV: &str = "KAULAN_LAUNCH_FILE";
+
+/// Singleton broker holding the pending launch file path and SSE subscribers.
+///
+/// One instance lives at the crate root ([`launch_broker`]) and is the single
+/// source of truth for both warm-start calls from the Tauri shell's
+/// single-instance plugin callback and the cold-start env-var seed.
+///
+/// See `handlers/launch` and `docs/default-music-app.md`.
+pub struct LaunchBroker {
+    path: std::sync::Mutex<Option<String>>,
+    subscribers: std::sync::Mutex<Vec<tokio::sync::mpsc::Sender<()>>>,
+}
+
+impl LaunchBroker {
+    fn new() -> Self {
+        Self {
+            path: std::sync::Mutex::new(None),
+            subscribers: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Stash a new launch path and notify all SSE subscribers.
+    pub fn set_path(&self, path: String) {
+        *self.path.lock().expect("launch path mutex poisoned") = Some(path);
+        let mut subs = self.subscribers.lock().expect("subscribers mutex poisoned");
+        // try_send both notifies live subscribers and prunes disconnected ones.
+        subs.retain(|tx| tx.try_send(()).is_ok());
+    }
+
+    /// Atomically take (clear) the stashed path. Returns `None` if nothing
+    /// pending or already consumed.
+    pub fn take_path(&self) -> Option<String> {
+        self.path.lock().expect("launch path mutex poisoned").take()
+    }
+
+    /// Register a new SSE subscriber. Each live subscriber receives a `()`
+    /// notification on every [`set_path`] call until the returned receiver is
+    /// dropped (at which point the next `set_path` prunes it).
+    pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<()> {
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        self.subscribers
+            .lock()
+            .expect("subscribers mutex poisoned")
+            .push(tx);
+        rx
+    }
+}
+
+static LAUNCH_BROKER: std::sync::OnceLock<LaunchBroker> = std::sync::OnceLock::new();
+
+/// Access the singleton [`LaunchBroker`], initializing it on first call.
+pub fn launch_broker() -> &'static LaunchBroker {
+    LAUNCH_BROKER.get_or_init(LaunchBroker::new)
+}
+
+/// Stash a launch file path for the frontend to consume.
+///
+/// Called by the Tauri shell's `tauri-plugin-single-instance` callback on
+/// warm-start launches. Also called once by [`start_server`] during cold start
+/// to drain the `KAULAN_LAUNCH_FILE` env var seed.
+///
+/// See `docs/default-music-app.md`.
+pub fn set_pending_launch_file(path: String) {
+    launch_broker().set_path(path);
+}
+
 // Re-export all handlers for integration tests
 pub use server::{
     delete_music_batch, get_all_music, get_all_playlists, get_directory_tree, get_lyrics,

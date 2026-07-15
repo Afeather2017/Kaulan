@@ -16,6 +16,9 @@ Cargo.lock
 *.db-wal
 music.db
 
+# Local test fixtures (audio samples, scratch DBs created during debugging)
+backend/test-music/
+
 # Logs
 *.log
 npm-debug.log*

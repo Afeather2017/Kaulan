@@ -36,6 +36,14 @@ const BILIBILI_LOGIN_URL: &str = "https://www.bilibili.com/";
 const YOUTUBE_LOGIN_URL: &str = "https://www.youtube.com/";
 const NCMDUMP_CONFIG_DIR_ENV: &str = "NCMDUMP_CONFIG_DIR";
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
+const LAUNCH_FILE_ENV: &str = "KAULAN_LAUNCH_FILE";
+
+/// Extensions whose OS-level "open with Kaulan" launches should hand the file
+/// path off to the backend for playback. Mirrors the backend's
+/// `SUPPORTED_EXTENSIONS` (audio set only — no `mka` here because the OS file
+/// manager treats it as a Matroska container, not an audio file).
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+const SUPPORTED_AUDIO_EXT: &[&str] = &["mp3", "flac", "wav", "ogg", "oga", "opus", "m4a", "aac"];
 #[cfg(not(target_os = "android"))]
 const MERIYAH_UMD_JS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -418,7 +426,20 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(MusicDirectory(Mutex::new(String::new())))
-        .manage(kaulan_server.clone())
+        .manage(kaulan_server.clone());
+
+    // Single-instance plugin must be registered first so it can intercept the
+    // second process before any other plugin starts the app. Desktop-only —
+    // the crate does not compile on Android/iOS.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|_app, argv, _cwd| {
+        if let Some(path) = argv.iter().skip(1).find(|a| is_audio_file_arg(a)).cloned() {
+            log::info!("Single-instance forwarded launch file: {}", path);
+            kaulan::set_pending_launch_file(path);
+        }
+    }));
+
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_android_mediastore::init())
         .plugin(tauri_plugin_android_external_storage::init())
@@ -478,6 +499,21 @@ pub fn run() {
                     .to_string_lossy()
                     .to_string(),
             );
+
+            // Capture cold-start launch file from argv before the backend
+            // thread starts. The backend drains this env var into its launch
+            // broker during `start_server`. Warm-start launches go through the
+            // single-instance plugin callback instead. Desktop-only.
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            {
+                let launch_file = std::env::args()
+                    .skip(1)
+                    .find_map(|a| is_audio_file_arg(&a).then_some(a));
+                if let Some(ref path) = launch_file {
+                    log::info!("Cold-start launch file detected: {}", path);
+                    std::env::set_var(LAUNCH_FILE_ENV, path);
+                }
+            }
 
             // Read config from Tauri-managed storage for UI display purposes.
             // Android uses app_data_dir so it matches the backend config path.
@@ -1682,5 +1718,22 @@ pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeReleaseAndroidCon
         if let Ok(mut guard) = slot.lock() {
             *guard = None;
         }
+    }
+}
+
+/// Return true if `arg` looks like a path to an audio file Kaulan can play.
+///
+/// Used by both the cold-start argv scan and the single-instance plugin
+/// callback to decide whether a CLI arg should be handed off to the backend
+/// as a launch file (vs. ignored as some other flag or argument).
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn is_audio_file_arg(arg: &str) -> bool {
+    let ext = std::path::Path::new(arg)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext {
+        Some(e) => SUPPORTED_AUDIO_EXT.contains(&e.as_str()),
+        None => false,
     }
 }

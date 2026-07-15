@@ -36,6 +36,15 @@
     ],
     "android": {
       "minSdkVersion": 24
-    }
+    },
+    "fileAssociations": [
+      { "ext": ["mp3"], "name": "MP3 Audio", "mimeType": "audio/mpeg" },
+      { "ext": ["flac"], "name": "FLAC Audio", "mimeType": "audio/flac" },
+      { "ext": ["wav"], "name": "WAV Audio", "mimeType": "audio/wav" },
+      { "ext": ["ogg", "oga"], "name": "Ogg Audio", "mimeType": "audio/ogg" },
+      { "ext": ["opus"], "name": "Opus Audio", "mimeType": "audio/opus" },
+      { "ext": ["m4a"], "name": "M4A Audio", "mimeType": "audio/mp4" },
+      { "ext": ["aac"], "name": "AAC Audio", "mimeType": "audio/aac" }
+    ]
   }
 }
