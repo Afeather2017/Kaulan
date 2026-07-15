@@ -3,5 +3,13 @@ PKG_CONFIG_PATH = { value = ".cache/ffmpeg-8.1.1/lib/pkgconfig", relative = true
 LD_LIBRARY_PATH = { value = ".cache/ffmpeg-8.1.1/lib", relative = true }
 FFMPEG_BINDING_PATH = { value = "vendor/rusty_ffmpeg/src/binding.rs", relative = true }
 
+# `cargo clippy-ci` mirrors the .github/workflows/publish.yml clippy step:
+# lint only lib+bins, skip dependencies (so vendored build scripts like
+# rusty_ffmpeg don't generate noise). Lint levels themselves live in
+# Cargo.toml's [workspace.lints.clippy] so plain `cargo clippy` already
+# enforces them — this alias just narrows the scope to match CI exactly.
+[alias]
+clippy-ci = "clippy --lib --bins --no-deps"
+
 [target.'cfg(all(unix, not(target_os = "macos")))']
 rustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN/../../.cache/ffmpeg-8.1.1/lib"]

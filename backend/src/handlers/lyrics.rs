@@ -11,11 +11,13 @@
 use crate::entities::music::{Column as MusicColumn, Entity as MusicEntity};
 use crate::file_ops::{
     get_lyric_reader, lyric_candidate_paths, resolve_path, source_exists, source_write_file,
-    PathKind,
+    PathKind, SUPPORTED_EXTENSIONS,
 };
+use crate::handlers::local_guard::reject_non_local_peer;
 use crate::types::AppState;
-use actix_web::{get, put, web, HttpResponse, Responder};
+use actix_web::{get, put, web, HttpRequest, HttpResponse, Responder};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use serde::Deserialize;
 use std::path::Path;
 use tracing::{debug, error, info, warn};
 
@@ -106,6 +108,117 @@ pub async fn get_lyrics(path: web::Path<String>, data: web::Data<AppState>) -> i
         Err(e) => {
             error!("Database error while fetching music {}: {}", filename, e);
             HttpResponse::InternalServerError().body("Database error")
+        }
+    }
+}
+
+/// Query parameters for path-based lyric lookup (the "open as default app" flow).
+///
+/// `p` is the URL-encoded absolute filesystem path of the **audio** file. The
+/// handler derives the sidecar lyric candidate paths from it (`.lrc` then
+/// `.vtt`) — same derivation rule as the DB-backed endpoints above.
+#[derive(Deserialize)]
+struct LyricsPathQuery {
+    p: String,
+}
+
+/// Stream sidecar lyrics for an arbitrary filesystem audio path.
+///
+/// Used by the "open file as default app" flow when the OS launches Kaulan with
+/// a file the user double-clicked in their file manager. The audio path is not
+/// required to be in the `music` table — the sidecar lookup goes straight
+/// through [`get_lyric_reader`] against the filesystem.
+///
+/// # Security
+///
+/// Gated by the same extension whitelist ([`SUPPORTED_EXTENSIONS`]) as
+/// [`crate::handlers::music::get_music_by_path`]. Without the extension guard,
+/// any local process could probe for arbitrary sidecar files via
+/// `?p=/etc/passwd`. With it, the surface mirrors what `/api/music/path`
+/// already exposes.
+///
+/// # Known limitation: Android `content://` asymmetry
+///
+/// Unlike [`crate::handlers::music::get_music_by_path`] and
+/// [`crate::handlers::music::get_music_cover_by_path`], this handler rejects
+/// `content://` URIs on every platform. Android MediaStore URIs don't carry a
+/// sibling filename the sidecar resolver can derive a `.lrc`/`.vtt` path from,
+/// so lyrics are unavailable for Android-launched files. Closing this gap
+/// requires a different lookup path (e.g. `MediaMetadataRetriever` for
+/// embedded lyrics) and is tracked as a follow-up.
+///
+/// # Query Parameters
+/// * `p` (required) — URL-encoded absolute filesystem path of the audio file
+///
+/// # Returns
+/// - `200 OK` with `text/plain; charset=utf-8` body when a `.lrc`/`.vtt` sidecar exists
+/// - `400 Bad Request` when `p` is a `content://` URI, has no extension, or has a non-audio extension
+/// - `404 Not Found` when the audio file has no sidecar lyric
+/// - `500 Internal Server Error` on filesystem errors
+///
+/// See `docs/default-music-app.md` for the full launch flow.
+#[get("/api/lyrics/path")]
+pub async fn get_lyrics_by_path(
+    query: web::Query<LyricsPathQuery>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Some(reject) = reject_non_local_peer(&req) {
+        return reject;
+    }
+
+    let LyricsPathQuery { p } = query.into_inner();
+
+    if p.starts_with("content://") {
+        return HttpResponse::BadRequest().body("content:// URIs not supported");
+    }
+
+    let ext = Path::new(&p)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    let Some(ext) = ext else {
+        return HttpResponse::BadRequest().body("File has no extension");
+    };
+    if !SUPPORTED_EXTENSIONS.contains(&ext.as_str()) {
+        return HttpResponse::BadRequest().body("Unsupported file type");
+    }
+
+    let filename = Path::new(&p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("audio");
+
+    info!(
+        "[ACCESS] GET /api/lyrics/path - Started (p=<{} bytes>)",
+        p.len()
+    );
+
+    let lyric_reader = get_lyric_reader();
+    match lyric_reader.read_lyric(&p, filename).await {
+        Ok(Some(content)) => {
+            info!(
+                "[ACCESS] GET /api/lyrics/path - Status: 200, {} bytes",
+                content.len()
+            );
+            let mut response = HttpResponse::Ok();
+            response.insert_header(("Content-Type", "text/plain; charset=utf-8"));
+            response.insert_header((
+                "Cache-Control",
+                "no-store, no-cache, must-revalidate, max-age=0",
+            ));
+            response.insert_header(("Pragma", "no-cache"));
+            response.insert_header(("Expires", "0"));
+            response.body(content)
+        }
+        Ok(None) => {
+            debug!("No sidecar lyrics found for {}", p);
+            info!("[ACCESS] GET /api/lyrics/path - Status: 404");
+            HttpResponse::NotFound().body("Lyrics not found")
+        }
+        Err(e) => {
+            error!("Error reading lyrics for {}: {}", p, e);
+            info!("[ACCESS] GET /api/lyrics/path - Status: 500");
+            HttpResponse::InternalServerError().body("Error reading lyrics")
         }
     }
 }
@@ -701,5 +814,118 @@ mod tests {
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status().as_u16(), 404);
+    }
+
+    // --- get_lyrics_by_path tests (open-as-default-app flow) ---
+
+    fn percent_encoded_query(path: &str) -> String {
+        let mut out = String::with_capacity(path.len() * 3);
+        for byte in path.bytes() {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                out.push(char::from(byte));
+            } else {
+                out.push('%');
+                out.push_str(&format!("{:02X}", byte));
+            }
+        }
+        format!("/api/lyrics/path?p={out}")
+    }
+
+    /// Loopback peer address for tests of endpoints guarded by
+    /// [`reject_non_local_peer`]. `TestRequest` defaults `peer_addr` to `None`,
+    /// which the guard treats as non-local — preset this so the guard passes.
+    fn local_peer() -> std::net::SocketAddr {
+        "127.0.0.1:0".parse().unwrap()
+    }
+
+    #[actix_web::test]
+    async fn lyrics_by_path_serves_lrc_sidecar() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let audio_path = temp_dir.path().join("launch.mp3");
+        std::fs::write(&audio_path, b"fake audio").unwrap();
+        let lyrics_path = temp_dir.path().join("launch.lrc");
+        std::fs::write(
+            &lyrics_path,
+            "[00:00.50]Launch lyric line\n[00:02.00]Second line",
+        )
+        .unwrap();
+
+        let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
+        let req = test::TestRequest::get()
+            .peer_addr(local_peer())
+            .uri(&percent_encoded_query(audio_path.to_str().unwrap()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = test::read_body(resp).await;
+        let content = String::from_utf8(body.to_vec()).unwrap();
+        assert!(content.contains("[00:00.50]Launch lyric line"));
+    }
+
+    #[actix_web::test]
+    async fn lyrics_by_path_falls_back_to_vtt_sidecar() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let audio_path = temp_dir.path().join("launch.flac");
+        std::fs::write(&audio_path, b"fake audio").unwrap();
+        let lyrics_path = temp_dir.path().join("launch.vtt");
+        std::fs::write(
+            &lyrics_path,
+            "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nhello\n",
+        )
+        .unwrap();
+
+        let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
+        let req = test::TestRequest::get()
+            .peer_addr(local_peer())
+            .uri(&percent_encoded_query(audio_path.to_str().unwrap()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = test::read_body(resp).await;
+        let content = String::from_utf8(body.to_vec()).unwrap();
+        assert!(content.contains("WEBVTT"));
+    }
+
+    #[actix_web::test]
+    async fn lyrics_by_path_returns_404_without_sidecar() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let audio_path = temp_dir.path().join("alone.mp3");
+        std::fs::write(&audio_path, b"fake audio").unwrap();
+
+        let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
+        let req = test::TestRequest::get()
+            .peer_addr(local_peer())
+            .uri(&percent_encoded_query(audio_path.to_str().unwrap()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 404);
+    }
+
+    #[actix_web::test]
+    async fn lyrics_by_path_rejects_non_audio_extension() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let secret_path = temp_dir.path().join("passwd.txt");
+        std::fs::write(&secret_path, b"root:x:0:0:").unwrap();
+
+        let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
+        let req = test::TestRequest::get()
+            .peer_addr(local_peer())
+            .uri(&percent_encoded_query(secret_path.to_str().unwrap()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+    }
+
+    #[actix_web::test]
+    async fn lyrics_by_path_rejects_content_uri() {
+        let app = test::init_service(App::new().service(get_lyrics_by_path)).await;
+        let req = test::TestRequest::get()
+            .peer_addr(local_peer())
+            .uri("/api/lyrics/path?p=content%3A%2F%2Fmedia%2Faudio.mp3")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
     }
 }

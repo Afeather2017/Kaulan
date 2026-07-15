@@ -39,6 +39,7 @@ import {
   consumeSharedLinkQuery,
   parseSharedLinkIntent,
 } from "@/utils/sharedLink";
+import { consumeLaunchFile, subscribeToLaunchEvents } from "@/utils/launchFile";
 
 // Related documentation:
 // - `docs/runtime-platform-capabilities.md`
@@ -398,6 +399,38 @@ export function useAppShell() {
 
       console.error("Failed to resume shared playback:", error);
       setStartupStatusMessage("播放分享歌曲失败。");
+    }
+  };
+
+  // Open a file the OS launched Kaulan with (the "default music app" flow).
+  // Mirrors openSharedSongPlayer: replaces the queue with a single synthetic
+  // song whose stream_url points at /api/music/path?p=..., then plays it. On
+  // browser autoplay block, shows the same shared-play prompt.
+  const openLaunchFilePlayer = async () => {
+    const result = await consumeLaunchFile();
+    if (!result.hasLaunch || !result.song) {
+      return;
+    }
+
+    clearStartupStatusMessage();
+    showSharedPlayPrompt.value = false;
+
+    const song = result.song;
+    playerStore.setPlaylistSongs([song]);
+    playerStore.resetPlaybackSourceContext();
+    ui.activeTab.value = "library";
+    uiStore.enterPlayerPanel("cover");
+
+    try {
+      await playerStore.playSongFromPlaylist(song, [song], 0);
+    } catch (error) {
+      if (error instanceof PlaybackStartError) {
+        showSharedPlayPrompt.value = true;
+        setStartupStatusMessage("浏览器阻止了自动播放，请点击播放按钮继续。");
+        return;
+      }
+      console.error("Failed to start launch file playback:", error);
+      setStartupStatusMessage("播放打开的文件失败。");
     }
   };
 
@@ -1108,6 +1141,8 @@ export function useAppShell() {
     resetSelectionModes();
   });
 
+  let launchEventsUnsubscribe: (() => void) | null = null;
+
   onMounted(async () => {
     const sharedLinkIntent =
       typeof window !== "undefined"
@@ -1125,6 +1160,15 @@ export function useAppShell() {
     if (sharedLinkIntent?.hasShareIntent) {
       await openSharedSongPlayer();
     }
+    // Open-as-default-app flow:
+    // - One-shot consume for cold start (broker seeded from KAULAN_LAUNCH_FILE
+    //   env before the page loaded).
+    // - SSE subscription for warm start (single-instance plugin pushes via the
+    //   backend's launch broker while the page is already mounted).
+    await openLaunchFilePlayer();
+    launchEventsUnsubscribe = subscribeToLaunchEvents(() => {
+      void openLaunchFilePlayer();
+    });
     await androidBackNavigation.registerAndroidBackHandler();
     shellLayout.updateLayoutMode();
     window.addEventListener("resize", shellLayout.updateLayoutMode);
@@ -1134,6 +1178,8 @@ export function useAppShell() {
     if (typeof window !== "undefined") {
       window.removeEventListener("resize", shellLayout.updateLayoutMode);
     }
+    launchEventsUnsubscribe?.();
+    launchEventsUnsubscribe = null;
     androidBackNavigation.cleanupAndroidBackHandler();
   });
 

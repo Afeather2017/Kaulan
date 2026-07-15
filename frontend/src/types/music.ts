@@ -11,6 +11,7 @@ export interface BackendMusicInfo {
 
 export interface MusicInfo extends BackendMusicInfo {
   cover_url?: string | null;
+  lyrics_url?: string | null;
   source_key?: string | null;
   sourceLabel?: string;
   rowKey?: string;

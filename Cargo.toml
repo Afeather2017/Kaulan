@@ -9,3 +9,25 @@ serde_json = "1.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 sea-orm = { version = "0.12", features = ["sqlx-sqlite", "runtime-actix-rustls", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
+
+# CI-enforced clippy lints. Member crates opt in via:
+#   [lints]
+#   workspace = true
+# Then `cargo clippy` locally matches CI without passing any -D flags.
+# See `.cargo/config.toml` for the `clippy-ci` alias that also adds
+# `--lib --bins --no-deps` (skips vendored build scripts).
+[workspace.lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+as_conversions = "deny"
+arithmetic_side_effects = "deny"
+cast_lossless = "deny"
+exit = "deny"
+implicit_clone = "deny"
+indexing_slicing = "deny"
+maybe_infinite_iter = "deny"
+mem_forget = "deny"
+needless_pass_by_value = "deny"
+option_option = "deny"
+wildcard_imports = "deny"

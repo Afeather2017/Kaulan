@@ -1,9 +1,14 @@
 package afeather.kaulan
 
+import android.content.ContentResolver
+import android.content.Intent
+import android.database.Cursor
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.OpenableColumns
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -34,6 +39,10 @@ class MainActivity : TauriActivity() {
 
   private external fun nativeInitAndroidContext()
   private external fun nativeReleaseAndroidContext()
+  // Forward the OS-launched audio file (content:// or file:// URI) to the
+  // backend launch broker. `displayName` is the friendly filename from
+  // ContentResolver (null when not resolvable). See docs/default-music-app.md.
+  private external fun nativeSetLaunchFile(uri: String, displayName: String?)
 
   private val mainHandler = Handler(Looper.getMainLooper())
   private val hiddenSolverLock = Object()
@@ -94,6 +103,63 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     nativeInitAndroidContext()
+    // Cold-start case: capture the VIEW intent the OS launched us with. The
+    // backend broker is a static OnceLock in the Rust crate, so this is safe
+    // to call before the in-process backend binds its port.
+    handleLaunchIntent(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    // Warm-start case: Kaulan is already running (singleTask launch mode).
+    // Forward the new VIEW intent's URI to the broker; the frontend's SSE
+    // subscription picks it up.
+    handleLaunchIntent(intent)
+  }
+
+  private fun handleLaunchIntent(intent: Intent?) {
+    if (intent == null || Intent.ACTION_VIEW != intent.action) {
+      return
+    }
+    val data: Uri = intent.data ?: return
+    val uriString = data.toString()
+    val displayName = resolveDisplayName(data)
+    try {
+      nativeSetLaunchFile(uriString, displayName)
+      android.util.Log.i(
+        "KaulanLaunch",
+        "Forwarded launch URI: $uriString (name=$displayName)",
+      )
+    } catch (e: Throwable) {
+      android.util.Log.e("KaulanLaunch", "nativeSetLaunchFile failed", e)
+    }
+  }
+
+  /**
+   * Resolve a friendly filename for the launch URI via ContentResolver's
+   * OpenableColumns. Returns null when the column isn't available (the
+   * frontend then falls back to the URI's last path segment).
+   */
+  private fun resolveDisplayName(uri: Uri): String? {
+    if (uri.scheme != ContentResolver.SCHEME_CONTENT) {
+      // For file:// URIs the path itself ends in a filename; let the
+      // frontend derive it.
+      return null
+    }
+    val resolver = contentResolver ?: return null
+    return try {
+      resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor: Cursor ->
+          if (cursor.moveToFirst() && !cursor.isNull(0)) {
+            cursor.getString(0)
+          } else {
+            null
+          }
+        }
+    } catch (e: Throwable) {
+      android.util.Log.w("KaulanLaunch", "DISPLAY_NAME query failed", e)
+      null
+    }
   }
 
   override fun onWebViewCreate(webView: WebView) {

@@ -17,6 +17,7 @@ use crate::database::establish_connection;
 use crate::handlers::database;
 use crate::handlers::discovery;
 use crate::handlers::download;
+use crate::handlers::launch;
 use crate::handlers::library_import;
 use crate::handlers::lufs;
 use crate::handlers::lyrics;
@@ -38,10 +39,14 @@ pub use download::{
     get_download_directory_tree, get_download_job, get_download_jobs, get_online_provider_statuses,
     get_preview_track, search_lyrics, search_online,
 };
+pub use launch::{get_launch_events, get_launch_pending};
 pub use library_import::import_from_remote;
 pub use lufs::precache_lufs;
-pub use lyrics::{get_lyrics, get_lyrics_by_id, update_lyrics_by_id};
-pub use music::{delete_music_batch, get_all_music, get_music, get_music_by_id, get_music_cover};
+pub use lyrics::{get_lyrics, get_lyrics_by_id, get_lyrics_by_path, update_lyrics_by_id};
+pub use music::{
+    delete_music_batch, get_all_music, get_music, get_music_by_id, get_music_by_path,
+    get_music_cover, get_music_cover_by_path,
+};
 pub use playlists::{get_all_playlists, get_playlist};
 pub use settings::{get_media_types, get_music_directory, set_media_types, set_music_directory};
 pub use upload::{get_directory_tree, upload_files};
@@ -312,6 +317,24 @@ pub async fn start_server(
         2080, // API port
     ));
 
+    // Drain the cold-start launch file seed (set by the Tauri shell before the
+    // backend started) into the launch broker. If a frontend mount-time GET
+    // races with this, the broker just hasn't been initialized yet —
+    // `get_or_init` handles that, and the GET will see `None` until the env
+    // drain runs. In practice the backend binds :2080 before the Tauri webview
+    // loads, so the seed is in place before the frontend can ask.
+    if let Some(path) = env::var(crate::LAUNCH_FILE_ENV)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+    {
+        info!(
+            "Seeding pending launch file from {}: {}",
+            crate::LAUNCH_FILE_ENV,
+            path
+        );
+        crate::set_pending_launch_file(path);
+    }
+
     // Start discovery listener if socket was created
     if let Some(socket) = discovery_socket {
         let discovery_state_clone = discovery_state.clone();
@@ -372,14 +395,27 @@ pub async fn start_server(
                 .app_data(app_state.clone())
                 .app_data(discovery_data.clone())
                 .app_data(web::Data::new(static_frontend_config.clone()))
-                // Music endpoints (ID-based first, then filename-based)
+                // Music endpoints. Registration order matters: static segments
+                // (`/api/music/path`, `/api/music/id`) must come before the
+                // dynamic `/api/music/{filename}`, otherwise a request to
+                // `/api/music/path?p=...` matches `get_music` with
+                // `filename="path"` and returns a 404 the audio element can't
+                // decode (manifests as a `NotSupportedError` on `play()`).
+                .service(get_music_cover_by_path)
                 .service(get_music_cover)
                 .service(get_music_by_id)
-                .service(get_music)
+                .service(get_music_by_path)
                 .service(get_all_music)
+                .service(get_music)
                 .service(delete_music_batch)
                 .service(precache_lufs)
-                // Lyrics endpoints (ID-based first, then filename-based)
+                // Launch-file handoff (open-as-default-app flow)
+                .service(get_launch_pending)
+                .service(get_launch_events)
+                // Lyrics endpoints. Same static-before-dynamic ordering as the
+                // music block above: /api/lyrics/path must precede
+                // /api/lyrics/{filename} or it matches with filename="path".
+                .service(get_lyrics_by_path)
                 .service(get_lyrics_by_id)
                 .service(get_lyrics)
                 .service(update_lyrics_by_id)

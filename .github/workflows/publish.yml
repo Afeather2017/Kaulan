@@ -79,23 +79,7 @@ jobs:
         run: bash ./scripts/ci-install-ffmpeg-linux.sh
 
       - name: Clippy
-        run: >-
-          cargo clippy -p kaulan --lib --bins --no-deps --
-          -D warnings
-          -D clippy::panic
-          -D clippy::unwrap_used
-          -D clippy::expect_used
-          -D clippy::as_conversions
-          -D clippy::arithmetic_side_effects
-          -D clippy::cast_lossless
-          -D clippy::exit
-          -D clippy::implicit_clone
-          -D clippy::indexing_slicing
-          -D clippy::maybe_infinite_iter
-          -D clippy::mem_forget
-          -D clippy::needless_pass_by_value
-          -D clippy::option_option
-          -D clippy::wildcard_imports
+        run: cargo clippy-ci -p kaulan -- -D warnings
 
       - name: Install local music notification package dependencies
         working-directory: vendor/tauri-plugin-music-notification

@@ -346,18 +346,23 @@ export function findLyricIndex(lines: LyricLine[], time: number): number {
 }
 
 /**
- * Load lyrics from the backend API
+ * Load lyrics for a song.
  *
- * @param id - Music ID
+ * Songs that carry an explicit `lyrics_url` (the "open as default app" launch
+ * flow) fetch from that URL directly — it points at `/api/lyrics/path`, which
+ * serves a same-directory sidecar without a DB lookup. Songs without the
+ * override fall back to the DB-backed `/api/lyrics/id/{id}` endpoint.
+ *
+ * @param song - The song to load lyrics for
  * @returns Promise resolving to the raw lyric content, or null if not found
  */
-async function loadLyrics(
-  id: number,
-  sourceKey?: string | null,
-): Promise<string | null> {
+async function loadLyrics(song: MusicInfo): Promise<string | null> {
   try {
-    const apiBase = resolveSourceApiBase(sourceKey);
-    const response = await fetch(`${apiBase}/lyrics/id/${id}`);
+    const url =
+      song.lyrics_url ??
+      `${resolveSourceApiBase(song.source_key)}/lyrics/id/${song.id}`;
+
+    const response = await fetch(url);
 
     if (response.status === 404) {
       // No lyrics available for this song
@@ -488,10 +493,7 @@ export function useLyrics(
     }
 
     isLoading.value = true;
-    const content = await loadLyrics(
-      currentSong.value.id,
-      currentSong.value.source_key,
-    );
+    const content = await loadLyrics(currentSong.value);
 
     if (content) {
       rawLyricsContent.value = content;
@@ -507,9 +509,13 @@ export function useLyrics(
     isLoading.value = false;
   }
 
-  // Auto-load lyrics only when the song identity changes.
+  // Auto-load lyrics when the song identity changes. Launch files all share
+  // `id: -1`, so keying on `id` alone would miss the transition between two
+  // different launched files. Including `stream_url` (which carries the
+  // absolute path) distinguishes them.
   watch(
-    () => currentSong.value?.id ?? null,
+    () =>
+      `${currentSong.value?.id ?? null}:${currentSong.value?.stream_url ?? ""}`,
     () => {
       void fetchLyrics();
     },

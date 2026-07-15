@@ -251,6 +251,14 @@ frontend/src-tauri/src/
 - `GET /api/music/{filename}` - Stream audio file
 - `GET /api/music` - Get all music from database
 - `GET /api/music/id/{id}` - Stream audio by ID; `?position=` seeks (0.0–1.0) and `?download=1` sends `Content-Disposition: attachment` (RFC 6266 `filename` + UTF-8 `filename*=`) so the browser saves instead of plays — used by the browser "download to local" flow; see [`docs/library-import.md`](docs/library-import.md)
+- `GET /api/music/path` - Stream an arbitrary audio file by absolute path (no DB lookup). Query: `?p={url-encoded path}`. Used by the "open file as default app" flow; extension-gated for safety. See [`docs/default-music-app.md`](docs/default-music-app.md)
+- `GET /api/music/id/{id}/cover` - Extract embedded cover art by music ID (FFmpeg pipeline; materializes non-filesystem sources like Android `content://` URIs into a temp file first)
+- `GET /api/music/path/cover` - Extract embedded cover art by absolute path. Query: `?p={url-encoded path}`. Same security gating as `/api/music/path`. Used by the launch handoff so the click-open player shows cover art for files not in the DB. See [`docs/default-music-app.md`](docs/default-music-app.md)
+
+### Launch Handoff Endpoints (open-as-default-app flow)
+- `GET /api/launch/pending` - Atomically take the pending launch file path the OS launched Kaulan with. Returns `{path: string | null}` and clears the stash.
+- `GET /api/launch/events` - Server-Sent Events stream; pushes `data: {}` each time a new launch file is stashed (warm-start case). Browser auto-reconnects.
+- See [`docs/default-music-app.md`](docs/default-music-app.md) for the full flow.
 
 ### Lyrics Endpoints
 - `GET /api/lyrics/{filename}` - Stream LRC lyrics file
@@ -259,6 +267,7 @@ frontend/src-tauri/src/
   - Returns 404 if LRC file doesn't exist (graceful degradation)
   - See [`docs/lyrics-display.md`](docs/lyrics-display.md) for details
 - `GET /api/lyrics/id/{id}` - Stream LRC or WEBVTT lyrics by music ID
+- `GET /api/lyrics/path` - Stream LRC or WEBVTT sidecar lyrics by absolute path. Query: `?p={url-encoded path}`. Same security gating as `/api/music/path`. Used by the launch handoff so a double-clicked file picks up same-directory sidecar lyrics without a DB row. See [`docs/default-music-app.md`](docs/default-music-app.md)
 - `PUT /api/lyrics/id/{id}` - Update an existing writable LRC or WEBVTT sidecar file after lyric timing edits
   - Request body: `{ "content": "..." }`
   - Returns 409 when the source is not writable, such as Android MediaStore

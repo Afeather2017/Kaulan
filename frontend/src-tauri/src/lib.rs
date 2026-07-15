@@ -36,6 +36,15 @@ const BILIBILI_LOGIN_URL: &str = "https://www.bilibili.com/";
 const YOUTUBE_LOGIN_URL: &str = "https://www.youtube.com/";
 const NCMDUMP_CONFIG_DIR_ENV: &str = "NCMDUMP_CONFIG_DIR";
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+const LAUNCH_FILE_ENV: &str = "KAULAN_LAUNCH_FILE";
+
+/// Extensions whose OS-level "open with Kaulan" launches should hand the file
+/// path off to the backend for playback. Mirrors the backend's
+/// `SUPPORTED_EXTENSIONS` (audio set only — no `mka` here because the OS file
+/// manager treats it as a Matroska container, not an audio file).
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+const SUPPORTED_AUDIO_EXT: &[&str] = &["mp3", "flac", "wav", "ogg", "oga", "opus", "m4a", "aac"];
 #[cfg(not(target_os = "android"))]
 const MERIYAH_UMD_JS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -418,7 +427,20 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(MusicDirectory(Mutex::new(String::new())))
-        .manage(kaulan_server.clone())
+        .manage(kaulan_server.clone());
+
+    // Single-instance plugin must be registered first so it can intercept the
+    // second process before any other plugin starts the app. Desktop-only —
+    // the crate does not compile on Android/iOS.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|_app, argv, _cwd| {
+        if let Some(path) = argv.iter().skip(1).find_map(|a| launch_file_from_arg(a)) {
+            log::info!("Single-instance forwarded launch file: {}", path);
+            kaulan::set_pending_launch_file(path);
+        }
+    }));
+
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_android_mediastore::init())
         .plugin(tauri_plugin_android_external_storage::init())
@@ -478,6 +500,21 @@ pub fn run() {
                     .to_string_lossy()
                     .to_string(),
             );
+
+            // Capture cold-start launch file from argv before the backend
+            // thread starts. The backend drains this env var into its launch
+            // broker during `start_server`. Warm-start launches go through the
+            // single-instance plugin callback instead. Desktop-only.
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            {
+                let launch_file = std::env::args()
+                    .skip(1)
+                    .find_map(|a| launch_file_from_arg(&a));
+                if let Some(ref path) = launch_file {
+                    log::info!("Cold-start launch file detected: {}", path);
+                    std::env::set_var(LAUNCH_FILE_ENV, path);
+                }
+            }
 
             // Read config from Tauri-managed storage for UI display purposes.
             // Android uses app_data_dir so it matches the backend config path.
@@ -1682,5 +1719,90 @@ pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeReleaseAndroidCon
         if let Ok(mut guard) = slot.lock() {
             *guard = None;
         }
+    }
+}
+
+/// JNI bridge for the open-as-default-music-app flow.
+///
+/// Called from `MainActivity.handleLaunchIntent` for both cold-start (OS
+/// launched Kaulan with a `VIEW` intent) and warm-start (singleTask forwards a
+/// new intent to the running activity). Forwards the URI and optional display
+/// name (ContentResolver `_display_name`) to the backend launch broker, which
+/// the frontend consumes via `GET /api/launch/pending` and the SSE stream on
+/// `/api/launch/events`. See `docs/default-music-app.md`.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_afeather_kaulan_MainActivity_nativeSetLaunchFile(
+    mut env: jni::JNIEnv,
+    _activity: JObject,
+    uri: JString,
+    display_name: JString,
+) {
+    let uri = match env.get_string(&uri) {
+        Ok(s) => s.to_string_lossy().into_owned(),
+        Err(err) => {
+            log::error!("nativeSetLaunchFile: failed to decode URI string: {err}");
+            return;
+        }
+    };
+    let display_name = if display_name.is_null() {
+        None
+    } else {
+        match env.get_string(&display_name) {
+            Ok(s) => {
+                let trimmed = s.to_string_lossy().trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            }
+            Err(err) => {
+                log::warn!("nativeSetLaunchFile: failed to decode display_name: {err}");
+                None
+            }
+        }
+    };
+    log::info!(
+        "Forwarding Android launch file to broker: uri={} display_name={:?}",
+        uri,
+        display_name
+    );
+    kaulan::set_pending_launch_file_with_name(uri, display_name);
+}
+
+/// If `arg` is a path to a supported audio file, return it as a normalized
+/// filesystem path. Returns `None` for flags, non-audio extensions, or paths
+/// without an extension.
+///
+/// Accepts both raw filesystem paths (the common case) and `file://` URIs
+/// (some Linux file managers pass these via `xdg-open`). For URIs, the
+/// `url` crate handles the OS-specific conversion (`Url::to_file_path`):
+/// `file:///C:/Music/song.mp3` → `C:\Music\song.mp3` on Windows,
+/// `file:///home/user/song.mp3` → `/home/user/song.mp3` on Linux. Without
+/// this normalization, a `file://` URI stored verbatim in the launch broker
+/// would later fail the extension whitelist in `/api/music/path` (which sees
+/// the URI as a single "filename" with no extension) or 404 at the filesystem.
+///
+/// Used by both the cold-start argv scan and the single-instance plugin
+/// callback to decide whether a CLI arg should be handed off to the backend
+/// as a launch file (vs. ignored as some other flag or argument).
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn launch_file_from_arg(arg: &str) -> Option<String> {
+    let path_str = if arg.starts_with("file://") {
+        let url = url::Url::parse(arg).ok()?;
+        let path = url.to_file_path().ok()?;
+        path.to_string_lossy().into_owned()
+    } else {
+        arg.to_string()
+    };
+
+    let ext = std::path::Path::new(&path_str)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext {
+        Some(e) if SUPPORTED_AUDIO_EXT.contains(&e.as_str()) => Some(path_str),
+        _ => None,
     }
 }
