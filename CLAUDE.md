@@ -99,6 +99,12 @@ npm run test        # Run tests (vitest)
 - Vite proxy forwards `/api` requests to backend (see `frontend/vite.config.ts`)
 - On Android, the Tauri app starts the backend during app setup; the music notification foreground service reuses that server to keep it alive in background.
 
+### Versioning
+- The **git tag** (`vX.Y.Z`) is the single source of truth for the release version. Tags are picked up automatically by the Android build scripts (`build-android.sh`, `build-android.bat`), which strip the `v` prefix and inject the version via Tauri's `--config` flag so the bundled APK/AAB reports the tag's version.
+- The `version` fields in `frontend/src-tauri/Cargo.toml`, `frontend/src-tauri/tauri.conf.json`, and `frontend/package.json` are **dev-build fallbacks only**. They do not need to be hand-bumped per release — they're used when no git tag is reachable (e.g., local dev builds before any tag exists).
+- To cut a release: `git tag vX.Y.Z && git push --tags`, then run `./build-android.sh` (or `build-android.bat` on Windows). The script logs `Injecting release version from git tag: X.Y.Z` before invoking Tauri.
+- Tags that don't match `X.Y.Z` (after stripping the `v` prefix) are ignored, and the build falls back to the source-file version.
+
 ## Architecture
 
 ### Backend Structure

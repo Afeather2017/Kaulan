@@ -139,6 +139,24 @@ export_single_target_android_ffmpeg_env() {
     export FFMPEG_LINK_MODE="dynamic"
 }
 
+# Derive the release version from the most recent git tag (e.g. v1.1.0 -> 1.1.0).
+# Empty stdout means "no usable tag, fall back to source-file versions".
+# See CLAUDE.md "Versioning" for the model.
+resolve_release_version_from_tag() {
+    local tag=""
+    tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+    if [ -z "$tag" ]; then
+        echo "No git tag found; falling back to dev version from source files." >&2
+        return 0
+    fi
+    local version="${tag#v}"
+    if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+        echo "Latest tag '$tag' is not semver (X.Y.Z); skipping version override." >&2
+        return 0
+    fi
+    printf '%s' "$version"
+}
+
 cleanup() {
     rm -f "$KEYSTORE_PROPERTIES"
 }
@@ -207,6 +225,15 @@ for _arg in "$@"; do
         TAURI_ARGS+=("$_arg")
     fi
 done
+
+# Inject the release version from the latest git tag so the bundled APK/AAB
+# reports the tag's version without hand-editing source files. Tauri merges
+# this --config JSON on top of tauri.conf.json.
+RELEASE_VERSION="$(resolve_release_version_from_tag || true)"
+if [ -n "$RELEASE_VERSION" ]; then
+    echo "Injecting release version from git tag: $RELEASE_VERSION"
+    TAURI_ARGS+=("--config" "{\"version\":\"$RELEASE_VERSION\"}")
+fi
 
 echo
 cd "$FRONTEND_DIR"
