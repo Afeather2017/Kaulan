@@ -74,15 +74,45 @@ if not exist "%FFMPEG_BINDING_PATH%" (
     exit /b 1
 )
 
-REM Step 1: Build unsigned APK
+REM Derive release version from latest git tag (e.g. v1.1.0 -> 1.1.0).
+REM Tauri's --config flag merges this over tauri.conf.json so the bundled
+REM APK reports the tag's version without hand-editing source files.
+REM See CLAUDE.md "Versioning" for the model.
+set "RELEASE_VERSION="
+set "LATEST_TAG="
+for /f "delims=" %%i in ('git describe --tags --abbrev=0 2^>nul') do set "LATEST_TAG=%%i"
+if not defined LATEST_TAG (
+    echo No git tag found; using dev version from source files.
+) else (
+    set "TAG_VALUE=!LATEST_TAG:v=!"
+    echo !TAG_VALUE! | findstr /R "^[0-9][0-9]*[.][0-9][0-9]*[.][0-9][0-9]*" >nul
+    if !errorlevel! equ 0 (
+        set "RELEASE_VERSION=!TAG_VALUE!"
+        echo Injecting release version from git tag: !RELEASE_VERSION!
+    ) else (
+        echo Tag "!LATEST_TAG!" is not semver; skipping version override.
+    )
+)
+
+REM Step 1: Build unsigned APK. Pass --config inline when a release version was
+REM resolved; cmd.exe's `\"` escapes the inner quotes so the C runtime that
+REM parses argv in npx/tauri sees valid JSON: {"version":"X.Y.Z"}.
 echo [1/5] Building APK with Tauri...
 cd /d "%FRONTEND_DIR%"
 if "%~1"=="" (
     echo   No target specified, building universal APK...
-    call npx tauri android build
+    if defined RELEASE_VERSION (
+        call npx tauri android build --config "{\"version\":\"!RELEASE_VERSION!\"}"
+    ) else (
+        call npx tauri android build
+    )
 ) else (
     echo   Building with custom options: %*
-    call npx tauri android build %*
+    if defined RELEASE_VERSION (
+        call npx tauri android build %* --config "{\"version\":\"!RELEASE_VERSION!\"}"
+    ) else (
+        call npx tauri android build %*
+    )
 )
 if errorlevel 1 exit /b 1
 
