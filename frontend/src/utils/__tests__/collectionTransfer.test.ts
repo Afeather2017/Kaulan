@@ -132,6 +132,52 @@ describe("parseCollectionsExport", () => {
     };
     expect(() => parseCollectionsExport(JSON.stringify(bad))).toThrowError();
   });
+
+  it("rejects an empty or whitespace-only collection name", () => {
+    const cases = ["", "   ", "\t"];
+    for (const name of cases) {
+      const bad = {
+        version: COLLECTION_EXPORT_VERSION,
+        collections: [{ name, created_at: "x", songs: [] }],
+      };
+      expect(() => parseCollectionsExport(JSON.stringify(bad))).toThrowError(
+        /名称不能为空/,
+      );
+    }
+  });
+
+  it("rejects an empty or whitespace-only song name", () => {
+    const cases = ["", "  "];
+    for (const songName of cases) {
+      const bad = {
+        version: COLLECTION_EXPORT_VERSION,
+        collections: [
+          {
+            name: "F",
+            created_at: "x",
+            songs: [{ source: LOCAL, name: songName }],
+          },
+        ],
+      };
+      expect(() => parseCollectionsExport(JSON.stringify(bad))).toThrowError(
+        /空名称/,
+      );
+    }
+  });
+
+  it("accepts an empty source (normalized form of missing source_key)", () => {
+    const payload = {
+      version: COLLECTION_EXPORT_VERSION,
+      collections: [
+        {
+          name: "F",
+          created_at: "x",
+          songs: [{ source: "", name: "a.mp3" }],
+        },
+      ],
+    };
+    expect(() => parseCollectionsExport(JSON.stringify(payload))).not.toThrow();
+  });
 });
 
 describe("mergeCollectionsFromImport", () => {
