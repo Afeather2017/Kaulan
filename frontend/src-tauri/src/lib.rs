@@ -442,6 +442,7 @@ pub fn run() {
 
     let builder = builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_android_mediastore::init())
         .plugin(tauri_plugin_android_external_storage::init())
         .plugin(tauri_plugin_music_notification_api::init());
