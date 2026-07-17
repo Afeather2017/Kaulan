@@ -310,6 +310,17 @@ export const useCollectionsStore = defineStore("collections", () => {
     return deleted ? currentName : false;
   };
 
+  // Replace all collections and persist. Used by the import flow in
+  // SettingsModal, which computes the next state outside the store via
+  // `mergeCollectionsFromImport` (it needs read access to the library store
+  // too, so the merge can't live entirely inside this store).
+  const replaceLocalCollections = (
+    collections: StoredLocalCollection[],
+  ): void => {
+    localCollections.value = collections;
+    syncLocalCollections();
+  };
+
   return {
     localCollections,
     showAddToCollection,
@@ -338,5 +349,6 @@ export const useCollectionsStore = defineStore("collections", () => {
     renameCollection,
     deleteCollectionByName,
     deleteCollectionFromMenu,
+    replaceLocalCollections,
   };
 });

@@ -10,6 +10,10 @@
     "mcp-bridge:default",
     "android-mediastore:default",
     "android-external-storage:default",
-    "music-notification:default"
+    "music-notification:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file"
   ]
 }

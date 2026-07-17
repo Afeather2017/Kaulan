@@ -130,6 +130,34 @@
             管理我的收藏夹
           </button>
         </div>
+        <div class="setting-item">
+          <label class="setting-label">备份收藏夹</label>
+          <p class="setting-hint">
+            导出当前收藏夹为 JSON
+            文件，重装应用或换设备后可通过"导入"恢复。无法匹配的歌曲将被跳过。
+          </p>
+          <div class="collection-transfer-actions">
+            <button class="transfer-btn" @click="handleExportCollections">
+              <i class="fas fa-file-export"></i>
+              导出收藏夹
+            </button>
+            <button
+              class="transfer-btn transfer-btn-secondary"
+              @click="triggerImportCollections"
+              :disabled="isImporting"
+            >
+              <i class="fas fa-file-import"></i>
+              {{ isImporting ? "导入中..." : "导入收藏夹" }}
+            </button>
+            <input
+              ref="importFileInput"
+              type="file"
+              accept="application/json,.json"
+              class="hidden-file-input"
+              @change="handleImportFileChange"
+            />
+          </div>
+        </div>
 
         <hr class="settings-divider" />
         <button class="advanced-toggle-btn" @click="toggleAdvancedSettings">
@@ -388,7 +416,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
-import { getLocalApiBase } from "@/utils/api";
+import { getLocalApiBase, isTauriWebview } from "@/utils/api";
 import {
   buildRuntimeCapabilities,
   getRuntimeCapabilities,
@@ -406,6 +434,14 @@ import {
   MAX_LUFS_PRECACHE_COUNT,
 } from "@/utils/storage";
 import { useDeviceDiscovery } from "@/composables/useDeviceDiscovery";
+import { useCollectionsStore } from "@/stores/collections";
+import { useLibraryStore } from "@/stores/library";
+import {
+  buildCollectionsExport,
+  mergeCollectionsFromImport,
+  parseCollectionsExport,
+} from "@/utils/collectionTransfer";
+import { downloadBlob } from "@/utils/browserDownload";
 
 type VolumeMode = "auto" | "manual" | "fixed";
 
@@ -739,6 +775,152 @@ const saveDeviceName = async () => {
     alert("设备名称已更新");
   } else {
     alert("保存设备名称失败");
+  }
+};
+
+// Collection export/import
+const collectionsStore = useCollectionsStore();
+const libraryStore = useLibraryStore();
+const importFileInput = ref<HTMLInputElement | null>(null);
+const isImporting = ref<boolean>(false);
+const isExporting = ref<boolean>(false);
+
+const buildExportFilename = (): string => {
+  const date = new Date().toISOString().slice(0, 10);
+  return `kaulan-collections-${date}.json`;
+};
+
+const buildExportPayloadJson = (): string => {
+  const collections = collectionsStore.localCollections;
+  if (collections.length === 0) {
+    throw new Error("当前没有收藏夹可导出");
+  }
+  return JSON.stringify(buildCollectionsExport(collections), null, 2);
+};
+
+const runImportFromText = (text: string): void => {
+  const payload = parseCollectionsExport(text);
+  const { collections, result } = mergeCollectionsFromImport(
+    payload,
+    collectionsStore.localCollections,
+    libraryStore.allLibrarySongs,
+  );
+  collectionsStore.replaceLocalCollections(collections);
+
+  alert(
+    [
+      `新收藏夹：${result.importedCollections}`,
+      `合并到已有收藏夹：${result.mergedCollections}`,
+      `匹配歌曲：${result.matchedSongs}`,
+      `未匹配已跳过：${result.skippedSongs}`,
+    ].join("\n"),
+  );
+};
+
+const exportViaTauri = async (): Promise<void> => {
+  const json = buildExportPayloadJson();
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+  const path = await save({
+    defaultPath: buildExportFilename(),
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (!path) {
+    // User cancelled the save dialog.
+    return;
+  }
+  await writeTextFile(path, json);
+  alert(`已导出到：${path}`);
+};
+
+const exportViaBrowser = (): void => {
+  const json = buildExportPayloadJson();
+  downloadBlob(
+    new Blob([json], { type: "application/json" }),
+    buildExportFilename(),
+  );
+};
+
+const handleExportCollections = async (): Promise<void> => {
+  if (isExporting.value) {
+    return;
+  }
+  isExporting.value = true;
+  try {
+    if (isTauriWebview()) {
+      await exportViaTauri();
+    } else {
+      exportViaBrowser();
+    }
+  } catch (error) {
+    console.error("Failed to export collections:", error);
+    alert(
+      `导出失败：${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    isExporting.value = false;
+  }
+};
+
+const importViaTauri = async (): Promise<void> => {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const { readTextFile } = await import("@tauri-apps/plugin-fs");
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  const path = Array.isArray(selected) ? selected[0] : selected;
+  if (!path) {
+    // User cancelled the open dialog.
+    return;
+  }
+  const text = await readTextFile(path);
+  runImportFromText(text);
+};
+
+const triggerImportCollections = async (): Promise<void> => {
+  if (isImporting.value) {
+    return;
+  }
+  if (isTauriWebview()) {
+    isImporting.value = true;
+    try {
+      await importViaTauri();
+    } catch (error) {
+      console.error("Failed to import collections:", error);
+      alert(
+        `导入失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      isImporting.value = false;
+    }
+    return;
+  }
+  // Browser path: pop the hidden file input. The actual read+merge happens
+  // in handleImportFileChange (isImporting is tracked there).
+  importFileInput.value?.click();
+};
+
+const handleImportFileChange = async (e: Event): Promise<void> => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  // Reset so the same file can be picked again later.
+  input.value = "";
+  if (!file) {
+    return;
+  }
+
+  isImporting.value = true;
+  try {
+    const text = await file.text();
+    runImportFromText(text);
+  } catch (error) {
+    console.error("Failed to import collections:", error);
+    alert(
+      `导入失败：${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    isImporting.value = false;
   }
 };
 </script>
@@ -1285,6 +1467,51 @@ const saveDeviceName = async () => {
 
 .manage-collections-btn:hover {
   background-color: #1ed760;
+}
+
+.collection-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.transfer-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid #1db954;
+  border-radius: 5px;
+  background-color: #1db954;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.transfer-btn:hover:not(:disabled) {
+  background-color: #1ed760;
+}
+
+.transfer-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.transfer-btn-secondary {
+  background-color: #fff;
+  color: #1db954;
+}
+
+.transfer-btn-secondary:hover:not(:disabled) {
+  background-color: #eaf8ef;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .advanced-toggle-btn {

@@ -442,6 +442,7 @@ dependencies = [
  "tauri-plugin-android-external-storage",
  "tauri-plugin-android-mediastore",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-log",
  "tauri-plugin-mcp-bridge",
  "tauri-plugin-music-notification-api",
