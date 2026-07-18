@@ -34,6 +34,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": {
+      "../../target/release/av*.dll": "",
+      "../../target/release/sw*.dll": ""
+    },
     "android": {
       "minSdkVersion": 24
     },
