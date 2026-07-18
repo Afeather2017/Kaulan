@@ -131,6 +131,25 @@
           </button>
         </div>
         <div class="setting-item">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              :checked="allowTextSelection"
+              @change="
+                $emit(
+                  'update:allowTextSelection',
+                  ($event.target as HTMLInputElement).checked,
+                )
+              "
+              class="setting-checkbox"
+            />
+            <span>允许选择文本</span>
+          </label>
+          <p class="setting-hint">
+            默认关闭以保持界面整洁。需要复制歌词或歌曲名时打开此选项。
+          </p>
+        </div>
+        <div class="setting-item">
           <label class="setting-label">备份收藏夹</label>
           <p class="setting-hint">
             导出当前收藏夹为 JSON
@@ -453,6 +472,7 @@ const props = defineProps<{
   fixedLufsInput: number;
   showLufs: boolean;
   lufsPrecacheCount: number;
+  allowTextSelection: boolean;
   timerMinutes: number;
   timerMinutesInput: number;
   timerActive: boolean;
@@ -469,6 +489,7 @@ const emit = defineEmits<{
   (e: "update:fixedLufsInput", value: number): void;
   (e: "update:showLufs", value: boolean): void;
   (e: "update:lufsPrecacheCount", value: number): void;
+  (e: "update:allowTextSelection", value: boolean): void;
   (e: "update:timerMinutes", value: number): void;
   (e: "update:timerMinutesInput", value: number): void;
   (e: "setTimerPreset", minutes: number): void;

@@ -155,6 +155,7 @@
       :fixed-lufs-input="fixedLufsInput"
       :show-lufs="showLufs"
       :lufs-precache-count="lufsPrecacheCount"
+      :allow-text-selection="allowTextSelection"
       :timer-minutes="timerMinutes"
       :timer-minutes-input="timerMinutesInput"
       :timer-active="timerActive"
@@ -168,6 +169,7 @@
       @update:fixed-lufs-input="fixedLufsInput = $event"
       @update:show-lufs="handleShowLufsChange"
       @update:lufs-precache-count="handleLufsPrecacheCountChange"
+      @update:allow-text-selection="handleAllowTextSelectionChange"
       @update:timer-minutes="timerMinutes = $event"
       @update:timer-minutes-input="timerMinutesInput = $event"
       @set-timer-preset="handleSetTimerPreset"
@@ -340,6 +342,7 @@ const {
   playMode,
   showLufs,
   lufsPrecacheCount,
+  allowTextSelection,
   volumeMode,
   manualVolume,
   manualVolumeInput,
@@ -387,6 +390,7 @@ const {
   handleShowSettingsModal,
   handleShowLufsChange,
   handleLufsPrecacheCountChange,
+  handleAllowTextSelectionChange,
   handleSetTimerPreset,
   handleStartTimer,
   handleCancelTimer,

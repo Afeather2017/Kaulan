@@ -17,6 +17,7 @@ import {
 } from "@/composables/useSelection";
 import { useLyrics } from "@/composables/useLyrics";
 import { useLufs } from "@/composables/useLufs";
+import { useTextSelection } from "@/composables/useTextSelection";
 import {
   PlaybackStartError,
   type MusicInfo,
@@ -63,6 +64,7 @@ export function useAppShell() {
   const downloads = storeToRefs(downloadsStore);
 
   const selection = useSelection();
+  const { allowTextSelection, setAllowTextSelectionState } = useTextSelection();
   const currentSongs = computed<MusicInfo[]>(
     () => ui.selectedPlaylist.value?.songs || [],
   );
@@ -1232,6 +1234,7 @@ export function useAppShell() {
     playMode: player.playMode,
     showLufs: player.showLufs,
     lufsPrecacheCount: player.lufsPrecacheCount,
+    allowTextSelection,
     volumeMode: player.volumeMode,
     manualVolume: player.manualVolume,
     manualVolumeInput: player.manualVolumeInput,
@@ -1282,6 +1285,7 @@ export function useAppShell() {
     handleShowSettingsModal,
     handleShowLufsChange: playerStore.setShowLufsState,
     handleLufsPrecacheCountChange: playerStore.setLufsPrecacheCountState,
+    handleAllowTextSelectionChange: setAllowTextSelectionState,
     handleSetTimerPreset: playerStore.setTimerPreset,
     handleStartTimer: playerStore.startSleepTimer,
     handleCancelTimer: playerStore.cancelSleepTimer,

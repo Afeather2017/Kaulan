@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   MANUAL_DEVICES: "kaulan_manual_devices",
   LOCAL_COLLECTIONS: "kaulan_local_collections",
   DEFAULT_ONLINE_SEARCH_API_BASE: "kaulan_default_online_search_api_base",
+  ALLOW_TEXT_SELECTION: "kaulan_allow_text_selection",
 } as const;
 
 export const DEFAULT_LUFS_PRECACHE_COUNT = 5;
@@ -273,6 +274,30 @@ export function setDefaultOnlineSearchApiBase(apiBase: string): void {
 
 export function removeDefaultOnlineSearchApiBase(): void {
   removeStorageValue(STORAGE_KEYS.DEFAULT_ONLINE_SEARCH_API_BASE);
+}
+
+/**
+ * Whether the user has opted in to mouse-based text selection in the UI.
+ *
+ * The web app disables text selection by default to keep the music-player UI
+ * clean (issue #30). When a user wants to select lyrics, song names, or other
+ * text, they flip this setting on.
+ *
+ * @returns Whether text selection is allowed (defaults to false)
+ */
+export function getAllowTextSelection(): boolean {
+  return getStorageValue(STORAGE_KEYS.ALLOW_TEXT_SELECTION) === "true";
+}
+
+/**
+ * Persist the text-selection preference.
+ * @param allowed - Whether the user may select text/pictures with the mouse
+ */
+export function setAllowTextSelection(allowed: boolean): void {
+  setStorageValue(
+    STORAGE_KEYS.ALLOW_TEXT_SELECTION,
+    allowed ? "true" : "false",
+  );
 }
 
 function isStoredCollectionSong(value: unknown): value is StoredCollectionSong {
