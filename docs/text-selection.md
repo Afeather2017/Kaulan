@@ -23,10 +23,12 @@ A Vue composable (`useTextSelection`) owns a singleton `<style>` element in
 `document.head`. The composable:
 
 1. Reads the initial preference from localStorage on mount.
-2. Writes the appropriate CSS into the `<style>` tag.
-3. Watches a reactive `allowed` ref and rewrites the CSS when the user
-   toggles the setting.
-4. Ref-counts consumers so the `<style>` element is only removed after the
+2. Writes the selection-disabling CSS into the `<style>` tag (only when
+   selection is off).
+3. Watches a reactive `allowed` ref: when the user toggles selection on, the
+   `<style>` element is removed entirely so an empty tag doesn't linger in
+   `<head>` and the browser defaults take over; toggling off re-injects it.
+4. Ref-counts consumers so the `<style>` element is also removed after the
    last component using the composable unmounts (the root component is the
    only consumer today, but the pattern is safe to reuse).
 
@@ -58,6 +60,12 @@ select,
   user-select: text;
 }
 ```
+
+> **Platform note:** `-webkit-user-drag` is a WebKit/Chromium-only property
+> with no effect on Firefox. Kaulan targets Android WebView and
+> Chromium-based desktop browsers, where it is supported, so image
+> drag-blocking is only enforced on those platforms. `user-select` itself is
+> cross-browser and applies everywhere.
 
 ## Sequence Diagram
 

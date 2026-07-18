@@ -11,11 +11,7 @@ const allowed = ref(getAllowTextSelection());
 let styleEl: HTMLStyleElement | null = null;
 let consumerCount = 0;
 
-function buildCss(allowSelection: boolean): string {
-  if (allowSelection) {
-    return "";
-  }
-
+function buildCss(): string {
   // Issue #30: the UI should look like an app, not a web page. Block
   // mouse selection everywhere except form fields where users still need
   // to highlight/edit text. Images need their own treatment: browsers let
@@ -59,15 +55,25 @@ function ensureStyleElement(): HTMLStyleElement {
 }
 
 function syncStyle(): void {
+  // When selection is allowed, restore browser defaults and drop the injected
+  // <style> entirely so an empty element doesn't linger in <head>.
+  if (allowed.value) {
+    if (styleEl) {
+      styleEl.remove();
+      styleEl = null;
+    }
+    return;
+  }
+
   const el = ensureStyleElement();
-  el.textContent = buildCss(allowed.value);
+  el.textContent = buildCss();
 }
 
 /**
  * Apply the global text-selection preference and keep it in sync with
  * localStorage. Mount this once from the root component. Multiple consumers
- * are supported via ref-counting; the style element is removed only after the
- * last consumer unmounts.
+ * are supported via ref-counting; the style element is removed when selection
+ * is re-enabled or after the last consumer unmounts.
  */
 export function useTextSelection() {
   onMounted(() => {
