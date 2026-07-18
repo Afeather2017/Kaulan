@@ -20,7 +20,12 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         let target = std::env::var("TARGET").unwrap_or_default();
-        if target.ends_with("-windows") {
+        // Match real Windows triples like `x86_64-pc-windows-msvc` and
+        // `aarch64-pc-windows-msvc`. The previous `ends_with("-windows")`
+        // check never matched because every Windows triple ends with the
+        // toolchain suffix (`-msvc` or `-gnu`), so staging silently
+        // no-op'd and installers shipped without FFmpeg.
+        if target.contains("-windows-") {
             if let Err(err) = stage_ffmpeg_dlls() {
                 panic!("failed to stage FFmpeg DLLs for bundling: {err}");
             }
