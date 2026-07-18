@@ -1,0 +1,9 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "resources": {
+      "../../target/release/av*.dll": "",
+      "../../target/release/sw*.dll": ""
+    }
+  }
+}
