@@ -8,10 +8,12 @@ import {
 import {
   DEFAULT_LUFS_PRECACHE_COUNT,
   MAX_LUFS_PRECACHE_COUNT,
+  getAllowTextSelection,
   getDefaultOnlineSearchApiBase,
   getLufsPrecacheCount,
   normalizeLufsPrecacheCount,
   removeDefaultOnlineSearchApiBase,
+  setAllowTextSelection,
   setDefaultOnlineSearchApiBase,
   setLufsPrecacheCount,
 } from "@/utils/storage";
@@ -96,6 +98,36 @@ describe("LUFS pre-cache count storage", () => {
     expect(normalizeLufsPrecacheCount(Number.NaN)).toBe(
       DEFAULT_LUFS_PRECACHE_COUNT,
     );
+  });
+});
+
+describe("allow text selection storage", () => {
+  beforeEach(() => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+      clear: () => {
+        store.clear();
+      },
+    });
+  });
+
+  it("defaults to disallowed (issue #30)", () => {
+    expect(getAllowTextSelection()).toBe(false);
+  });
+
+  it("round-trips the selection preference", () => {
+    setAllowTextSelection(true);
+    expect(getAllowTextSelection()).toBe(true);
+
+    setAllowTextSelection(false);
+    expect(getAllowTextSelection()).toBe(false);
   });
 });
 
