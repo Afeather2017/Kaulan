@@ -9,10 +9,10 @@ lyrics, song names, or other text.
 
 ## Feature Behavior
 
-| Setting state | UI behavior |
-|---------------|-------------|
-| Off (default) | `user-select: none` on `html`/`body`; inputs, textareas, and `contenteditable` regions stay selectable so editing still works. |
-| On | No global `user-select` override; the browser default behavior returns. |
+| Setting state | UI behavior                                                                                                                                                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Off (default) | `user-select: none` on `html`/`body`; images also get `-webkit-user-drag: none` + `user-select: none` so cover art can't be highlighted or dragged; inputs, textareas, and `contenteditable` regions stay selectable so editing still works. |
+| On            | No global `user-select` override; the browser default behavior returns.                                                                                                                                                                      |
 
 The preference is **frontend-only** and persists in browser localStorage
 under `kaulan_allow_text_selection`. There is no backend API.
@@ -33,13 +33,23 @@ A Vue composable (`useTextSelection`) owns a singleton `<style>` element in
 The CSS that gets injected when selection is disabled:
 
 ```css
-body, html {
+body,
+html {
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
 }
-input, textarea, select,
+img {
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+input,
+textarea,
+select,
 [contenteditable="true"],
 [contenteditable=""] {
   -webkit-user-select: text;
@@ -83,10 +93,10 @@ selectable so search and rename dialogs still work.
 
 ## Related Source Files
 
-| File | Description |
-|------|-------------|
-| `frontend/src/utils/storage.ts` | `ALLOW_TEXT_SELECTION` storage key, `getAllowTextSelection`, `setAllowTextSelection` |
-| `frontend/src/composables/useTextSelection.ts` | Reactive composable that injects and updates the global CSS |
-| `frontend/src/composables/useAppShell.ts` | Mounts the composable once and exposes the toggle to the root component |
-| `frontend/src/components/modals/SettingsModal.vue` | Settings UI checkbox |
-| `frontend/src/App.vue` | Passes the prop and event between the shell and the modal |
+| File                                               | Description                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `frontend/src/utils/storage.ts`                    | `ALLOW_TEXT_SELECTION` storage key, `getAllowTextSelection`, `setAllowTextSelection` |
+| `frontend/src/composables/useTextSelection.ts`     | Reactive composable that injects and updates the global CSS                          |
+| `frontend/src/composables/useAppShell.ts`          | Mounts the composable once and exposes the toggle to the root component              |
+| `frontend/src/components/modals/SettingsModal.vue` | Settings UI checkbox                                                                 |
+| `frontend/src/App.vue`                             | Passes the prop and event between the shell and the modal                            |

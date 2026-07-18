@@ -18,9 +18,18 @@ function buildCss(allowSelection: boolean): string {
 
   // Issue #30: the UI should look like an app, not a web page. Block
   // mouse selection everywhere except form fields where users still need
-  // to highlight/edit text.
+  // to highlight/edit text. Images need their own treatment: browsers let
+  // users drag <img> elements even when the parent has user-select:none,
+  // so we also disable -webkit-user-drag and force user-select:none on img.
   return `
     body, html {
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+    img {
+      -webkit-user-drag: none;
       -webkit-user-select: none;
       -moz-user-select: none;
       -ms-user-select: none;
