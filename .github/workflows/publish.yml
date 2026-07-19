@@ -133,6 +133,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # Full clone so tags are available for `git describe --tags --abbrev=0`
+          # in the release-version step below. actions/checkout's `fetch-tags:
+          # true` collides with the tag refspec on release events ("Cannot
+          # fetch both <sha> and refs/tags/<tag>"), and the default shallow
+          # clone skips tags entirely so bundles shipped with the source-file
+          # fallback (0.1.4) instead of the tag's version.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -200,6 +207,29 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Resolve release version from git tag
+        id: release-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -z "$tag" ]; then
+            echo "No git tag found; tauri will fall back to source-file version." >&2
+            exit 0
+          fi
+          version="${tag#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "Tag '$tag' is not semver (X.Y.Z); skipping version override." >&2
+            exit 0
+          fi
+          echo "Resolved release version: $version"
+          # Write a tauri config fragment and pass it via --config <path>.
+          # Passing the JSON inline would let the action's arg parser strip
+          # the inner quotes; a path is space-split-safe.
+          config_path="$RUNNER_TEMP/tauri-version.json"
+          printf '{"version":"%s"}\n' "$version" > "$config_path"
+          printf 'args=--config %s\n' "$config_path" >> "$GITHUB_OUTPUT"
+
       - name: Build and upload desktop bundles
         uses: tauri-apps/tauri-action@v0.6.0
         env:
@@ -208,6 +238,7 @@ jobs:
           projectPath: frontend
           releaseId: ${{ github.event.release.id }}
           tagName: ${{ github.event.release.tag_name }}
+          args: ${{ steps.release-version.outputs.args }}
 
       # Convert the Tauri .deb into a pacman package (.pkg.tar.zst) so Arch
       # users can install via `pacman -U` instead of repackaging by hand.
@@ -267,6 +298,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # Full clone so tags are available for build-android.sh's
+          # `git describe --tags --abbrev=0`. actions/checkout's `fetch-tags:
+          # true` collides with the tag refspec on release events ("Cannot
+          # fetch both <sha> and refs/tags/<tag>"), and the default shallow
+          # clone skips tags entirely so APKs shipped with the source-file
+          # fallback (0.1.4) instead of the tag's version.
+          fetch-depth: 0
 
       - name: Cache Android FFmpeg bundle (${{ matrix.short }})
         uses: actions/cache@v4
