@@ -14,10 +14,15 @@ use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
 #[cfg(not(target_os = "android"))]
-use tauri::webview::PageLoadPayload;
-use tauri::{Manager, State, Url};
+use tauri::menu::{Menu, MenuItem};
 #[cfg(not(target_os = "android"))]
-use tauri::{WebviewUrl, WebviewWindow};
+use tauri::webview::PageLoadPayload;
+#[cfg(not(target_os = "android"))]
+use tauri::{
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    WebviewUrl, WebviewWindow, WindowEvent,
+};
+use tauri::{Manager, State, Url};
 #[cfg(target_os = "android")]
 use tauri_plugin_android_external_storage::AndroidExternalStorageExt;
 use ytdl_audio::JsRunner;
@@ -59,6 +64,10 @@ const ASTRING_UMD_JS: &str = include_str!(concat!(
 const SOLVER_WINDOW_LABEL: &str = "youtube-solver";
 #[cfg(not(target_os = "android"))]
 const SOLVER_TITLE_PREFIX: &str = "kaulan-solver-result:";
+#[cfg(not(target_os = "android"))]
+const MAIN_WINDOW_LABEL: &str = "main";
+#[cfg(not(target_os = "android"))]
+const TRAY_ID: &str = "kaulan-main-tray";
 
 #[cfg(target_os = "android")]
 static ANDROID_EXTERNAL_FILES_DIR: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
@@ -450,6 +459,34 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
+    // Desktop-only: intercept the main window's close and minimize buttons so
+    // they hide the window to the system tray instead of tearing down the app.
+    // The actual exit path is the tray menu's Quit item, which calls
+    // `app.exit(0)` directly and therefore bypasses this handler.
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.on_window_event(move |window, event| {
+        if window.label() != MAIN_WINDOW_LABEL {
+            return;
+        }
+        match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                log::info!("Main window close requested; hiding to system tray instead of exiting");
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            WindowEvent::Resized(_) => {
+                if matches!(window.is_minimized(), Ok(true)) {
+                    log::info!(
+                        "Main window minimized; hiding to system tray instead of minimizing"
+                    );
+                    let _ = window.unminimize();
+                    let _ = window.hide();
+                }
+            }
+            _ => {}
+        }
+    });
+
     builder
         .setup(move |app| {
             log::info!("======================= Start =======================");
@@ -606,6 +643,14 @@ pub fn run() {
                     "Failed to start backend server during desktop startup: {}",
                     e
                 );
+            }
+
+            // Desktop-only: register the system tray icon. Provides the only
+            // way to actually quit the app once `on_window_event` starts
+            // hiding the window on close/minimize. See docs/system-tray.md.
+            #[cfg(not(target_os = "android"))]
+            if let Err(e) = build_system_tray(&app_handle) {
+                log::error!("Failed to build system tray: {}", e);
             }
 
             Ok(())
@@ -1160,6 +1205,64 @@ fn wait_for_solver_window_ready(app: &tauri::AppHandle) -> Result<(), ytdl_audio
     Err(ytdl_audio::Error::Other(
         "solver window did not become ready".into(),
     ))
+}
+
+/// Build the desktop system tray icon that lets users show/quit the app.
+///
+/// Without this, the `on_window_event` handler would make the close/minimize
+/// buttons hide the window with no way to actually exit. The tray's context
+/// menu provides that exit path (`app.exit(0)` bypasses `CloseRequested`),
+/// and a left-click on the icon toggles window visibility so users can
+/// recover the window after hiding it. See `docs/system-tray.md`.
+#[cfg(not(target_os = "android"))]
+fn build_system_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "show", "Show Kaulan", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit Kaulan", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "quit" => {
+                log::info!("Tray quit selected; exiting app");
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+
+    builder.build(app)?;
+    Ok(())
 }
 
 #[tauri::command]

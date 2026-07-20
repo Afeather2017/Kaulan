@@ -20,6 +20,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Remote Library Import** - Browse another Kaulan server's library and download its songs (audio + lyrics) into your own library — into the app library on desktop/Android, or directly to the device in a plain browser
 - **Standalone Web Hosting** - The backend can serve the built Vue app from `frontend/dist`
 - **Shared Song Links** - Open `http://server_ip/?id={songId}` in a browser to load the player from that server and start the shared song
+- **Desktop System Tray** - Tauri desktop builds hide to the system tray on close/minimize and provide Show/Quit from the tray menu
 
 ## Quick Start
 
