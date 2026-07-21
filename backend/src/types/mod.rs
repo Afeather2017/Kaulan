@@ -186,7 +186,8 @@ pub struct CreateDownloadJobResponse {
 ///
 /// `filename` is the remote track's display filename (with extension) — the
 /// frontend's `MusicInfo.name` — used to preserve a human-readable local
-/// filename. The extension is still validated/derived server-side.
+/// filename. It must be a plain filename without `/` or `\`; the extension is
+/// still validated/derived server-side.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportRemoteItem {
     pub music_id: i32,
