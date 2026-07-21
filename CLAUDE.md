@@ -208,6 +208,11 @@ frontend/src-tauri/src/
 └── mediastore_adapter.rs # MediaStore implementations for Android (FileReader, MusicFileLister)
 ```
 
+Desktop Tauri builds hide the main window to the system tray on close/minimize
+and expose Show/Quit through the tray menu. See
+[`docs/system-tray.md`](docs/system-tray.md) for the desktop behavior and source
+flow.
+
 **Note:** The active frontend is still mounted directly from `App.vue`. Navigation is implemented as internal view state and source-aware lists, not Vue Router pages, but most shared state now lives in Pinia stores and shell composables instead of the root component.
 
 ### Data Flow
