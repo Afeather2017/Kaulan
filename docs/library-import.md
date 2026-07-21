@@ -58,7 +58,9 @@ This prevents duplicate files when re-importing.
 **Filename derivation:** the supplied filename's extension is used when it is a
 supported audio type; otherwise the extension is derived from the remote
 `Content-Type` (`audio/mpeg` → `mp3`, `audio/flac` → `flac`, …). The stem is
-sanitized via the shared `sanitize_filename`. The lyric sidecar extension is
+sanitized via the shared `sanitize_filename`. Supplied filenames must be plain
+filenames only; values containing `/` or `\` are rejected so they cannot become
+path components under the download root. The lyric sidecar extension is
 sniffed from the body (`WEBVTT` header → `.vtt`, otherwise `.lrc`), because the
 remote lyrics endpoint always returns `text/plain`.
 
@@ -121,14 +123,14 @@ asynchronous job and returns immediately.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `remote_api_base` | string | Absolute `http`/`https` API base of the remote server |
-| `items` | array | One entry per track; `filename` (the remote `MusicInfo.name`) is optional and used only for a readable local name |
+| `items` | array | One entry per track; `filename` (the remote `MusicInfo.name`) is optional and used only for a readable local name. If present, it must not contain `/` or `\` |
 | `include_lyrics` | boolean? | `null`/omitted means `true` |
 | `target_subdir` | string? | Optional subdirectory under `download_root` (path-traversal protected) |
 
 **Responses**
 
 - `200 OK` — `{ "success": true, "message": "导入任务已创建", "job_id": "<uuid>" }`
-- `400 Bad Request` — empty `items`, invalid/non-http `remote_api_base`, an `remote_api_base` that resolves to a blocked (internal) address, or invalid `target_subdir`
+- `400 Bad Request` — empty `items`, invalid/non-http `remote_api_base`, an `remote_api_base` that resolves to a blocked (internal) address, an item `filename` containing `/` or `\`, or invalid `target_subdir`
 - `500 Internal Server Error` — the resolved target is not a writable filesystem path
 
 ### Security: SSRF protection

@@ -81,6 +81,18 @@ pub async fn import_from_remote(
         });
     }
 
+    if let Err(message) = validate_import_item_filenames(&request.items) {
+        warn!(
+            "[IMPORT] Rejecting import request: remote={}, reason={}",
+            remote_base, message
+        );
+        return HttpResponse::BadRequest().json(CreateDownloadJobResponse {
+            success: false,
+            message,
+            job_id: None,
+        });
+    }
+
     let target_dir = match resolve_target_dir(
         Path::new(data.download_root.as_ref()),
         request.target_subdir.as_deref(),
@@ -284,7 +296,7 @@ async fn import_one(
     target_dir: &Path,
     include_lyrics: bool,
 ) -> Result<ImportOutcome, String> {
-    let (stem, file_ext) = parse_filename_parts(item.filename.as_deref(), item.music_id);
+    let (stem, file_ext) = parse_filename_parts(item.filename.as_deref(), item.music_id)?;
     let known_ext = !file_ext.is_empty() && SUPPORTED_EXTENSIONS.contains(&file_ext.as_str());
 
     // Idempotent skip when the final filename is already known.
@@ -574,15 +586,27 @@ fn content_type_to_extension(content_type: &str) -> Option<&'static str> {
 /// The stem is sanitized via the shared `sanitize_filename`; the extension is
 /// lowercased but not yet validated against `SUPPORTED_EXTENSIONS` (the caller
 /// decides whether to trust it or fall back to the content type).
-fn parse_filename_parts(filename: Option<&str>, music_id: i32) -> (String, String) {
-    let (raw_stem, ext): (String, String) = filename
-        .and_then(|name| {
-            let path = Path::new(name);
-            let stem = path.file_stem()?.to_string_lossy().to_string();
-            let extension = path.extension()?.to_string_lossy().to_lowercase();
-            Some((stem, extension))
-        })
-        .unwrap_or_default();
+fn parse_filename_parts(filename: Option<&str>, music_id: i32) -> Result<(String, String), String> {
+    let (raw_stem, ext): (String, String) =
+        match filename.map(str::trim).filter(|name| !name.is_empty()) {
+            Some(name) => {
+                if name.contains('/') || name.contains('\\') {
+                    return Err("文件名不能包含路径分隔符".to_string());
+                }
+
+                let path = Path::new(name);
+                let stem = path
+                    .file_stem()
+                    .map(|value| value.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let extension = path
+                    .extension()
+                    .map(|value| value.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                (stem, extension)
+            }
+            None => (String::new(), String::new()),
+        };
 
     let stem = if raw_stem.trim().is_empty() {
         format!("remote-{music_id}")
@@ -595,7 +619,19 @@ fn parse_filename_parts(filename: Option<&str>, music_id: i32) -> (String, Strin
         }
     };
 
-    (stem, ext)
+    Ok((stem, ext))
+}
+
+fn validate_import_item_filenames(items: &[ImportRemoteItem]) -> Result<(), String> {
+    for item in items {
+        if let Some(name) = item.filename.as_deref().map(str::trim) {
+            if name.contains('/') || name.contains('\\') {
+                return Err(format!("{name}: 文件名不能包含路径分隔符"));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Human-readable label for an item, used in progress messages and warnings.
@@ -612,8 +648,8 @@ fn display_label(item: &ImportRemoteItem) -> String {
 mod tests {
     use super::{
         content_type_to_extension, import_from_remote, is_blocked_ip, parse_filename_parts,
-        remote_host_is_safe, stream_bounded_to_file, validate_remote_api_base,
-        IMPORT_MAX_BYTES_PER_ITEM,
+        remote_host_is_safe, stream_bounded_to_file, validate_import_item_filenames,
+        validate_remote_api_base, IMPORT_MAX_BYTES_PER_ITEM,
     };
     use crate::services::download::DownloadJobStore;
     use crate::types::{AppState, CreateDownloadJobResponse, DownloadJobSnapshot};
@@ -664,23 +700,42 @@ mod tests {
 
     #[test]
     fn parse_filename_parts_uses_supplied_stem_and_extension() {
-        let (stem, ext) = parse_filename_parts(Some("Artist - Track.mp3"), 7);
+        let (stem, ext) = parse_filename_parts(Some("Artist - Track.mp3"), 7).unwrap();
         assert_eq!(stem, "Artist - Track");
         assert_eq!(ext, "mp3");
     }
 
     #[test]
     fn parse_filename_parts_falls_back_when_missing() {
-        let (stem, ext) = parse_filename_parts(None, 42);
+        let (stem, ext) = parse_filename_parts(None, 42).unwrap();
         assert_eq!(stem, "remote-42");
         assert_eq!(ext, "");
     }
 
     #[test]
-    fn parse_filename_parts_sanitizes_reserved_characters() {
-        let (stem, _) = parse_filename_parts(Some("bad/name:.mp3"), 1);
-        assert!(!stem.contains('/'));
+    fn parse_filename_parts_rejects_path_separators() {
+        let slash = parse_filename_parts(Some("album/track.mp3"), 1).unwrap_err();
+        assert!(slash.contains("路径分隔符"));
+
+        let backslash = parse_filename_parts(Some("album\\track.mp3"), 1).unwrap_err();
+        assert!(backslash.contains("路径分隔符"));
+    }
+
+    #[test]
+    fn parse_filename_parts_sanitizes_other_reserved_characters() {
+        let (stem, _) = parse_filename_parts(Some("bad:name?.mp3"), 1).unwrap();
         assert!(!stem.contains(':'));
+        assert!(!stem.contains('?'));
+    }
+
+    #[test]
+    fn validate_import_item_filenames_rejects_path_separators() {
+        let items = vec![crate::types::ImportRemoteItem {
+            music_id: 1,
+            filename: Some("album\\track.mp3".to_string()),
+        }];
+        let error = validate_import_item_filenames(&items).unwrap_err();
+        assert!(error.contains("路径分隔符"));
     }
 
     #[test]
@@ -1033,6 +1088,50 @@ mod tests {
             b"EXISTING"
         );
         // Verifies the expect(0) audio mock was never hit.
+        server.verify().await;
+    }
+
+    #[actix_web::test]
+    async fn import_rejects_path_like_filename_before_creating_job() {
+        let temp = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/music/id/1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(b"SHOULD_NOT_FETCH".to_vec())
+                    .insert_header("content-type", "audio/mpeg"),
+            )
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let app_state = make_app_state(temp.path()).await;
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(import_from_remote),
+        )
+        .await;
+
+        let req = post_import(
+            &format!("{}/api", server.uri()),
+            &[serde_json::json!({"music_id": 1, "filename": "album/track.mp3"})],
+            false,
+        )
+        .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 400);
+        let body: CreateDownloadJobResponse = actix_test::read_body_json(resp).await;
+        assert!(!body.success);
+        assert!(body.job_id.is_none());
+        assert!(body.message.contains("路径分隔符"));
+        assert!(
+            app_state.download_jobs.active_jobs().await.is_empty(),
+            "invalid filenames must not create import jobs"
+        );
+        assert!(!temp.path().join("album").exists());
+        assert!(!temp.path().join("track.mp3").exists());
         server.verify().await;
     }
 
