@@ -65,6 +65,9 @@ describe("downloads store polling", () => {
     await store.pollJobs();
 
     await expect(waiter).rejects.toThrow(LOST_JOB_MESSAGE);
+    expect(store.activeJobs).toHaveLength(1);
+    expect(store.activeJobs[0]?.snapshot.state).toBe("failed");
+    store.dismissJob(key);
     expect(store.activeJobs).toHaveLength(0);
   });
 
@@ -117,6 +120,68 @@ describe("downloads store polling", () => {
     await store.pollJobs();
 
     await expect(waiter).rejects.toThrow("连接下载服务失败");
+    expect(store.activeJobs).toHaveLength(1);
+    expect(store.activeJobs[0]?.snapshot.state).toBe("failed");
+    store.dismissJob(key);
+    expect(store.activeJobs).toHaveLength(0);
+  });
+
+  it("keeps completed jobs visible until dismissed", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          success: true,
+          message: "下载任务已创建",
+          job_id: "job-3",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job_id: "job-3",
+          source: "youtube",
+          state: "running",
+          phase: "downloading",
+          percent: 10,
+          message: "Downloading",
+          detail: null,
+          filename: null,
+          warning: null,
+          error: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job_id: "job-3",
+          source: "youtube",
+          state: "completed",
+          phase: "completed",
+          percent: 100,
+          message: "Done",
+          detail: null,
+          filename: "song.mp3",
+          warning: null,
+          error: null,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const store = useDownloadsStore();
+    const { key } = await store.startDownloadJob(
+      "http://localhost:2080/api",
+      "Song",
+      "youtube:3",
+      { source: "youtube" },
+    );
+
+    const waiter = store.waitForJob(key);
+    await store.pollJobs();
+
+    await expect(waiter).resolves.toMatchObject({ state: "completed" });
+    expect(store.activeJobs).toHaveLength(1);
+    expect(store.activeJobs[0]?.snapshot.message).toBe("Done");
+
+    store.dismissJob(key);
     expect(store.activeJobs).toHaveLength(0);
   });
 });

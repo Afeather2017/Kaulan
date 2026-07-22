@@ -5,10 +5,25 @@
     </div>
 
     <div v-else class="job-list">
-      <article v-for="job in jobs" :key="job.key" class="job-card">
+      <article
+        v-for="job in jobs"
+        :key="job.key"
+        :class="['job-card', `job-${job.snapshot.state}`]"
+      >
         <div class="job-header">
           <div class="job-title">{{ job.title }}</div>
-          <div class="job-source">{{ job.snapshot.source }}</div>
+          <div class="job-header-meta">
+            <div class="job-source">{{ job.snapshot.source }}</div>
+            <button
+              v-if="isTerminal(job.snapshot)"
+              class="job-dismiss"
+              type="button"
+              aria-label="移除下载记录"
+              @click="downloadsStore.dismissJob(job.key)"
+            >
+              ×
+            </button>
+          </div>
         </div>
         <div class="job-phase-row">
           <span class="job-phase">{{ phaseLabel(job.snapshot.phase) }}</span>
@@ -26,6 +41,12 @@
         <div v-if="job.snapshot.detail" class="job-detail">
           {{ job.snapshot.detail }}
         </div>
+        <div v-if="job.snapshot.state === 'completed'" class="job-refresh-note">
+          下载已完成，请刷新曲库后查看新歌曲。
+        </div>
+        <div v-if="job.snapshot.error" class="job-error">
+          {{ job.snapshot.error }}
+        </div>
       </article>
     </div>
   </div>
@@ -37,10 +58,16 @@ import type {
   DownloadJobSnapshot,
   DownloadPhase,
 } from "@/stores/downloads";
+import { useDownloadsStore } from "@/stores/downloads";
 
 defineProps<{
   jobs: ActiveDownloadJob[];
 }>();
+
+const downloadsStore = useDownloadsStore();
+
+const isTerminal = (snapshot: DownloadJobSnapshot): boolean =>
+  snapshot.state === "completed" || snapshot.state === "failed";
 
 const phaseLabel = (phase: DownloadPhase): string => {
   switch (phase) {
@@ -117,9 +144,17 @@ const progressWidth = (snapshot: DownloadJobSnapshot): number => {
 
 .job-card {
   border: 1px solid #d6dde2;
-  border-radius: 14px;
+  border-radius: 8px;
   padding: 14px;
   background: linear-gradient(180deg, #ffffff 0%, #f6f8f9 100%);
+}
+
+.job-card.job-completed {
+  border-color: #b7d7c3;
+}
+
+.job-card.job-failed {
+  border-color: #e2b8b8;
 }
 
 .job-header,
@@ -133,12 +168,32 @@ const progressWidth = (snapshot: DownloadJobSnapshot): number => {
 .job-title {
   font-weight: 700;
   color: #17313b;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.job-header-meta {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
 }
 
 .job-source {
   font-size: 12px;
   color: #5d7078;
   text-transform: capitalize;
+}
+
+.job-dismiss {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cfd8dd;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #45606a;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .job-phase-row {
@@ -173,5 +228,20 @@ const progressWidth = (snapshot: DownloadJobSnapshot): number => {
   color: #60757e;
   font-size: 12px;
   word-break: break-word;
+}
+
+.job-refresh-note,
+.job-error {
+  margin-top: 8px;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.job-refresh-note {
+  color: #237247;
+}
+
+.job-error {
+  color: #a33f3f;
 }
 </style>
