@@ -136,6 +136,7 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 - After a successful full download, Kaulan refreshes the music database across both library roots:
   - the configured music directory
   - the configured online download root
+- The download panel keeps completed and failed job entries visible until the user dismisses them. Completed entries show a reminder to refresh the library if the new file is not visible yet. Related frontend sources: `frontend/src/stores/downloads.ts`, `frontend/src/components/DownloadJobsView.vue`.
 
 ### Android YouTube cookie refresh note
 

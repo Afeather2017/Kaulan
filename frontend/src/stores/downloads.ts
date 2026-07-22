@@ -74,6 +74,8 @@ export const useDownloadsStore = defineStore("downloads", () => {
   );
 
   const hasActiveJobs = computed(() => activeJobs.value.length > 0);
+  const isTerminalSnapshot = (snapshot: DownloadJobSnapshot) =>
+    snapshot.state === "completed" || snapshot.state === "failed";
 
   const buildJobKey = (apiBase: string, jobId: string) =>
     `${apiBase}::${jobId}`;
@@ -85,7 +87,19 @@ export const useDownloadsStore = defineStore("downloads", () => {
     }
   };
 
-  const finalizeJob = (jobKey: string, snapshot: DownloadJobSnapshot) => {
+  const hasPollableJobs = () =>
+    Object.values(jobs.value).some((job) => !isTerminalSnapshot(job.snapshot));
+
+  const settleJob = (jobKey: string, snapshot: DownloadJobSnapshot) => {
+    const existingJob = jobs.value[jobKey];
+    if (existingJob) {
+      jobs.value[jobKey] = {
+        ...existingJob,
+        snapshot,
+        pollFailures: 0,
+      };
+    }
+
     const pendingWaiters = waiters.get(jobKey) ?? [];
     waiters.delete(jobKey);
     for (const waiter of pendingWaiters) {
@@ -95,14 +109,15 @@ export const useDownloadsStore = defineStore("downloads", () => {
         waiter.resolve(snapshot);
       }
     }
-    delete jobs.value[jobKey];
-    if (Object.keys(jobs.value).length === 0) {
+    if (!hasPollableJobs()) {
       clearPolling();
     }
   };
 
   const pollJobs = async () => {
-    const entries = Object.values(jobs.value);
+    const entries = Object.values(jobs.value).filter(
+      (job) => !isTerminalSnapshot(job.snapshot),
+    );
     if (entries.length === 0) {
       clearPolling();
       return;
@@ -115,7 +130,7 @@ export const useDownloadsStore = defineStore("downloads", () => {
             `${job.apiBase}/download/jobs/${job.snapshot.job_id}`,
           );
           if (response.status === 404) {
-            finalizeJob(job.key, {
+            settleJob(job.key, {
               ...job.snapshot,
               state: "failed",
               phase: "failed",
@@ -136,7 +151,7 @@ export const useDownloadsStore = defineStore("downloads", () => {
           };
 
           if (snapshot.state === "completed" || snapshot.state === "failed") {
-            finalizeJob(job.key, snapshot);
+            settleJob(job.key, snapshot);
           }
         } catch (error) {
           const nextFailures = job.pollFailures + 1;
@@ -170,7 +185,7 @@ export const useDownloadsStore = defineStore("downloads", () => {
           };
 
           if (nextFailures >= POLL_FAILURE_LIMIT) {
-            finalizeJob(job.key, nextSnapshot);
+            settleJob(job.key, nextSnapshot);
           }
         }
       }),
@@ -205,6 +220,14 @@ export const useDownloadsStore = defineStore("downloads", () => {
       pendingWaiters.push({ resolve, reject });
       waiters.set(jobKey, pendingWaiters);
     });
+
+  const dismissJob = (jobKey: string) => {
+    delete jobs.value[jobKey];
+    waiters.delete(jobKey);
+    if (!hasPollableJobs()) {
+      clearPolling();
+    }
+  };
 
   /**
    * Register a freshly created job (online download or remote-library import)
@@ -316,5 +339,6 @@ export const useDownloadsStore = defineStore("downloads", () => {
     startDownloadJob,
     startImportJob,
     waitForJob,
+    dismissJob,
   };
 });

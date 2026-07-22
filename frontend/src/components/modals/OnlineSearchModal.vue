@@ -407,7 +407,12 @@ const providerStatus = reactive<Record<OnlineProvider, ProviderStatus>>({
 });
 
 const isResultDownloading = (result: SearchResult): boolean =>
-  downloadsStore.activeJobs.some((job) => job.resultKey === resultKey(result));
+  downloadsStore.activeJobs.some(
+    (job) =>
+      job.resultKey === resultKey(result) &&
+      job.snapshot.state !== "completed" &&
+      job.snapshot.state !== "failed",
+  );
 
 const sourceOptions = computed(() => props.sourceOptions ?? []);
 
