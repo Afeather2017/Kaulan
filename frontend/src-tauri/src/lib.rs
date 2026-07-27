@@ -610,19 +610,17 @@ pub fn run() {
                 log::info!("Setting up MediaStore adapters for Android");
                 let app_handle_for_adapter = app.handle().clone();
 
-                let _ = kaulan::set_file_reader(Box::new(
-                    android_media_adapter::MediaStoreFileReader::new(
+                kaulan::set_android_sources(
+                    Box::new(android_media_adapter::MediaStoreFileReader::new(
                         app_handle_for_adapter.clone(),
-                    ),
-                ));
-                let _ = kaulan::set_music_file_lister(Box::new(
-                    android_media_adapter::MediaStoreMusicFileLister::new(
+                    )),
+                    Box::new(android_media_adapter::MediaStoreMusicFileLister::new(
                         app_handle_for_adapter.clone(),
-                    ),
-                ));
-                let _ = kaulan::set_lyric_reader(Box::new(
-                    android_media_adapter::AndroidLyricReader::new(app_handle_for_adapter.clone()),
-                ));
+                    )),
+                    Box::new(android_media_adapter::AndroidLyricReader::new(
+                        app_handle_for_adapter.clone(),
+                    )),
+                );
                 log::info!("MediaStore adapters configured successfully");
             }
 

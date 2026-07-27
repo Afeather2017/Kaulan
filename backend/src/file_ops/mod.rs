@@ -341,6 +341,28 @@ pub fn set_lyric_reader(reader: Box<dyn LyricReader>) -> Result<(), Box<dyn Lyri
     Ok(())
 }
 
+/// Register Android MediaStore adapters as a single consolidated source.
+///
+/// All three adapters share one `CompatContentSource` so any of them can be
+/// reached for paths under Android's scoped storage (`/storage`, `/sdcard`)
+/// or `content://` URIs. Registering them separately via `set_file_reader`,
+/// `set_music_file_lister`, and `set_lyric_reader` would create three
+/// sources that each match the same paths — the first-registered one would
+/// shadow the others and break operations whose adapter lives on a later
+/// instance (e.g., scanning would resolve `/storage` to the file_reader
+/// instance, which has no lister, instead of the music_lister instance).
+pub fn set_android_sources(
+    file_reader: Box<dyn FileReader>,
+    music_lister: Box<dyn MusicFileLister>,
+    lyric_reader: Box<dyn LyricReader>,
+) {
+    register_source(Arc::new(CompatContentSource::new(
+        Some(file_reader),
+        Some(music_lister),
+        Some(lyric_reader),
+    )));
+}
+
 pub async fn source_exists(path: &str) -> Result<bool, io::Error> {
     resolve_source(path)?.source.exists(path).await
 }
@@ -407,7 +429,21 @@ impl Source for StdFsSource {
     }
 
     fn matches(&self, raw_path: &str) -> bool {
-        !raw_path.starts_with("content://")
+        if raw_path.starts_with("content://") {
+            return false;
+        }
+        // On Android, scoped-storage paths under /storage and /sdcard are
+        // claimed by CompatContentSource (registered via set_android_sources)
+        // so they route through the MediaStore-backed lister/reader. StdFs
+        // cannot enumerate them under scoped storage even with
+        // READ_MEDIA_AUDIO granted — the directory appears empty.
+        #[cfg(target_os = "android")]
+        {
+            if raw_path.starts_with("/storage") || raw_path.starts_with("/sdcard") {
+                return false;
+            }
+        }
+        true
     }
 
     fn normalize_path(&self, raw_path: &str) -> String {
@@ -623,7 +659,21 @@ impl Source for CompatContentSource {
     }
 
     fn matches(&self, raw_path: &str) -> bool {
-        raw_path.starts_with("content://")
+        if raw_path.starts_with("content://") {
+            return true;
+        }
+        // On Android, also claim scoped-storage filesystem paths so they
+        // route through the MediaStore lister/reader rather than StdFsSource
+        // (which sees an empty directory under scoped storage). The lister's
+        // should_scan_with_filesystem() still routes app-private dirs
+        // (/storage/emulated/0/Android/data/...) back through std::fs.
+        #[cfg(target_os = "android")]
+        {
+            if raw_path.starts_with("/storage") || raw_path.starts_with("/sdcard") {
+                return true;
+            }
+        }
+        false
     }
 
     fn normalize_path(&self, raw_path: &str) -> String {

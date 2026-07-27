@@ -22,8 +22,8 @@ pub use types::AppState;
 // Re-export file operations for Android MediaStore integration
 pub mod file_ops;
 pub use file_ops::{
-    set_file_reader, set_lyric_reader, set_music_file_lister, FileReader, LyricReader,
-    MusicFileInfo, MusicFileLister, ReadSeekSendSync, SUPPORTED_EXTENSIONS,
+    set_android_sources, set_file_reader, set_lyric_reader, set_music_file_lister, FileReader,
+    LyricReader, MusicFileInfo, MusicFileLister, ReadSeekSendSync, SUPPORTED_EXTENSIONS,
 };
 
 /// Environment variable that carries the cold-start launch file path.
