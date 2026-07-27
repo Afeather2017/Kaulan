@@ -2,12 +2,17 @@
 
 use actix_web::{http::StatusCode, test, web, App};
 use chrono::Utc;
-use kaulan::{delete_music_batch, update_database, AppState};
+use kaulan::{
+    delete_music_batch,
+    file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend},
+    update_database, AppState,
+};
 use sea_orm::{
     sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr,
     EntityTrait, Schema,
 };
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -58,7 +63,11 @@ async fn test_delete_music_batch_removes_file_and_database_entry() {
     let db = setup_test_db()
         .await
         .expect("Failed to setup test database");
-    update_database(music_dir.to_string_lossy().as_ref(), &db)
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        music_dir.clone(),
+    ))));
+    update_database(&db)
         .await
         .expect("Failed to scan test music");
 

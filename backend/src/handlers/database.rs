@@ -52,11 +52,7 @@ pub async fn update_database_endpoint(
             }
         }
 
-        let library_roots = [
-            data.music_path.as_ref().as_str(),
-            data.download_root.as_ref().as_str(),
-        ];
-        match scanner::initialize_database_with_roots(&library_roots, &data.db_conn).await {
+        match scanner::initialize_database(&data.db_conn).await {
             Ok(_) => {
                 if let Err(e) = scanner::set_initial_scan_done(&data.db_conn, true).await {
                     return HttpResponse::InternalServerError().json(UpdateResponse {
@@ -76,11 +72,7 @@ pub async fn update_database_endpoint(
             }),
         }
     } else {
-        let library_roots = [
-            data.music_path.as_ref().as_str(),
-            data.download_root.as_ref().as_str(),
-        ];
-        match scanner::update_database_with_roots(&library_roots, &data.db_conn).await {
+        match scanner::update_database(&data.db_conn).await {
             Ok(_) => {
                 info!("Database update completed successfully");
                 HttpResponse::Ok().json(UpdateResponse {

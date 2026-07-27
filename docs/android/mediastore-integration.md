@@ -16,43 +16,54 @@ On Android 10 (API 29) and later, direct filesystem access to media files is res
 
 ## Solution
 
-Kaulan uses a source-resolved file operations layer:
+Kaulan separates two concerns that used to be conflated:
 
-- **`StdFs` source**: Uses `std::fs` / `tokio::fs` for normal filesystem paths
-- **`AndroidMediaStoreContent` source**: Uses the [tauri-plugin-android-mediastore](https://github.com/rustmini/tauri-plugin-android-mediastore) plugin for `content://` paths
+- **Source** (`backend/src/file_ops/mod.rs`): given a path, who handles read/write/exists I/O? Used by streaming, upload, lyric reading, and ad-hoc folder listing.
+  - **`StdFs` source**: `std::fs` / `tokio::fs` for desktop paths and Android app-private filesystem paths
+  - **`AndroidMediaStoreContent` source**: the [tauri-plugin-android-mediastore](https://github.com/rustmini/tauri-plugin-android-mediastore) plugin for `content://` paths
 
-The database keeps storing raw paths. Backend code resolves each path to the correct source before reading, streaming, listing, or checking existence.
+- **ScanBackend** (`backend/src/file_ops/mod.rs`): what gets added to the library database? Each backend owns its scan scope — no path argument. The library scan iterates registered backends, not paths.
+  - **`StdFsScanBackend { scan_root }`**: walks one filesystem tree (desktop music dir, Android app-private download dir, etc.). Register one per root.
+  - **`MediaStoreScanBackend { app_handle }`** (Android only): runs the MediaStore query for all device audio/video. Returns every row MediaStore reports.
+
+The database still stores raw paths (filesystem paths or `content://` URIs), and backend code resolves each path to a `Source` before reading. Library population is the `ScanBackend` registry's job.
 
 ## Architecture
 
 ```mermaid
 sequenceDiagram
     participant App as Tauri App
-    participant Resolver as Source Resolver
+    participant Server as Rust Server init
+    participant Scan as ScanBackend registry
     participant Adapter as MediaStore Adapter
     participant Plugin as MediaStore Plugin
     participant MediaStore as Android MediaStore
-    participant Backend as Rust Backend
+    participant Resolver as Source Resolver
 
-    Note over App,Backend: App Startup (Android only)
-    App->>Adapter: Register MediaStore adapters
-    App->>Backend: Start server
+    Note over App,Scan: App Startup (Android only)
+    App->>Adapter: Register MediaStore adapters (set_android_sources)
+    App->>Scan: register_scan_backend(MediaStoreScanBackend)
+    App->>Server: Start server (music_path = app_data_dir)
+    Server->>Scan: register_scan_backend(StdFsScanBackend(music_path))
+    Server->>Scan: register_scan_backend(StdFsScanBackend(download_root)) if distinct
 
-    Note over App,Backend: Music Scanning
-    Backend->>Resolver: resolve("/storage")
-    Resolver-->>Backend: AndroidMediaStoreContent
-    Backend->>Adapter: list_music_files("/storage")
+    Note over App,MediaStore: Music Scanning (initialize_database / update_database)
+    Server->>Scan: scan_all_backends(media_types)
+    Scan->>Adapter: MediaStoreScanBackend.scan()
     Adapter->>Plugin: get_media_files()
     Plugin->>MediaStore: Query audio content
     MediaStore-->>Plugin: Return audio metadata
     Plugin-->>Adapter: Return AudioFile list
-    Adapter-->>Backend: Return MusicFileInfo list
-    Backend->>Backend: Populate database
+    Adapter-->>Scan: Return MusicFileInfo list
+    Scan->>Scan: StdFsScanBackend.scan() walks music_path / download_root
+    Scan->>Scan: Dedupe by normalized path
+    Scan-->>Server: Combined MusicFileInfo list
+    Server->>Server: Populate database
 
-    Note over App,Backend: Music Playback
-    Backend->>Resolver: resolve("content://...")
-    Resolver-->>Backend: AndroidMediaStoreContent
-    Backend->>Adapter: read_file("content://...")
+    Note over App,Resolver: Music Playback
+    App->>Resolver: GET /api/music/id/{id}
+    Resolver-->>Resolver: resolve(file_path) → Source
+    Resolver->>Adapter: read_file("content://...")
     Adapter->>Plugin: file_reader_open()
     Plugin->>MediaStore: Open content URI
     MediaStore-->>Plugin: Session ID
@@ -62,9 +73,9 @@ sequenceDiagram
         Plugin->>MediaStore: Read file chunk
         MediaStore-->>Plugin: Base64 data
         Plugin-->>Adapter: Base64 data
-        Adapter-->>Backend: Decoded bytes
+        Adapter-->>Resolver: Decoded bytes
     end
-    Backend-->>App: Stream audio
+    Resolver-->>App: Stream audio
     Adapter->>Plugin: file_reader_close()
 ```
 
@@ -74,7 +85,7 @@ sequenceDiagram
 
 **Source: [`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)**
 
-The backend resolves each raw path through a registry of `Source` implementations.
+The backend resolves each raw path through a registry of `Source` implementations. Sources handle I/O — not library population.
 
 #### Source Trait
 
@@ -92,8 +103,26 @@ pub trait Source: Send + Sync {
 }
 ```
 
-- **`StdFs` source** handles desktop paths and Android app-private filesystem paths
-- **`AndroidMediaStoreContent` source** handles `content://` paths
+- **`StdFs` source** handles desktop paths and Android app-private filesystem paths. `matches` returns true for any non-`content://` path.
+- **`AndroidMediaStoreContent` source** handles `content://` paths. `matches` returns true iff the path starts with `content://`.
+
+`Source::list_music_files` still exists for ad-hoc per-path listing (playlist folders, directory tree endpoint). It is **not** how library population works — see `ScanBackend` below.
+
+#### ScanBackend Trait
+
+```rust
+#[async_trait]
+pub trait ScanBackend: Send + Sync {
+    fn id(&self) -> &str;                         // stable identifier for logs
+    fn scope(&self) -> String;                    // human-readable scope (path or MediaStore label)
+    async fn scan(&self, media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error>;
+}
+```
+
+The library scan iterates registered `ScanBackend`s, concatenates their results, and dedupes by normalized path.
+
+- **`StdFsScanBackend { scan_root: PathBuf }`** — recursively walks one filesystem tree. Register one per root.
+- **`MediaStoreScanBackend { app_handle }`** (Android only) — calls MediaStore directly. No path argument; MediaStore semantics aren't path-based.
 
 #### MusicFileInfo Structure
 
@@ -133,7 +162,7 @@ pub struct MediaStoreFileReader {
 
 #### MediaStoreMusicFileLister
 
-Queries MediaStore for audio files:
+Queries MediaStore for audio files. Implements `MusicFileLister` for ad-hoc per-path listing; library population goes through `MediaStoreScanBackend::scan` (which calls the same `query_mediastore` helper internally).
 
 ```rust
 #[cfg(target_os = "android")]
@@ -148,6 +177,19 @@ pub struct MediaStoreMusicFileLister {
 3. Receives metadata (title, artist, album, duration, content URI)
 4. Generates safe filenames from metadata (e.g., `Artist_Title.mp3`)
 5. Returns `MusicFileInfo` list
+
+The `base_path` argument to `list_music_files` is ignored — MediaStore returns rows for the whole device. Per-path filtering was the leaky abstraction removed by the `ScanBackend` refactor.
+
+#### MediaStoreScanBackend
+
+`ScanBackend` implementation that drives library population on Android. Calls `MediaStoreMusicFileLister::query_mediastore` directly without going through the path-based `Source::list_music_files` dispatch.
+
+```rust
+#[cfg(target_os = "android")]
+pub struct MediaStoreScanBackend {
+    app_handle: tauri::AppHandle,
+}
+```
 
 ### Desktop Stub Implementations
 
@@ -170,19 +212,40 @@ impl FileReader for MediaStoreFileReader {
 
 ## Initialization
 
-**Source: [`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs:52-60)**
+**Source: [`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs)**
 
-MediaStore adapters are registered before the backend server starts:
+MediaStore adapters (I/O dispatch via `Source`s) and the `MediaStoreScanBackend` (library population) are registered together during app setup:
 
 ```rust
-// Register MediaStore-backed file operations for Android
 #[cfg(target_os = "android")]
 {
     log::info!("Setting up MediaStore adapters for Android");
     let app_handle_for_adapter = app.handle().clone();
-    let _ = kaulan::set_file_reader(Box::new(android_media_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())));
-    let _ = kaulan::set_music_file_lister(Box::new(android_media_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter)));
+
+    // Source-level I/O dispatch: content:// paths → MediaStore, fs paths → StdFs.
+    kaulan::set_android_sources(
+        Box::new(android_media_adapter::MediaStoreFileReader::new(app_handle_for_adapter.clone())),
+        Box::new(android_media_adapter::MediaStoreMusicFileLister::new(app_handle_for_adapter.clone())),
+        Box::new(android_media_adapter::AndroidLyricReader::new(app_handle_for_adapter.clone())),
+    );
+
+    // Library scan: MediaStore returns every audio row on the device, independent
+    // of any filesystem path. StdFs scan backends for the music_path / download_root
+    // are registered by the Rust server init in backend/src/server/mod.rs.
+    kaulan::register_scan_backend(std::sync::Arc::new(
+        android_media_adapter::MediaStoreScanBackend::new(app_handle_for_adapter),
+    ));
     log::info!("MediaStore adapters configured successfully");
+}
+```
+
+On the Rust side, `start_server` registers one `StdFsScanBackend` per scan root after resolving `music_path` and `KAULAN_DOWNLOAD_ROOT`:
+
+```rust
+file_ops::register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(&music_path))));
+let download_root = env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone());
+if download_root != music_path {
+    file_ops::register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(&download_root))));
 }
 ```
 
@@ -204,8 +267,8 @@ On Android, the database stores raw paths instead of forcing one path format:
 
 | Field | Desktop | Android |
 |-------|---------|---------|
-| `file_path` | `/path/to/music/song.mp3` | `content://media/external/audio/media/123` or `/storage/.../Android/data/<app>/...` |
-| `filename` | `song.mp3` | `Artist_Title.mp3` (generated from metadata) |
+| `file_path` | `/path/to/music/song.mp3` | `content://media/external/audio/media/123` (from `MediaStoreScanBackend`) or `/data/user/0/<app>/.../Music/song.mp3` (from `StdFsScanBackend` on app_data_dir) |
+| `filename` | `song.mp3` | `Artist_Title.mp3` (generated from metadata by MediaStore lister) |
 
 The source resolver normalizes each raw path according to the owning source before scan deduplication and existence checks.
 
@@ -215,10 +278,11 @@ The source resolver normalizes each raw path according to the owning source befo
 
 When the app starts on Android:
 
-1. The MediaStoreMusicFileLister queries `get_media_files()`
-2. Returns all audio files with metadata from MediaStore
-3. The scanner populates the database with content URIs
-4. The UI displays the music library
+1. `MediaStoreScanBackend.scan()` queries `get_media_files()` for all device audio/video
+2. `StdFsScanBackend::scan()` walks the app-private `music_path` and `download_root` (downloaded online tracks land here)
+3. `scan_all_backends` concatenates both result sets and dedupes by normalized path
+4. The scanner populates the database with the combined `MusicFileInfo` list
+5. The UI displays the music library
 
 ### Playing Music
 
@@ -243,7 +307,7 @@ When LUFS pre-cache is triggered on Android:
 During `POST /api/database/update`, Kaulan also checks existing database rows and removes songs whose stored `content://` URI is no longer valid.
 
 - The database still stores the raw MediaStore URI in `music.file_path`
-- `MediaStoreMusicFileLister` filters dead rows during scan with `availability_check = Path`
+- `MediaStoreScanBackend` filters dead rows during scan with `availability_check = Path`
 - `MediaStoreFileReader::exists()` uses `check_media_file_availability(..., Open)` for per-row deletion checks
 
 This keeps scan-time filtering cheap while making database cleanup use the stricter "can Android still open this URI?" check.
@@ -251,13 +315,14 @@ This keeps scan-time filtering cheap while making database cleanup use the stric
 ## Related Source Files
 
 ### Backend
-- **[`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)** - Source registry, resolver, and source implementations
-- **[`backend/src/services/scanner.rs`](../../../backend/src/services/scanner.rs)** - Music scanner using source-backed lister and existence checks
+- **[`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)** - `Source` registry, `ScanBackend` registry, `StdFsScanBackend`
+- **[`backend/src/services/scanner.rs`](../../../backend/src/services/scanner.rs)** - Music scanner using `scan_all_backends` and source-backed existence checks
 - **[`backend/src/handlers/music.rs`](../../../backend/src/handlers/music.rs)** - Music streaming endpoint using source-backed reader
+- **[`backend/src/server/mod.rs`](../../../backend/src/server/mod.rs)** - Registers `StdFsScanBackend` for `music_path` and `download_root`
 
 ### Frontend
-- **[`frontend/src-tauri/src/android_media_adapter.rs`](../../../frontend/src-tauri/src/android_media_adapter.rs)** - MediaStore adapter implementations
-- **[`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs)** - App setup, MediaStore adapter initialization
+- **[`frontend/src-tauri/src/android_media_adapter.rs`](../../../frontend/src-tauri/src/android_media_adapter.rs)** - MediaStore adapter implementations + `MediaStoreScanBackend`
+- **[`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs)** - App setup; registers `MediaStoreScanBackend` alongside `set_android_sources`
 - **[`frontend/src-tauri/Cargo.toml`](../../../frontend/src-tauri/Cargo.toml)** - Plugin dependency
 
 ### Configuration

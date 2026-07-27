@@ -126,7 +126,7 @@ backend/src/
 │   └── database.rs  # Database update API endpoints
 ├── services/
 │   ├── mod.rs       # Service exports
-│   └── scanner.rs   # Directory scanning and database operations
+│   └── scanner.rs   # Database update operations driven by registered scan backends
 ├── server/
 │   └── mod.rs       # Server startup logic and static frontend hosting
 ├── database/mod.rs  # SQLite connection, table creation
@@ -135,7 +135,7 @@ backend/src/
 │   ├── mod.rs
 │   └── prelude.rs
 ├── file_ops/
-│   └── mod.rs       # Source registry, path resolver, and backend file operations
+│   └── mod.rs       # Source registry, scan-backend registry, path resolver, and backend file operations
 └── lufsgen.rs       # FFmpeg-based LUFS analysis utility
 ```
 
@@ -144,7 +144,7 @@ backend/src/
 - Database file: `music.db` (auto-created)
 - `music` table stores all audio files with LUFS values
 - Static frontend hosting serves `frontend/dist` at `/` after `npm run build`; `/api/...` remains reserved for backend routes
-- Backend scans music directory on startup via `initialize_database()`
+- Backend scans registered `ScanBackend`s on startup via `initialize_database()`
 - Two view modes: folder-based playlists and user-defined collections
 - User-defined collections are frontend-only state stored in browser localStorage
 - **Source-resolved file operations** - `file_ops` resolves each stored raw path to a source implementation:
@@ -152,6 +152,10 @@ backend/src/
   - `AndroidMediaStoreContent` handles `content://` URIs on Android
   - Callers keep using backend file operation helpers, but dispatch is source-aware
   - See [`docs/android/mediastore-integration.md`](docs/android/mediastore-integration.md) for Android implementation
+- **Backend-based library scanning** - `file_ops` keeps library population separate from I/O dispatch:
+  - `StdFsScanBackend` scans one configured filesystem root
+  - Android registers `MediaStoreScanBackend` to query all device audio through MediaStore
+  - `scanner::initialize_database()` and `scanner::update_database()` iterate registered backends through `scan_all_backends`
 
 ### Frontend Structure
 ```
@@ -218,7 +222,7 @@ flow.
 ### Data Flow
 
 **Folder Mode (default):**
-1. Backend scans music directory on startup → populates `music` table
+1. Backend scans registered backends on startup → populates `music` table
 2. Frontend calls `GET /api/playlists` → gets folder-based playlist structure
 3. Localhost callers receive raw playback paths; remote callers receive HTTP stream URLs
 4. Remote playback uses `GET /api/music/{filename}` or `GET /api/music/id/{id}` → backend resolves raw path to source and streams audio

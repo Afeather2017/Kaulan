@@ -2,11 +2,15 @@
 
 use actix_web::{http::StatusCode, test, web, App};
 use chrono::Utc;
-use kaulan::{get_music_directory, update_database, update_database_endpoint, AppState};
+use kaulan::{
+    file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend},
+    get_music_directory, update_database, update_database_endpoint, AppState,
+};
 use sea_orm::{
     sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr,
     EntityTrait, Schema,
 };
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -108,6 +112,11 @@ async fn test_update_database_empty() {
         discovery: discovery_state,
     };
 
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
@@ -165,6 +174,11 @@ async fn test_update_database_with_new_files() {
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     };
+
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
 
     let app = test::init_service(
         App::new()
@@ -238,6 +252,11 @@ async fn test_startup_update_skips_when_done() {
         discovery: discovery_state,
     };
 
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
@@ -297,6 +316,11 @@ async fn test_startup_update_runs_and_sets_flag() {
         discovery: discovery_state,
     };
 
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(app_state))
@@ -351,7 +375,11 @@ async fn test_update_database_function_with_empty_db() {
     std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
     // Call update_database directly
-    let result = update_database(test_music_dir.to_string_lossy().as_ref(), &db).await;
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+    let result = update_database(&db).await;
 
     // Should succeed even with no music files
     assert!(result.is_ok());

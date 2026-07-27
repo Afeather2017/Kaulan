@@ -356,11 +356,7 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
     if !uploaded_files.is_empty() {
         info!("[UPLOAD] ========== TRIGGERING DATABASE UPDATE AFTER UPLOAD ==========");
         info!("[UPLOAD] Files to process: {:?}", uploaded_files);
-        let library_roots = [
-            data.music_path.as_ref().as_str(),
-            data.download_root.as_ref().as_str(),
-        ];
-        match scanner::update_database_with_roots(&library_roots, &data.db_conn).await {
+        match scanner::update_database(&data.db_conn).await {
             Ok(_) => {
                 info!("[UPLOAD] ========== DATABASE UPDATE COMPLETED SUCCESSFULLY ==========");
             }

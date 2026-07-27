@@ -690,6 +690,9 @@ The application uses a JSON configuration file to persist the music directory pa
 | macOS    | `~/Library/Application Support/kaulan/config.json` | `~/Library/Application Support/<app-name>/config.json` |
 | Windows  | `%APPDATA%\kaulan\config.json`                     | `%APPDATA%\<app-name>\config.json`                     |
 
+Set `KAULAN_CONFIG_DIR` to override the config directory; `config.json` is read
+and written inside that directory.
+
 **Config Format:**
 
 ```json

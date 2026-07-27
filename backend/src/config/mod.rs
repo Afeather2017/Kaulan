@@ -62,6 +62,10 @@ fn default_media_types() -> Option<Vec<String>> {
 /// - macOS: `~/Library/Application Support/kaulan/`
 /// - Windows: `%APPDATA%\kaulan\`
 pub fn get_config_dir() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("KAULAN_CONFIG_DIR") {
+        return Some(PathBuf::from(path));
+    }
+
     if std::env::var("TAURI_PLATFORM").ok().as_deref() == Some("android") {
         return std::env::var("TAURI_ANDROID_DATA_DIR")
             .ok()
@@ -347,8 +351,10 @@ mod tests {
 
     struct ConfigEnvGuard {
         _temp_dir: TempDir,
+        old_kaulan_config_dir: Option<String>,
         old_xdg_config_home: Option<String>,
         old_home: Option<String>,
+        old_appdata: Option<String>,
     }
 
     impl ConfigEnvGuard {
@@ -356,18 +362,24 @@ mod tests {
             let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
             let root = temp_dir.path().to_string_lossy().to_string();
 
+            let old_kaulan_config_dir = std::env::var("KAULAN_CONFIG_DIR").ok();
             let old_xdg_config_home = std::env::var("XDG_CONFIG_HOME").ok();
             let old_home = std::env::var("HOME").ok();
+            let old_appdata = std::env::var("APPDATA").ok();
 
             unsafe {
+                std::env::set_var("KAULAN_CONFIG_DIR", &root);
                 std::env::set_var("XDG_CONFIG_HOME", &root);
                 std::env::set_var("HOME", &root);
+                std::env::set_var("APPDATA", &root);
             }
 
             Self {
                 _temp_dir: temp_dir,
+                old_kaulan_config_dir,
                 old_xdg_config_home,
                 old_home,
+                old_appdata,
             }
         }
     }
@@ -375,6 +387,10 @@ mod tests {
     impl Drop for ConfigEnvGuard {
         fn drop(&mut self) {
             unsafe {
+                match &self.old_kaulan_config_dir {
+                    Some(value) => std::env::set_var("KAULAN_CONFIG_DIR", value),
+                    None => std::env::remove_var("KAULAN_CONFIG_DIR"),
+                }
                 match &self.old_xdg_config_home {
                     Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                     None => std::env::remove_var("XDG_CONFIG_HOME"),
@@ -382,6 +398,10 @@ mod tests {
                 match &self.old_home {
                     Some(value) => std::env::set_var("HOME", value),
                     None => std::env::remove_var("HOME"),
+                }
+                match &self.old_appdata {
+                    Some(value) => std::env::set_var("APPDATA", value),
+                    None => std::env::remove_var("APPDATA"),
                 }
             }
         }

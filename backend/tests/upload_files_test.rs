@@ -7,7 +7,10 @@
 
 use actix_web::web::Bytes;
 use actix_web::{http, test, web, App};
-use kaulan::{get_all_music, upload_files, AppState};
+use kaulan::{
+    file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend},
+    get_all_music, upload_files, AppState,
+};
 use sea_orm::{
     sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr, Schema,
 };
@@ -307,6 +310,11 @@ async fn test_upload_updates_database() {
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
     });
+
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(std::path::PathBuf::from(
+        &temp_dir,
+    ))));
 
     let app = test::init_service(
         App::new()

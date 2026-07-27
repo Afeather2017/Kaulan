@@ -11,10 +11,7 @@ use ytdl_audio::JsRunner;
 pub use config::load_config;
 pub use database::establish_connection;
 pub use server::{start_server, ServerInfo};
-pub use services::scanner::{
-    initialize_database, initialize_database_with_roots, update_database,
-    update_database_with_roots,
-};
+pub use services::scanner::{initialize_database, update_database};
 
 // Re-export types for external use
 pub use types::AppState;
@@ -22,8 +19,9 @@ pub use types::AppState;
 // Re-export file operations for Android MediaStore integration
 pub mod file_ops;
 pub use file_ops::{
-    set_file_reader, set_lyric_reader, set_music_file_lister, FileReader, LyricReader,
-    MusicFileInfo, MusicFileLister, ReadSeekSendSync, SUPPORTED_EXTENSIONS,
+    clear_scan_backends, register_scan_backend, set_android_sources, set_file_reader,
+    set_lyric_reader, set_music_file_lister, FileReader, LyricReader, MusicFileInfo,
+    MusicFileLister, ReadSeekSendSync, ScanBackend, StdFsScanBackend, SUPPORTED_EXTENSIONS,
 };
 
 /// Environment variable that carries the cold-start launch file path.

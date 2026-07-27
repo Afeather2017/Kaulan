@@ -316,8 +316,12 @@ impl KaulanServer {
                 }
             };
 
+            // On Android, music_dir is resolved during setup() to either the
+            // config-file path or the app's app_data_dir. No /storage fallback —
+            // that's a fake path the source resolver used to claim; backend
+            // ScanBackend registration now handles MediaStore separately.
             let music_dir_arg = if cfg!(target_os = "android") {
-                music_dir.or_else(|| Some("/storage".to_string()))
+                music_dir
             } else {
                 None
             };
@@ -422,11 +426,10 @@ pub fn run() {
 
     let kaulan_server = Arc::new(KaulanServer {
         running: std::sync::atomic::AtomicBool::new(false),
-        music_dir: Mutex::new(if cfg!(target_os = "android") {
-            Some("/storage".to_string())
-        } else {
-            None
-        }),
+        // music_dir is populated during setup() — either from config.json or
+        // (Android only) by falling back to app_data_dir. The KaulanServer
+        // starts the backend thread later, so None here is safe.
+        music_dir: Mutex::new(None),
         data_dir: Mutex::new(None),
         #[cfg(target_os = "android")]
         wake_lock: Mutex::new(None),
@@ -595,7 +598,26 @@ pub fn run() {
                 let mut server_music_dir = kaulan_server.music_dir.lock().unwrap();
                 *server_music_dir = if music_path.is_empty() {
                     if cfg!(target_os = "android") {
-                        Some("/storage".to_string())
+                        // No config yet — use the app-private data dir as the
+                        // StdFs scan backend root for downloaded files. MediaStore
+                        // scan backend is registered separately below.
+                        let fallback = app_handle
+                            .path()
+                            .app_data_dir()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        if fallback.is_empty() {
+                            log::warn!(
+                                "app_data_dir unavailable; backend will start with no StdFs scan root"
+                            );
+                            None
+                        } else {
+                            log::info!(
+                                "No music directory configured; using app_data_dir as scan root: {}",
+                                fallback
+                            );
+                            Some(fallback)
+                        }
                     } else {
                         None
                     }
@@ -610,18 +632,24 @@ pub fn run() {
                 log::info!("Setting up MediaStore adapters for Android");
                 let app_handle_for_adapter = app.handle().clone();
 
-                let _ = kaulan::set_file_reader(Box::new(
-                    android_media_adapter::MediaStoreFileReader::new(
+                kaulan::set_android_sources(
+                    Box::new(android_media_adapter::MediaStoreFileReader::new(
                         app_handle_for_adapter.clone(),
-                    ),
-                ));
-                let _ = kaulan::set_music_file_lister(Box::new(
-                    android_media_adapter::MediaStoreMusicFileLister::new(
+                    )),
+                    Box::new(android_media_adapter::MediaStoreMusicFileLister::new(
                         app_handle_for_adapter.clone(),
-                    ),
-                ));
-                let _ = kaulan::set_lyric_reader(Box::new(
-                    android_media_adapter::AndroidLyricReader::new(app_handle_for_adapter.clone()),
+                    )),
+                    Box::new(android_media_adapter::AndroidLyricReader::new(
+                        app_handle_for_adapter.clone(),
+                    )),
+                );
+                // Register the MediaStore scan backend so the library picks up
+                // every audio row the MediaStore reports — independent of any
+                // filesystem path. StdFs scan backends for the music_path /
+                // download_root are registered by the Rust server init in
+                // backend/src/server/mod.rs once it sees the paths we set above.
+                kaulan::register_scan_backend(std::sync::Arc::new(
+                    android_media_adapter::MediaStoreScanBackend::new(app_handle_for_adapter.clone()),
                 ));
                 log::info!("MediaStore adapters configured successfully");
             }

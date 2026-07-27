@@ -1029,7 +1029,11 @@ mod tests {
         let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
             .await
             .unwrap();
-        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+        crate::file_ops::clear_scan_backends();
+        crate::file_ops::register_scan_backend(std::sync::Arc::new(
+            crate::file_ops::StdFsScanBackend::new(std::path::PathBuf::from(music_dir)),
+        ));
+        crate::services::scanner::initialize_database(&db_conn)
             .await
             .unwrap();
         let music = MusicEntity::find().one(&db_conn).await.unwrap().unwrap();

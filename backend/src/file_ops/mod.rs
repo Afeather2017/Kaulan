@@ -183,6 +183,96 @@ pub fn normalize_path(raw_path: &str) -> String {
         .unwrap_or_else(|_| raw_path.to_string())
 }
 
+/// A backend that populates the music library database.
+///
+/// This is distinct from [`Source`]: a `Source` answers "who handles I/O on
+/// this path?", while a `ScanBackend` answers "what files should be added to
+/// the library?". The two concerns were previously conflated on `Source` via
+/// `list_music_files(path, ...)`, which forced callers to pass fake paths
+/// like `/storage` on Android to trigger a MediaStore query.
+///
+/// Each backend scans "everything it owns" with no path argument. Multiple
+/// backends can be registered (e.g., one StdFs backend per scan root, plus a
+/// MediaStore backend on Android). The scanner iterates backends, not paths.
+/// See `docs/android/mediastore-integration.md` for the source-vs-scan flow.
+#[async_trait]
+pub trait ScanBackend: Send + Sync {
+    /// Stable identifier for logging and deduplication (e.g. `"std-fs"`,
+    /// `"mediastore"`).
+    fn id(&self) -> &str;
+
+    /// Human-readable scope for logs (e.g. the configured scan root path or
+    /// `"MediaStore(audio/*)"`).
+    fn scope(&self) -> String;
+
+    /// Scan everything this backend owns and return discovered music files.
+    async fn scan(&self, media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error>;
+}
+
+static SCAN_BACKENDS: OnceLock<RwLock<Vec<Arc<dyn ScanBackend>>>> = OnceLock::new();
+
+fn scan_backends() -> &'static RwLock<Vec<Arc<dyn ScanBackend>>> {
+    SCAN_BACKENDS.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+/// Register a scan backend. Multiple backends may be registered; the scanner
+/// iterates all of them. Registration is append-only — re-registering the
+/// same backend (e.g. after a config change) requires a process restart.
+pub fn register_scan_backend(backend: Arc<dyn ScanBackend>) {
+    match scan_backends().write() {
+        Ok(mut backends) => backends.push(backend),
+        Err(err) => tracing::error!("Scan backend registry lock poisoned: {}", err),
+    }
+}
+
+/// Clear registered scan backends.
+///
+/// This is primarily used by tests that register temp-directory scan roots in
+/// one process. Normal runtime configuration is append-only and requires a
+/// restart after changing library roots.
+#[doc(hidden)]
+pub fn clear_scan_backends() {
+    match scan_backends().write() {
+        Ok(mut backends) => backends.clear(),
+        Err(err) => tracing::error!("Scan backend registry lock poisoned: {}", err),
+    }
+}
+
+/// Iterate all registered scan backends, collect their results, and dedupe
+/// by `normalize_path`. Dedup is cross-backend so a file reachable both via
+/// StdFs and via a content URI on Android produces one row, not two (the
+/// two normalized forms differ, so this only catches true duplicates within
+/// the same backend's output — documented behavior).
+pub async fn scan_all_backends(media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error> {
+    let backends: Vec<Arc<dyn ScanBackend>> = match scan_backends().read() {
+        Ok(backends) => backends.clone(),
+        Err(err) => {
+            return Err(io::Error::other(format!(
+                "scan backend registry poisoned: {err}"
+            )))
+        }
+    };
+
+    let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut collected: Vec<MusicFileInfo> = Vec::new();
+
+    for backend in &backends {
+        let scope = backend.scope();
+        tracing::info!("Scanning backend {} ({})", backend.id(), scope);
+        let files = backend.scan(media_types).await?;
+        tracing::info!("Backend {} returned {} files", backend.id(), files.len());
+
+        for file in files {
+            let normalized = normalize_path(&file.path);
+            if seen_paths.insert(normalized) {
+                collected.push(file);
+            }
+        }
+    }
+
+    Ok(collected)
+}
+
 pub struct SourceBackedFileReader;
 
 #[async_trait]
@@ -339,6 +429,31 @@ pub fn set_music_file_lister(
 pub fn set_lyric_reader(reader: Box<dyn LyricReader>) -> Result<(), Box<dyn LyricReader>> {
     register_source(Arc::new(CompatContentSource::new(None, None, Some(reader))));
     Ok(())
+}
+
+/// Register Android MediaStore adapters as a single consolidated
+/// [`Source`] for I/O dispatch on `content://` URIs.
+///
+/// All three adapters share one `CompatContentSource` so reads, listings,
+/// and lyric reads for `content://` paths route through one source.
+/// Registering them separately via `set_file_reader`, `set_music_file_lister`,
+/// and `set_lyric_reader` would create three sources that all match
+/// `content://` — the first-registered one would shadow the others.
+///
+/// This is unrelated to library scanning. To populate the library from
+/// MediaStore, register a `ScanBackend` (the Tauri side registers
+/// `MediaStoreScanBackend` from `frontend/src-tauri/src/android_media_adapter.rs`
+/// alongside this call). See `docs/android/mediastore-integration.md`.
+pub fn set_android_sources(
+    file_reader: Box<dyn FileReader>,
+    music_lister: Box<dyn MusicFileLister>,
+    lyric_reader: Box<dyn LyricReader>,
+) {
+    register_source(Arc::new(CompatContentSource::new(
+        Some(file_reader),
+        Some(music_lister),
+        Some(lyric_reader),
+    )));
 }
 
 pub async fn source_exists(path: &str) -> Result<bool, io::Error> {
@@ -568,6 +683,46 @@ fn scan_directory_recursive_sync(
                 }
             }
         }
+    }
+}
+
+/// A `ScanBackend` that recursively scans a single filesystem root via `std::fs`.
+///
+/// Register one instance per root. The desktop server init typically
+/// registers two — one for `music_directory` and one for
+/// `KAULAN_DOWNLOAD_ROOT` when it differs. On Android, one instance is
+/// registered for the app-private downloads directory; MediaStore covers
+/// everything else via `MediaStoreScanBackend`.
+pub struct StdFsScanBackend {
+    scan_root: PathBuf,
+}
+
+impl StdFsScanBackend {
+    pub fn new(scan_root: PathBuf) -> Self {
+        Self { scan_root }
+    }
+}
+
+#[async_trait]
+impl ScanBackend for StdFsScanBackend {
+    fn id(&self) -> &str {
+        "std-fs"
+    }
+
+    fn scope(&self) -> String {
+        self.scan_root.to_string_lossy().to_string()
+    }
+
+    async fn scan(&self, media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error> {
+        let root = self.scan_root.clone();
+        let media_types = media_types.to_vec();
+        tokio::task::spawn_blocking(move || {
+            let mut audio_files = Vec::new();
+            scan_directory_recursive_sync(&root, &mut audio_files, &media_types);
+            Ok(audio_files)
+        })
+        .await
+        .map_err(|e| io::Error::other(e.to_string()))?
     }
 }
 
@@ -813,5 +968,56 @@ mod tests {
 
         assert!(source_exists(existing.to_str().unwrap()).await.unwrap());
         assert!(!source_exists(missing.to_str().unwrap()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn std_fs_scan_backend_recurses_and_filters_by_extension() {
+        use std::path::PathBuf;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sub = temp_dir.path().join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("song.mp3"), b"data").unwrap();
+        fs::write(sub.join("notes.txt"), b"data").unwrap();
+        fs::write(temp_dir.path().join("top.flac"), b"data").unwrap();
+
+        let backend = StdFsScanBackend::new(PathBuf::from(temp_dir.path()));
+        let media_types = vec!["audio".to_string()];
+        let files = backend.scan(&media_types).await.unwrap();
+
+        let names: Vec<String> = files.iter().map(|f| f.filename.clone()).collect();
+        assert!(names.contains(&"song.mp3".to_string()));
+        assert!(names.contains(&"top.flac".to_string()));
+        assert!(!names.contains(&"notes.txt".to_string()));
+
+        let parent_dirs: Vec<String> = files
+            .iter()
+            .filter(|f| f.filename == "song.mp3")
+            .map(|f| f.parent_dir.clone().unwrap_or_default())
+            .collect();
+        assert_eq!(parent_dirs, vec!["sub".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn scan_all_backends_dedupes_overlapping_std_fs_roots() {
+        use std::path::PathBuf;
+        use std::sync::Arc;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(temp_dir.path().join("same.mp3"), b"data").unwrap();
+
+        clear_scan_backends();
+        register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+            temp_dir.path(),
+        ))));
+        register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+            temp_dir.path(),
+        ))));
+
+        let media_types = vec!["audio".to_string()];
+        let files = scan_all_backends(&media_types).await.unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].filename, "same.mp3");
     }
 }

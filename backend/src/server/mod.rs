@@ -14,6 +14,7 @@ use tracing::{error, info, warn};
 
 use crate::config;
 use crate::database::establish_connection;
+use crate::file_ops;
 use crate::handlers::database;
 use crate::handlers::discovery;
 use crate::handlers::download;
@@ -200,7 +201,11 @@ pub async fn start_server(
 
     // Priority: CLI arg > Config file > Environment variable > Platform default
     let music_path = if let Some(path) = cli_path {
-        // CLI argument provided - use it (highest priority)
+        // CLI argument provided - use it (highest priority).
+        // On Android, the Tauri host supplies the app-private downloads dir
+        // here — the backend never defaults to `/storage` itself because
+        // library scanning is now backend-based (see ScanBackend). MediaStore
+        // scans are registered separately by the Tauri glue.
         info!("Using music directory from CLI argument: {}", path);
         path
     } else if let Some(path) = config::load_config() {
@@ -211,16 +216,10 @@ pub async fn start_server(
         // Environment variable set
         info!("Using music directory from environment variable: {}", path);
         path
-    } else if cfg!(target_os = "android") {
-        // Android: use /storage as default (covers both internal storage and SD card)
-        let default_path = "/storage".to_string();
-        info!(
-            "Using default music directory for Android: {}",
-            default_path
-        );
-        default_path
     } else {
-        // Desktop: try ~/Music first, then ./music as fallback
+        // Desktop: try ~/Music first, then ./music as fallback.
+        // Android callers must supply music_path explicitly via CLI/env —
+        // there's no platform default here anymore.
         let home_dir = dirs::home_dir();
         let music_dir = home_dir.as_ref().map(|h| h.join("Music"));
 
@@ -276,6 +275,20 @@ pub async fn start_server(
             return Err("No music directory configured. Use CLI argument, config file, or KAULAN_MUSIC_DIR environment variable.".into());
         }
     };
+
+    // Register StdFs scan backends for the resolved music directory and the
+    // download root (when distinct). Library scanning iterates these via
+    // file_ops::scan_all_backends. On Android, MediaStoreScanBackend is
+    // registered separately by the Tauri host after this server starts.
+    let download_root = env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone());
+    file_ops::register_scan_backend(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(
+        &music_path,
+    ))));
+    if download_root != music_path {
+        file_ops::register_scan_backend(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(
+            &download_root,
+        ))));
+    }
 
     info!("Connecting to database...");
     let db_conn = match establish_connection(&music_path).await {

@@ -4,12 +4,16 @@
 //! to the database after they are written to disk.
 
 use actix_web::{http::StatusCode, test, web, App};
-use kaulan::{get_all_music, update_database, AppState};
+use kaulan::{
+    file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend},
+    get_all_music, update_database, AppState,
+};
 use sea_orm::{
     sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr,
     EntityTrait, Schema,
 };
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -63,7 +67,11 @@ async fn test_update_database_adds_new_files_to_database() {
 
     // STEP 3: Call update_database() to simulate what happens after upload
     println!("Calling update_database() after file copy...");
-    let result = update_database(test_music_dir.to_string_lossy().as_ref(), &db).await;
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        test_music_dir.clone(),
+    ))));
+    let result = update_database(&db).await;
 
     assert!(result.is_ok(), "update_database should succeed");
 
@@ -125,8 +133,11 @@ async fn test_upload_files_then_check_database_via_api() {
     write_test_mp3(&dest_mp3);
 
     // STEP 2: Call update_database to simulate the upload endpoint behavior
-    let music_path_str = test_music_dir.to_string_lossy().to_string();
-    let _result = update_database(&music_path_str, &db).await;
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        test_music_dir.clone(),
+    ))));
+    let _result = update_database(&db).await;
 
     // STEP 3: Use GET /api/music endpoint to verify the file appears
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
@@ -134,6 +145,7 @@ async fn test_upload_files_then_check_database_via_api() {
         "Test Player".to_string(),
         2080,
     ));
+    let music_path_str = test_music_dir.to_string_lossy().to_string();
     let app_state = AppState {
         music_path: Arc::new(music_path_str.clone()),
         download_root: Arc::new(music_path_str.clone()),
@@ -201,7 +213,11 @@ async fn test_update_database_with_multiple_new_files() {
     }
 
     // Call update_database
-    let _result = update_database(test_music_dir.to_string_lossy().as_ref(), &db).await;
+    clear_scan_backends();
+    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        test_music_dir.clone(),
+    ))));
+    let _result = update_database(&db).await;
 
     // Verify database
     use kaulan::entities::music::Entity as MusicEntity;

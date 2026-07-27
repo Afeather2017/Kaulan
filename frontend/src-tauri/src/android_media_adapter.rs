@@ -15,7 +15,10 @@ use bytes::Bytes;
 #[cfg(target_os = "android")]
 use futures::{stream, Stream};
 #[cfg(target_os = "android")]
-use kaulan::{FileReader, LyricReader, MusicFileInfo, MusicFileLister, ReadSeekSendSync};
+use kaulan::{
+    file_ops::ScanBackend, FileReader, LyricReader, MusicFileInfo, MusicFileLister,
+    ReadSeekSendSync,
+};
 #[cfg(target_os = "android")]
 use std::io::{self, Read, Seek, SeekFrom};
 #[cfg(target_os = "android")]
@@ -923,129 +926,6 @@ impl MediaStoreMusicFileLister {
         Self { app_handle }
     }
 
-    fn should_scan_with_filesystem(base_path: &str) -> bool {
-        base_path.starts_with("/storage/emulated/0/Android/data/")
-            || base_path.starts_with("/storage/self/primary/Android/data/")
-    }
-
-    fn path_is_within_root(candidate: &Path, root: &Path) -> bool {
-        let candidate_components: Vec<_> = candidate.components().collect();
-        let root_components: Vec<_> = root.components().collect();
-        candidate_components.starts_with(&root_components)
-    }
-
-    fn scan_directory_recursive_sync(
-        dir_path: &Path,
-        root_path: &Path,
-        files: &mut Vec<MusicFileInfo>,
-        media_types: &[String],
-    ) {
-        let entries = match std::fs::read_dir(dir_path) {
-            Ok(entries) => entries,
-            Err(err) => {
-                log::warn!(
-                    "Failed to read Android app directory {}: {}",
-                    dir_path.display(),
-                    err
-                );
-                return;
-            }
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let file_type = match entry.file_type() {
-                Ok(file_type) => file_type,
-                Err(err) => {
-                    log::warn!("Failed to read file type for {}: {}", path.display(), err);
-                    continue;
-                }
-            };
-
-            if file_type.is_dir() {
-                Self::scan_directory_recursive_sync(&path, root_path, files, media_types);
-                continue;
-            }
-
-            if !file_type.is_file() {
-                continue;
-            }
-
-            let extension = match path.extension().and_then(|ext| ext.to_str()) {
-                Some(extension) => extension,
-                None => continue,
-            };
-
-            if !kaulan::file_ops::is_supported_extension(extension, media_types) {
-                continue;
-            }
-
-            let parent_dir = path
-                .parent()
-                .and_then(|parent| parent.file_name())
-                .map(|name| name.to_string_lossy().to_string());
-
-            let filename = path
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-
-            let stored_path = path
-                .canonicalize()
-                .unwrap_or_else(|_| path.clone())
-                .to_string_lossy()
-                .to_string();
-
-            if Self::path_is_within_root(Path::new(&stored_path), root_path) {
-                files.push(MusicFileInfo {
-                    path: stored_path,
-                    filename,
-                    title: None,
-                    artist: None,
-                    album: None,
-                    duration_ms: None,
-                    parent_dir,
-                });
-            }
-        }
-    }
-
-    fn scan_app_directory(
-        &self,
-        base_path: &str,
-        media_types: &[String],
-    ) -> Result<Vec<MusicFileInfo>, io::Error> {
-        let root_path = PathBuf::from(base_path);
-        log::info!(
-            "Scanning Android app-specific directory via std::fs: {} (types: {:?})",
-            root_path.display(),
-            media_types
-        );
-
-        if !root_path.exists() {
-            log::info!(
-                "Android app-specific directory does not exist yet: {}",
-                root_path.display()
-            );
-            return Ok(Vec::new());
-        }
-
-        let canonical_root = root_path.canonicalize().unwrap_or(root_path);
-        let mut files = Vec::new();
-        Self::scan_directory_recursive_sync(
-            &canonical_root,
-            &canonical_root,
-            &mut files,
-            media_types,
-        );
-        log::info!(
-            "Android app-specific directory scan complete: {} media files found under {}",
-            files.len(),
-            canonical_root.display()
-        );
-        Ok(files)
-    }
-
     /// Generate a safe filename from metadata or use the display name
     ///
     /// Prefer the MediaStore display_name (real filename with extension),
@@ -1080,27 +960,22 @@ impl MediaStoreMusicFileLister {
             format!("{}_{}.mp3", safe_artist, safe_title)
         }
     }
-}
 
-#[cfg(target_os = "android")]
-#[async_trait]
-impl MusicFileLister for MediaStoreMusicFileLister {
-    async fn list_music_files(
+    /// Query MediaStore for all device audio/video files matching `media_types`.
+    ///
+    /// The `base_path` argument from the [`MusicFileLister`] trait is ignored
+    /// — MediaStore returns rows for the whole device, and per-path filtering
+    /// was both lossy and the source of the old `/storage` fake-path routing.
+    /// Library population is now driven by [`MediaStoreScanBackend`] which
+    /// calls this directly.
+    async fn query_mediastore(
         &self,
-        base_path: &str,
         media_types: &[String],
     ) -> Result<Vec<MusicFileInfo>, io::Error> {
-        if Self::should_scan_with_filesystem(base_path) {
-            return self.scan_app_directory(base_path, media_types);
-        }
-
         log::info!(
             "Querying MediaStore for media files (types: {:?})...",
             media_types
         );
-        let filter_root = Path::new(base_path)
-            .canonicalize()
-            .unwrap_or_else(|_| PathBuf::from(base_path));
 
         let mut all_files = Vec::new();
 
@@ -1135,10 +1010,6 @@ impl MusicFileLister for MediaStoreMusicFileLister {
                             .canonicalize()
                             .unwrap_or(real_path_buf.clone());
 
-                        if !Self::path_is_within_root(&canonical_real_path, &filter_root) {
-                            continue;
-                        }
-
                         let filename = Self::generate_filename(&mf);
 
                         let parent_dir = Some(
@@ -1150,8 +1021,7 @@ impl MusicFileLister for MediaStoreMusicFileLister {
                         );
 
                         log::debug!(
-                            "Found MediaStore file within root {}: {} - {} (parent_dir: {:?}, file_path: {})",
-                            filter_root.display(),
+                            "Found MediaStore file: {} - {} (parent_dir: {:?}, file_path: {})",
                             mf.artist.as_deref().unwrap_or("Unknown"),
                             mf.title.as_deref().unwrap_or("Unknown"),
                             parent_dir,
@@ -1180,6 +1050,58 @@ impl MusicFileLister for MediaStoreMusicFileLister {
             all_files.len()
         );
         Ok(all_files)
+    }
+}
+
+#[cfg(target_os = "android")]
+#[async_trait]
+impl MusicFileLister for MediaStoreMusicFileLister {
+    async fn list_music_files(
+        &self,
+        _base_path: &str,
+        media_types: &[String],
+    ) -> Result<Vec<MusicFileInfo>, io::Error> {
+        // The path argument is ignored: MediaStore returns rows for the whole
+        // device, and per-path filtering was the leaky abstraction that the
+        // ScanBackend refactor removed. Library population now goes through
+        // MediaStoreScanBackend::scan; this method remains for ad-hoc uses of
+        // MusicFileLister.
+        self.query_mediastore(media_types).await
+    }
+}
+
+/// [`ScanBackend`] that populates the library from Android's MediaStore.
+///
+/// Returns every audio/video row MediaStore reports for the device. No path
+/// argument — MediaStore semantics aren't path-based. Register one instance
+/// alongside `set_android_sources` during app setup. See
+/// `docs/android/mediastore-integration.md`.
+#[cfg(target_os = "android")]
+pub struct MediaStoreScanBackend {
+    app_handle: tauri::AppHandle,
+}
+
+#[cfg(target_os = "android")]
+impl MediaStoreScanBackend {
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        Self { app_handle }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[async_trait]
+impl ScanBackend for MediaStoreScanBackend {
+    fn id(&self) -> &str {
+        "mediastore"
+    }
+
+    fn scope(&self) -> String {
+        "MediaStore(audio/*, video/*)".to_string()
+    }
+
+    async fn scan(&self, media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error> {
+        let lister = MediaStoreMusicFileLister::new(self.app_handle.clone());
+        lister.query_mediastore(media_types).await
     }
 }
 
