@@ -273,9 +273,10 @@ For Android 12L (API 32) and earlier, the deprecated `READ_EXTERNAL_STORAGE` per
 
 ### Runtime Permission Request
 
-The AndroidManifest declarations only get the install-time permission granted on older Android versions. On Android 6 (API 23)+, dangerous permissions must also be requested at runtime. `MainActivity.onCreate` calls `checkAndRequestStoragePermissions()` to prompt the user on first launch — without this, MediaStore queries silently return zero rows because the permission gate is per-process, not per-query.
+The AndroidManifest declarations only get the install-time permission granted on older Android versions. On Android 6 (API 23)+, dangerous permissions must also be requested at runtime. Kaulan relies on the MediaStore plugin's per-call permission flow instead of prompting during `MainActivity.onCreate`.
+The MediaStore plugin requests the needed runtime permission when a MediaStore operation is first invoked.
 
-**Source: [`frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt`](../../../frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt)**
+**Source: [`frontend/src-tauri/src/android_media_adapter.rs`](../../../frontend/src-tauri/src/android_media_adapter.rs)**
 
 ## Data Storage
 
@@ -454,8 +455,8 @@ To test the app on desktop during development:
 
 1. Build the Android app: `cd frontend && npm run tauri android build`
 2. Install on a physical device or emulator
-3. Grant the READ_MEDIA_AUDIO permission when prompted
-4. The app will automatically scan MediaStore on first launch
+3. Trigger a MediaStore-backed action such as the startup scan
+4. Grant media access when the system prompt appears
 
 ### Debug Logging
 
