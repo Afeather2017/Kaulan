@@ -3,7 +3,7 @@ REM Build and sign Kaulan Android APK
 REM This script builds and signs the APK
 REM
 REM Usage:
-REM   build-android.bat              (builds universal APK)
+REM   build-android.bat              (builds aarch64 APK — matches staged FFmpeg)
 REM   build-android.bat --target aarch64
 REM   build-android.bat --target armv7
 REM   build-android.bat --target x86_64
@@ -100,11 +100,11 @@ REM parses argv in npx/tauri sees valid JSON: {"version":"X.Y.Z"}.
 echo [1/5] Building APK with Tauri...
 cd /d "%FRONTEND_DIR%"
 if "%~1"=="" (
-    echo   No target specified, building universal APK...
+    echo   No target specified, building aarch64 APK to match staged FFmpeg...
     if defined RELEASE_VERSION (
-        call npx tauri android build --config "{\"version\":\"!RELEASE_VERSION!\"}"
+        call npx tauri android build --target aarch64 --config "{\"version\":\"!RELEASE_VERSION!\"}"
     ) else (
-        call npx tauri android build
+        call npx tauri android build --target aarch64
     )
 ) else (
     echo   Building with custom options: %*

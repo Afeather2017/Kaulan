@@ -271,6 +271,12 @@ The app requires the `READ_MEDIA_AUDIO` permission for Android 13 (API 33) and l
 
 For Android 12L (API 32) and earlier, the deprecated `READ_EXTERNAL_STORAGE` permission may be used (removed in commit f65dff2).
 
+### Runtime Permission Request
+
+The AndroidManifest declarations only get the install-time permission granted on older Android versions. On Android 6 (API 23)+, dangerous permissions must also be requested at runtime. `MainActivity.onCreate` calls `checkAndRequestStoragePermissions()` to prompt the user on first launch — without this, MediaStore queries silently return zero rows because the permission gate is per-process, not per-query.
+
+**Source: [`frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt`](../../../frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt)**
+
 ## Data Storage
 
 On Android, the database stores raw paths instead of forcing one path format:
