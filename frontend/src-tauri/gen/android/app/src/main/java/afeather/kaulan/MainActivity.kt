@@ -1,9 +1,7 @@
 package afeather.kaulan
 
-import android.Manifest
 import android.content.ContentResolver
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
@@ -17,8 +15,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.app.ActivityCompat
 import org.json.JSONObject
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -47,20 +43,6 @@ class MainActivity : TauriActivity() {
   // backend launch broker. `displayName` is the friendly filename from
   // ContentResolver (null when not resolvable). See docs/default-music-app.md.
   private external fun nativeSetLaunchFile(uri: String, displayName: String?)
-
-  // Permission request launcher. Must be registered at field-init time so
-  // the activity-result host is ready before onCreate completes.
-  private val requestPermissionLauncher = registerForActivityResult(
-    ActivityResultContracts.RequestMultiplePermissions()
-  ) { permissions ->
-    permissions.entries.forEach { entry ->
-      val granted = entry.value
-      android.util.Log.d(
-        "MainActivity",
-        "Permission ${if (granted) "granted" else "denied"}: ${entry.key}",
-      )
-    }
-  }
 
   private val mainHandler = Handler(Looper.getMainLooper())
   private val hiddenSolverLock = Object()
@@ -121,47 +103,11 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     nativeInitAndroidContext()
-    // Request runtime storage permissions on first launch so MediaStore
-    // scans return rows instead of silently failing. The MediaStore plugin
-    // only queries, it does not request permissions.
-    checkAndRequestStoragePermissions()
     // Cold-start case: capture the VIEW intent the OS launched us with. The
     // backend broker is a static OnceLock in the Rust crate, so this is safe
     // to call before the in-process backend binds its port.
     handleLaunchIntent(intent)
   }
-
-  private fun checkAndRequestStoragePermissions() {
-    val permissionsToRequest = getRequiredPermissions().filter { permission ->
-      ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
-    }
-    if (permissionsToRequest.isNotEmpty()) {
-      android.util.Log.d(
-        "MainActivity",
-        "Requesting permissions: ${permissionsToRequest.joinToString()}",
-      )
-      requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
-    } else {
-      android.util.Log.d("MainActivity", "All storage permissions already granted")
-    }
-  }
-
-  private fun getRequiredPermissions(): Array<String> =
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-      arrayOf(Manifest.permission.READ_MEDIA_AUDIO)
-    } else {
-      mutableListOf<String>().apply {
-        add(Manifest.permission.READ_EXTERNAL_STORAGE)
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
-          add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        }
-      }.toTypedArray()
-    }
-
-  fun hasStoragePermission(): Boolean =
-    getRequiredPermissions().all { permission ->
-      ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-    }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
