@@ -3,7 +3,7 @@
 use actix_web::{http::StatusCode, test, web, App};
 use chrono::Utc;
 use kaulan::{
-    file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend},
+    file_ops::{ScanRegistry, StdFsScanBackend},
     get_music_directory, update_database, update_database_endpoint, AppState,
 };
 use sea_orm::{
@@ -60,6 +60,7 @@ async fn test_get_music_directory() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -97,6 +98,11 @@ async fn test_update_database_empty() {
         "Test Player".to_string(),
         2080,
     ));
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
@@ -110,12 +116,8 @@ async fn test_update_database_empty() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry,
     };
-
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
-        &test_music_dir,
-    ))));
 
     let app = test::init_service(
         App::new()
@@ -160,6 +162,11 @@ async fn test_update_database_with_new_files() {
         "Test Player".to_string(),
         2080,
     ));
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
@@ -173,12 +180,8 @@ async fn test_update_database_with_new_files() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry,
     };
-
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
-        &test_music_dir,
-    ))));
 
     let app = test::init_service(
         App::new()
@@ -237,6 +240,11 @@ async fn test_startup_update_skips_when_done() {
         "Test Player".to_string(),
         2080,
     ));
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
@@ -250,12 +258,8 @@ async fn test_startup_update_skips_when_done() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry,
     };
-
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
-        &test_music_dir,
-    ))));
 
     let app = test::init_service(
         App::new()
@@ -301,6 +305,11 @@ async fn test_startup_update_runs_and_sets_flag() {
         "Test Player".to_string(),
         2080,
     ));
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        &test_music_dir,
+    ))));
+
     let app_state = AppState {
         music_path: Arc::new(test_music_dir.to_string_lossy().to_string()),
         download_root: Arc::new(test_music_dir.to_string_lossy().to_string()),
@@ -314,12 +323,8 @@ async fn test_startup_update_runs_and_sets_flag() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry,
     };
-
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
-        &test_music_dir,
-    ))));
 
     let app = test::init_service(
         App::new()
@@ -375,11 +380,11 @@ async fn test_update_database_function_with_empty_db() {
     std::fs::create_dir_all(&test_music_dir).expect("Failed to create test directory");
 
     // Call update_database directly
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
         &test_music_dir,
     ))));
-    let result = update_database(&db).await;
+    let result = update_database(&db, &scan_registry).await;
 
     // Should succeed even with no music files
     assert!(result.is_ok());

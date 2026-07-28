@@ -4,7 +4,7 @@ use actix_web::{http::StatusCode, test, web, App};
 use chrono::Utc;
 use kaulan::{
     delete_music_batch,
-    file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend},
+    file_ops::{ScanRegistry, StdFsScanBackend},
     update_database, AppState,
 };
 use sea_orm::{
@@ -47,6 +47,7 @@ fn build_app_state(db: DatabaseConnection, music_path: String) -> AppState {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     }
 }
 
@@ -63,11 +64,11 @@ async fn test_delete_music_batch_removes_file_and_database_entry() {
     let db = setup_test_db()
         .await
         .expect("Failed to setup test database");
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
         music_dir.clone(),
     ))));
-    update_database(&db)
+    update_database(&db, &scan_registry)
         .await
         .expect("Failed to scan test music");
 

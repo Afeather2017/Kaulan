@@ -209,68 +209,74 @@ pub trait ScanBackend: Send + Sync {
     async fn scan(&self, media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error>;
 }
 
-static SCAN_BACKENDS: OnceLock<RwLock<Vec<Arc<dyn ScanBackend>>>> = OnceLock::new();
-
-fn scan_backends() -> &'static RwLock<Vec<Arc<dyn ScanBackend>>> {
-    SCAN_BACKENDS.get_or_init(|| RwLock::new(Vec::new()))
-}
-
-/// Register a scan backend. Multiple backends may be registered; the scanner
-/// iterates all of them. Registration is append-only — re-registering the
-/// same backend (e.g. after a config change) requires a process restart.
-pub fn register_scan_backend(backend: Arc<dyn ScanBackend>) {
-    match scan_backends().write() {
-        Ok(mut backends) => backends.push(backend),
-        Err(err) => tracing::error!("Scan backend registry lock poisoned: {}", err),
-    }
-}
-
-/// Clear registered scan backends.
+/// Owns the registered [`ScanBackend`]s for one running server (or one test).
 ///
-/// This is primarily used by tests that register temp-directory scan roots in
-/// one process. Normal runtime configuration is append-only and requires a
-/// restart after changing library roots.
-#[doc(hidden)]
-pub fn clear_scan_backends() {
-    match scan_backends().write() {
-        Ok(mut backends) => backends.clear(),
-        Err(err) => tracing::error!("Scan backend registry lock poisoned: {}", err),
-    }
+/// Constructed by the caller of [`crate::server::start_server`] and threaded
+/// through [`crate::types::AppState`] as `Arc<ScanRegistry>`. Each test gets
+/// its own instance — there is no global registry, so parallel tests cannot
+/// race on scan-backend registration.
+///
+/// `start_server` populates this with one `StdFsScanBackend` per scan root
+/// (music directory + optional download root). The Tauri Android host adds a
+/// `MediaStoreScanBackend` before invoking `start_server`. See
+/// `docs/android/mediastore-integration.md`.
+pub struct ScanRegistry {
+    backends: RwLock<Vec<Arc<dyn ScanBackend>>>,
 }
 
-/// Iterate all registered scan backends, collect their results, and dedupe
-/// by `normalize_path`. Dedup is cross-backend so a file reachable both via
-/// StdFs and via a content URI on Android produces one row, not two (the
-/// two normalized forms differ, so this only catches true duplicates within
-/// the same backend's output — documented behavior).
-pub async fn scan_all_backends(media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error> {
-    let backends: Vec<Arc<dyn ScanBackend>> = match scan_backends().read() {
-        Ok(backends) => backends.clone(),
-        Err(err) => {
-            return Err(io::Error::other(format!(
-                "scan backend registry poisoned: {err}"
-            )))
+impl ScanRegistry {
+    pub fn new() -> Self {
+        Self {
+            backends: RwLock::new(Vec::new()),
         }
-    };
+    }
 
-    let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut collected: Vec<MusicFileInfo> = Vec::new();
+    /// Append a scan backend. Registration is append-only; reconfiguration
+    /// requires building a new registry (and restarting the server).
+    pub fn register(&self, backend: Arc<dyn ScanBackend>) {
+        match self.backends.write() {
+            Ok(mut backends) => backends.push(backend),
+            Err(err) => tracing::error!("Scan registry lock poisoned: {}", err),
+        }
+    }
 
-    for backend in &backends {
-        let scope = backend.scope();
-        tracing::info!("Scanning backend {} ({})", backend.id(), scope);
-        let files = backend.scan(media_types).await?;
-        tracing::info!("Backend {} returned {} files", backend.id(), files.len());
+    /// Iterate all registered backends, concatenate their results, and dedupe
+    /// by `normalize_path` within the combined stream. Cross-backend overlap
+    /// (e.g., a file reachable both via StdFs and via a `content://` URI on
+    /// Android) is **not** collapsed — StdFs paths and content URIs normalize
+    /// to different strings, so duplicates only collapse within a single
+    /// backend's output (e.g., the same root registered twice).
+    pub async fn scan_all(&self, media_types: &[String]) -> Result<Vec<MusicFileInfo>, io::Error> {
+        let backends: Vec<Arc<dyn ScanBackend>> = match self.backends.read() {
+            Ok(backends) => backends.clone(),
+            Err(err) => return Err(io::Error::other(format!("scan registry poisoned: {err}"))),
+        };
 
-        for file in files {
-            let normalized = normalize_path(&file.path);
-            if seen_paths.insert(normalized) {
-                collected.push(file);
+        let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut collected: Vec<MusicFileInfo> = Vec::new();
+
+        for backend in &backends {
+            let scope = backend.scope();
+            tracing::info!("Scanning backend {} ({})", backend.id(), scope);
+            let files = backend.scan(media_types).await?;
+            tracing::info!("Backend {} returned {} files", backend.id(), files.len());
+
+            for file in files {
+                let normalized = normalize_path(&file.path);
+                if seen_paths.insert(normalized) {
+                    collected.push(file);
+                }
             }
         }
-    }
 
-    Ok(collected)
+        Ok(collected)
+    }
+}
+
+impl Default for ScanRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub struct SourceBackedFileReader;
@@ -999,23 +1005,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scan_all_backends_dedupes_overlapping_std_fs_roots() {
+    async fn scan_registry_dedupes_overlapping_std_fs_roots() {
         use std::path::PathBuf;
         use std::sync::Arc;
 
         let temp_dir = tempfile::tempdir().unwrap();
         fs::write(temp_dir.path().join("same.mp3"), b"data").unwrap();
 
-        clear_scan_backends();
-        register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        let registry = ScanRegistry::new();
+        registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
             temp_dir.path(),
         ))));
-        register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
             temp_dir.path(),
         ))));
 
         let media_types = vec!["audio".to_string()];
-        let files = scan_all_backends(&media_types).await.unwrap();
+        let files = registry.scan_all(&media_types).await.unwrap();
 
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].filename, "same.mp3");

@@ -52,7 +52,7 @@ pub async fn update_database_endpoint(
             }
         }
 
-        match scanner::initialize_database(&data.db_conn).await {
+        match scanner::initialize_database(&data.db_conn, &data.scan_registry).await {
             Ok(_) => {
                 if let Err(e) = scanner::set_initial_scan_done(&data.db_conn, true).await {
                     return HttpResponse::InternalServerError().json(UpdateResponse {
@@ -72,7 +72,7 @@ pub async fn update_database_endpoint(
             }),
         }
     } else {
-        match scanner::update_database(&data.db_conn).await {
+        match scanner::update_database(&data.db_conn, &data.scan_registry).await {
             Ok(_) => {
                 info!("Database update completed successfully");
                 HttpResponse::Ok().json(UpdateResponse {

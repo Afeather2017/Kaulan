@@ -66,6 +66,10 @@ pub struct AppState {
     pub scan_lock: Arc<TokioMutex<()>>,
     pub download_jobs: Arc<crate::services::download::DownloadJobStore>,
     pub discovery: Arc<crate::discovery::types::DiscoveryState>,
+    /// Owns the registered [`crate::file_ops::ScanBackend`]s for this server
+    /// instance. Built by `start_server` (and by test helpers) so each app
+    /// (and each test) gets its own registry — no globals.
+    pub scan_registry: Arc<crate::file_ops::ScanRegistry>,
 }
 
 /// Directory tree node for representing file system structure

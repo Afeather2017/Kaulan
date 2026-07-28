@@ -5,16 +5,17 @@
 //! - Database updates for new/modified/deleted files
 //! - LUFS values are calculated on-demand during playback (see handlers/lufs.rs)
 //!
-//! Library scanning is backend-based: callers register `ScanBackend`
-//! instances via [`crate::file_ops::register_scan_backend`], then this
-//! module iterates them via [`crate::file_ops::scan_all_backends`].
+//! Library scanning is backend-based: callers populate a
+//! [`crate::file_ops::ScanRegistry`] (owned by [`crate::types::AppState`])
+//! with `ScanBackend` instances, then this module iterates them via
+//! [`crate::file_ops::ScanRegistry::scan_all`].
 //! See `docs/android/mediastore-integration.md` for the source-vs-scan flow.
 
 use crate::entities::db_meta::{ActiveModel as DbMetaActiveModel, Entity as DbMetaEntity};
 use crate::entities::music::{
     ActiveModel as MusicActiveModel, Column as MusicColumn, Entity as MusicEntity,
 };
-use crate::file_ops::{normalize_path, scan_all_backends, source_exists};
+use crate::file_ops::{normalize_path, source_exists, ScanRegistry};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
@@ -25,20 +26,19 @@ use tracing::{debug, error, info};
 
 /// Initialize database by scanning all registered backends.
 ///
-/// Scans every registered `ScanBackend`, inserts newly-discovered files into
-/// the database (dedup by normalized path), and skips files that already
-/// exist. New files are added with null LUFS (calculated on-demand during
-/// playback).
-///
-/// Backends must be registered before calling this — see
-/// [`crate::file_ops::register_scan_backend`] and the registration in
-/// `server::start_server`.
-pub async fn initialize_database(db_conn: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
+/// Scans every backend on `registry`, inserts newly-discovered files into the
+/// database (dedup by normalized path), and skips files that already exist.
+/// New files are added with null LUFS (calculated on-demand during playback).
+pub async fn initialize_database(
+    db_conn: &DatabaseConnection,
+    registry: &ScanRegistry,
+) -> Result<(), sea_orm::DbErr> {
     info!("Initializing database from registered scan backends");
     let media_types = crate::config::load_media_types();
-    let audio_files = scan_all_backends(&media_types)
+    let audio_files = registry
+        .scan_all(&media_types)
         .await
-        .map_err(|e| DbErr::Custom(format!("scan_all_backends failed: {e}")))?;
+        .map_err(|e| DbErr::Custom(format!("scan_all failed: {e}")))?;
     info!("Found {} audio files across backends", audio_files.len());
 
     let mut new_files: usize = 0;
@@ -140,17 +140,21 @@ pub async fn set_initial_scan_done(db_conn: &DatabaseConnection, done: bool) -> 
 
 /// Update database: scan for new files and remove deleted ones.
 ///
-/// Scans every registered `ScanBackend`, inserts newly-discovered files
-/// (dedup by normalized path), and removes database entries for files that
-/// no longer resolve through any registered `Source`.
+/// Scans every backend on `registry`, inserts newly-discovered files (dedup
+/// by normalized path), and removes database entries for files that no
+/// longer resolve through any registered `Source`.
 ///
 /// LUFS values are calculated on-demand when songs start playing via the
 /// `/api/music/{id}/precache-lufs` endpoint.
-pub async fn update_database(db_conn: &DatabaseConnection) -> Result<(), std::io::Error> {
+pub async fn update_database(
+    db_conn: &DatabaseConnection,
+    registry: &ScanRegistry,
+) -> Result<(), std::io::Error> {
     info!("Starting database update");
 
     let media_types = crate::config::load_media_types();
-    let audio_files = scan_all_backends(&media_types)
+    let audio_files = registry
+        .scan_all(&media_types)
         .await
         .map_err(|e| io::Error::other(e.to_string()))?;
     info!(
@@ -271,7 +275,7 @@ mod tests {
     use super::update_database;
     use crate::database::establish_connection;
     use crate::entities::music::Entity as MusicEntity;
-    use crate::file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend};
+    use crate::file_ops::{ScanRegistry, StdFsScanBackend};
     use sea_orm::EntityTrait;
     use std::collections::HashSet;
     use std::path::PathBuf;
@@ -288,9 +292,9 @@ mod tests {
         std::fs::write(music_root.join("local.mp3"), b"local").unwrap();
         std::fs::write(download_root.join("online.mp3"), b"downloaded").unwrap();
 
-        clear_scan_backends();
-        register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(&music_root))));
-        register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+        let registry = ScanRegistry::new();
+        registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(&music_root))));
+        registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
             &download_root,
         ))));
 
@@ -298,7 +302,7 @@ mod tests {
             .await
             .unwrap();
 
-        update_database(&db_conn).await.unwrap();
+        update_database(&db_conn, &registry).await.unwrap();
 
         let music_rows = MusicEntity::find().all(&db_conn).await.unwrap();
         let filenames = music_rows

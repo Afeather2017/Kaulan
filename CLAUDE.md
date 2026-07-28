@@ -155,7 +155,8 @@ backend/src/
 - **Backend-based library scanning** - `file_ops` keeps library population separate from I/O dispatch:
   - `StdFsScanBackend` scans one configured filesystem root
   - Android registers `MediaStoreScanBackend` to query all device audio through MediaStore
-  - `scanner::initialize_database()` and `scanner::update_database()` iterate registered backends through `scan_all_backends`
+  - Backends live in a per-server `ScanRegistry` owned by `AppState` (not a global) — each `start_server` invocation and each test gets its own
+  - `scanner::initialize_database(db, &registry)` and `scanner::update_database(db, &registry)` iterate the registry via `ScanRegistry::scan_all`
 
 ### Frontend Structure
 ```

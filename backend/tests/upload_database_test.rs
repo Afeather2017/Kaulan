@@ -5,7 +5,7 @@
 
 use actix_web::{http::StatusCode, test, web, App};
 use kaulan::{
-    file_ops::{clear_scan_backends, register_scan_backend, StdFsScanBackend},
+    file_ops::{ScanRegistry, StdFsScanBackend},
     get_all_music, update_database, AppState,
 };
 use sea_orm::{
@@ -67,11 +67,11 @@ async fn test_update_database_adds_new_files_to_database() {
 
     // STEP 3: Call update_database() to simulate what happens after upload
     println!("Calling update_database() after file copy...");
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
         test_music_dir.clone(),
     ))));
-    let result = update_database(&db).await;
+    let result = update_database(&db, &scan_registry).await;
 
     assert!(result.is_ok(), "update_database should succeed");
 
@@ -133,11 +133,11 @@ async fn test_upload_files_then_check_database_via_api() {
     write_test_mp3(&dest_mp3);
 
     // STEP 2: Call update_database to simulate the upload endpoint behavior
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
         test_music_dir.clone(),
     ))));
-    let _result = update_database(&db).await;
+    let _result = update_database(&db, &scan_registry).await;
 
     // STEP 3: Use GET /api/music endpoint to verify the file appears
     let discovery_state = Arc::new(kaulan::discovery::types::DiscoveryState::new(
@@ -154,6 +154,7 @@ async fn test_upload_files_then_check_database_via_api() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -213,11 +214,11 @@ async fn test_update_database_with_multiple_new_files() {
     }
 
     // Call update_database
-    clear_scan_backends();
-    register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
         test_music_dir.clone(),
     ))));
-    let _result = update_database(&db).await;
+    let _result = update_database(&db, &scan_registry).await;
 
     // Verify database
     use kaulan::entities::music::Entity as MusicEntity;

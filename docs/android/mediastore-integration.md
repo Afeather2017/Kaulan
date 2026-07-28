@@ -34,22 +34,22 @@ The database still stores raw paths (filesystem paths or `content://` URIs), and
 sequenceDiagram
     participant App as Tauri App
     participant Server as Rust Server init
-    participant Scan as ScanBackend registry
+    participant Registry as ScanRegistry (in AppState)
     participant Adapter as MediaStore Adapter
     participant Plugin as MediaStore Plugin
     participant MediaStore as Android MediaStore
     participant Resolver as Source Resolver
 
-    Note over App,Scan: App Startup (Android only)
+    Note over App,Registry: App Startup (Android only)
     App->>Adapter: Register MediaStore adapters (set_android_sources)
-    App->>Scan: register_scan_backend(MediaStoreScanBackend)
-    App->>Server: Start server (music_path = app_data_dir)
-    Server->>Scan: register_scan_backend(StdFsScanBackend(music_path))
-    Server->>Scan: register_scan_backend(StdFsScanBackend(download_root)) if distinct
+    App->>Registry: scan_registry.register(MediaStoreScanBackend)
+    App->>Server: Start server(music_path, scan_registry)
+    Server->>Registry: scan_registry.register(StdFsScanBackend(music_path))
+    Server->>Registry: scan_registry.register(StdFsScanBackend(download_root)) if distinct
 
     Note over App,MediaStore: Music Scanning (initialize_database / update_database)
-    Server->>Scan: scan_all_backends(media_types)
-    Scan->>Adapter: MediaStoreScanBackend.scan()
+    Server->>Registry: scan_registry.scan_all(media_types)
+    Registry->>Adapter: MediaStoreScanBackend.scan()
     Adapter->>Plugin: get_media_files()
     Plugin->>MediaStore: Query audio content
     MediaStore-->>Plugin: Return audio metadata
@@ -59,6 +59,8 @@ sequenceDiagram
     Scan->>Scan: Dedupe by normalized path
     Scan-->>Server: Combined MusicFileInfo list
     Server->>Server: Populate database
+
+Note: the `ScanRegistry` is owned by `AppState` (`backend/src/types/mod.rs`) and passed into `start_server`. There is no global registry — each server instance (and each test) gets its own.
 
     Note over App,Resolver: Music Playback
     App->>Resolver: GET /api/music/id/{id}
@@ -119,7 +121,7 @@ pub trait ScanBackend: Send + Sync {
 }
 ```
 
-The library scan iterates registered `ScanBackend`s, concatenates their results, and dedupes by normalized path.
+`ScanBackend`s live inside a `ScanRegistry` (`backend/src/file_ops/mod.rs`), which is owned by `AppState` and passed into `start_server`. The library scan iterates the registry's backends, concatenates their results, and dedupes by normalized path.
 
 - **`StdFsScanBackend { scan_root: PathBuf }`** — recursively walks one filesystem tree. Register one per root.
 - **`MediaStoreScanBackend { app_handle }`** (Android only) — calls MediaStore directly. No path argument; MediaStore semantics aren't path-based.
@@ -214,9 +216,15 @@ impl FileReader for MediaStoreFileReader {
 
 **Source: [`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs)**
 
-MediaStore adapters (I/O dispatch via `Source`s) and the `MediaStoreScanBackend` (library population) are registered together during app setup:
+The `KaulanServer` struct owns a `ScanRegistry` (`Arc<kaulan::file_ops::ScanRegistry>`) at construction time. MediaStore adapters (I/O dispatch via `Source`s) and the `MediaStoreScanBackend` (library population) are registered against that registry during app setup:
 
 ```rust
+let kaulan_server = Arc::new(KaulanServer {
+    // ...
+    scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
+    // ...
+});
+
 #[cfg(target_os = "android")]
 {
     log::info!("Setting up MediaStore adapters for Android");
@@ -231,23 +239,25 @@ MediaStore adapters (I/O dispatch via `Source`s) and the `MediaStoreScanBackend`
 
     // Library scan: MediaStore returns every audio row on the device, independent
     // of any filesystem path. StdFs scan backends for the music_path / download_root
-    // are registered by the Rust server init in backend/src/server/mod.rs.
-    kaulan::register_scan_backend(std::sync::Arc::new(
+    // are added to the same registry by the Rust server init in backend/src/server/mod.rs.
+    kaulan_server.scan_registry.register(std::sync::Arc::new(
         android_media_adapter::MediaStoreScanBackend::new(app_handle_for_adapter),
     ));
     log::info!("MediaStore adapters configured successfully");
 }
 ```
 
-On the Rust side, `start_server` registers one `StdFsScanBackend` per scan root after resolving `music_path` and `KAULAN_DOWNLOAD_ROOT`:
+The same `scan_registry` Arc is cloned into the backend thread and passed to `kaulan::start_server(music_dir_arg, scan_registry)`. Inside `start_server`, the Rust side registers one `StdFsScanBackend` per scan root on that same registry after resolving `music_path` and `KAULAN_DOWNLOAD_ROOT`:
 
 ```rust
-file_ops::register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(&music_path))));
+scan_registry.register(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(&music_path))));
 let download_root = env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone());
 if download_root != music_path {
-    file_ops::register_scan_backend(Arc::new(StdFsScanBackend::new(PathBuf::from(&download_root))));
+    scan_registry.register(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(&download_root))));
 }
 ```
+
+The `AppState` constructed inside `start_server` carries this `scan_registry`, so every handler — and every test that builds an `AppState` — gets its own isolated registry. There is no global state, which is what makes parallel `cargo test` runs safe.
 
 ## Android Permissions
 
@@ -280,7 +290,7 @@ When the app starts on Android:
 
 1. `MediaStoreScanBackend.scan()` queries `get_media_files()` for all device audio/video
 2. `StdFsScanBackend::scan()` walks the app-private `music_path` and `download_root` (downloaded online tracks land here)
-3. `scan_all_backends` concatenates both result sets and dedupes by normalized path
+3. `ScanRegistry::scan_all` concatenates both result sets and dedupes by normalized path
 4. The scanner populates the database with the combined `MusicFileInfo` list
 5. The UI displays the music library
 
@@ -315,14 +325,15 @@ This keeps scan-time filtering cheap while making database cleanup use the stric
 ## Related Source Files
 
 ### Backend
-- **[`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)** - `Source` registry, `ScanBackend` registry, `StdFsScanBackend`
-- **[`backend/src/services/scanner.rs`](../../../backend/src/services/scanner.rs)** - Music scanner using `scan_all_backends` and source-backed existence checks
+- **[`backend/src/file_ops/mod.rs`](../../../backend/src/file_ops/mod.rs)** - `Source` registry, `ScanBackend` trait, `ScanRegistry`, `StdFsScanBackend`
+- **[`backend/src/types/mod.rs`](../../../backend/src/types/mod.rs)** - `AppState`, which owns the per-server `Arc<ScanRegistry>`
+- **[`backend/src/services/scanner.rs`](../../../backend/src/services/scanner.rs)** - Music scanner using `ScanRegistry::scan_all` and source-backed existence checks
 - **[`backend/src/handlers/music.rs`](../../../backend/src/handlers/music.rs)** - Music streaming endpoint using source-backed reader
-- **[`backend/src/server/mod.rs`](../../../backend/src/server/mod.rs)** - Registers `StdFsScanBackend` for `music_path` and `download_root`
+- **[`backend/src/server/mod.rs`](../../../backend/src/server/mod.rs)** - `start_server(..., scan_registry)` registers `StdFsScanBackend` for `music_path` and `download_root` onto the passed registry
 
 ### Frontend
 - **[`frontend/src-tauri/src/android_media_adapter.rs`](../../../frontend/src-tauri/src/android_media_adapter.rs)** - MediaStore adapter implementations + `MediaStoreScanBackend`
-- **[`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs)** - App setup; registers `MediaStoreScanBackend` alongside `set_android_sources`
+- **[`frontend/src-tauri/src/lib.rs`](../../../frontend/src-tauri/src/lib.rs)** - App setup; owns `KaulanServer.scan_registry` and registers `MediaStoreScanBackend` alongside `set_android_sources`
 - **[`frontend/src-tauri/Cargo.toml`](../../../frontend/src-tauri/Cargo.toml)** - Plugin dependency
 
 ### Configuration

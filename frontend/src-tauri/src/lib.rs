@@ -275,6 +275,11 @@ struct KaulanServer {
     running: std::sync::atomic::AtomicBool,
     music_dir: Mutex<Option<String>>,
     data_dir: Mutex<Option<String>>,
+    /// Owns the registered scan backends. Populated by the Tauri setup() hook
+    /// (MediaStore on Android) and by the Rust server init (StdFs backends
+    /// for music_path / download_root) inside `start_server`. Cloned into the
+    /// backend thread so the server reads the same registry.
+    scan_registry: std::sync::Arc<kaulan::file_ops::ScanRegistry>,
     #[cfg(target_os = "android")]
     wake_lock: Mutex<Option<wakelock::WakeLock>>,
 }
@@ -306,6 +311,7 @@ impl KaulanServer {
 
         let server_handle = self.clone();
         let keepalive_handle = self.clone();
+        let scan_registry = self.scan_registry.clone();
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
@@ -327,7 +333,7 @@ impl KaulanServer {
             };
 
             rt.block_on(async move {
-                if let Err(e) = kaulan::start_server(music_dir_arg).await {
+                if let Err(e) = kaulan::start_server(music_dir_arg, scan_registry).await {
                     log::error!("Failed to start HTTP server: {}", e);
                     server_handle.running.store(false, Ordering::Release);
                 }
@@ -431,6 +437,7 @@ pub fn run() {
         // starts the backend thread later, so None here is safe.
         music_dir: Mutex::new(None),
         data_dir: Mutex::new(None),
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
         #[cfg(target_os = "android")]
         wake_lock: Mutex::new(None),
     });
@@ -643,12 +650,13 @@ pub fn run() {
                         app_handle_for_adapter.clone(),
                     )),
                 );
-                // Register the MediaStore scan backend so the library picks up
-                // every audio row the MediaStore reports — independent of any
-                // filesystem path. StdFs scan backends for the music_path /
-                // download_root are registered by the Rust server init in
-                // backend/src/server/mod.rs once it sees the paths we set above.
-                kaulan::register_scan_backend(std::sync::Arc::new(
+                // Register the MediaStore scan backend on the shared registry
+                // so the library picks up every audio row the MediaStore
+                // reports — independent of any filesystem path. StdFs scan
+                // backends for the music_path / download_root are added by
+                // the Rust server init in backend/src/server/mod.rs once it
+                // resolves the paths we set above.
+                kaulan_server.scan_registry.register(std::sync::Arc::new(
                     android_media_adapter::MediaStoreScanBackend::new(app_handle_for_adapter.clone()),
                 ));
                 log::info!("MediaStore adapters configured successfully");

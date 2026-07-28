@@ -194,6 +194,7 @@ pub async fn serve_static_frontend(
 /// - Database connection fails
 pub async fn start_server(
     cli_path: Option<String>,
+    scan_registry: Arc<file_ops::ScanRegistry>,
 ) -> Result<ServerInfo, Box<dyn std::error::Error>> {
     download_service::initialize_runtime().map_err(|err| {
         std::io::Error::other(format!("download runtime initialization failed: {err}"))
@@ -277,15 +278,16 @@ pub async fn start_server(
     };
 
     // Register StdFs scan backends for the resolved music directory and the
-    // download root (when distinct). Library scanning iterates these via
-    // file_ops::scan_all_backends. On Android, MediaStoreScanBackend is
-    // registered separately by the Tauri host after this server starts.
+    // download root (when distinct). The registry is owned by the caller
+    // (main.rs / Tauri host) and passed in; on Android it already has the
+    // MediaStoreScanBackend. Library scanning iterates the combined registry
+    // via file_ops::ScanRegistry::scan_all.
     let download_root = env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone());
-    file_ops::register_scan_backend(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(
+    scan_registry.register(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(
         &music_path,
     ))));
     if download_root != music_path {
-        file_ops::register_scan_backend(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(
+        scan_registry.register(Arc::new(file_ops::StdFsScanBackend::new(PathBuf::from(
             &download_root,
         ))));
     }
@@ -374,6 +376,7 @@ pub async fn start_server(
         scan_lock,
         download_jobs: Arc::new(download_service::DownloadJobStore::new()),
         discovery: discovery_state.clone(),
+        scan_registry,
     });
 
     // Also add discovery state as separate app_data for discovery handlers

@@ -356,7 +356,7 @@ pub async fn upload_files(mut payload: Multipart, data: web::Data<AppState>) -> 
     if !uploaded_files.is_empty() {
         info!("[UPLOAD] ========== TRIGGERING DATABASE UPDATE AFTER UPLOAD ==========");
         info!("[UPLOAD] Files to process: {:?}", uploaded_files);
-        match scanner::update_database(&data.db_conn).await {
+        match scanner::update_database(&data.db_conn, &data.scan_registry).await {
             Ok(_) => {
                 info!("[UPLOAD] ========== DATABASE UPDATE COMPLETED SUCCESSFULLY ==========");
             }
