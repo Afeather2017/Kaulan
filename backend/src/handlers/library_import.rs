@@ -253,11 +253,7 @@ async fn run_import_job(
         )
         .await;
 
-    let library_roots = [
-        data.music_path.as_ref().as_str(),
-        data.download_root.as_ref().as_str(),
-    ];
-    if let Err(err) = scanner::update_database_with_roots(&library_roots, &data.db_conn).await {
+    if let Err(err) = scanner::update_database(&data.db_conn, &data.scan_registry).await {
         warn!("[IMPORT] job={} library refresh failed: {}", job_id, err);
         warnings.push(format!("刷新曲库失败: {err}"));
     }
@@ -866,6 +862,10 @@ mod tests {
             crate::database::establish_connection(download_root.to_str().expect("utf-8 temp path"))
                 .await
                 .expect("db connection");
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
+        scan_registry.register(std::sync::Arc::new(crate::file_ops::StdFsScanBackend::new(
+            std::path::PathBuf::from(download_root),
+        )));
         let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
             "test-id".to_string(),
             "Test Player".to_string(),
@@ -879,6 +879,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         })
     }
 

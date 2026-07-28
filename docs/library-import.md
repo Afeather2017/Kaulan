@@ -36,7 +36,7 @@ sequenceDiagram
         Local->>Remote: GET /api/lyrics/id/{id}
         Remote-->>Local: 200 text (LRC or VTT) or 404
         Local->>Local: write sidecar (.lrc/.vtt) if present
-        Local->>Local: scanner::update_database_with_roots
+        Local->>Local: scanner::update_database<br/>(registered ScanBackends)
         Local-->>Local: mark job completed/failed
     end
     UI->>Local: GET /api/download/jobs/{job_id} (polled)

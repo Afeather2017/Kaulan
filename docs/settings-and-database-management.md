@@ -198,8 +198,8 @@ sequenceDiagram
 
     Note over BE: Start database update process
 
-    Note over BE: Scan configured library roots for audio files
-    Note over BE: music directory + online download root
+    Note over BE: Scan registered backends for audio files
+    Note over BE: StdFs roots + Android MediaStore when available
 
     loop For each audio file
         BE->>BE: Check if file exists in database
@@ -301,6 +301,9 @@ The music directory is stored in a JSON configuration file:
 | Linux | `~/.config/<app-name>/config.json` |
 | macOS | `~/Library/Application Support/<app-name>/config.json` |
 | Windows | `%APPDATA%\<app-name>\config.json` |
+
+Set `KAULAN_CONFIG_DIR` to override the config directory; `config.json` is read
+and written inside that directory.
 
 **Config Format:**
 ```json
@@ -415,7 +418,7 @@ The database update is implemented in `backend/src/services/scanner.rs` and `bac
 | `update_database()` | services/scanner.rs:191 | Core database update logic (no LUFS calculation) |
 | `initialize_database()` | services/scanner.rs:78 | Initial database scan on first run |
 | `precache_lufs()` | handlers/lufs.rs:56 | LUFS pre-cache endpoint handler |
-| `scan_directory_recursive()` | services/scanner.rs:27 | Recursive directory scanning |
+| `scan_all_backends()` | file_ops/mod.rs | Iterate registered library scan backends |
 | `load_config()` | config/mod.rs | Load config from file |
 | `save_config()` | config/mod.rs | Save config to file |
 

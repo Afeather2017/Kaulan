@@ -486,7 +486,11 @@ mod tests {
             .unwrap();
 
         // Initialize database to scan the music file
-        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
+        scan_registry.register(std::sync::Arc::new(crate::file_ops::StdFsScanBackend::new(
+            std::path::PathBuf::from(&music_dir),
+        )));
+        crate::services::scanner::initialize_database(&db_conn, &scan_registry)
             .await
             .unwrap();
 
@@ -503,6 +507,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         });
 
         (temp_dir, app_state)
@@ -549,7 +554,11 @@ mod tests {
             .unwrap();
 
         // Initialize database to scan the music file
-        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
+        scan_registry.register(std::sync::Arc::new(crate::file_ops::StdFsScanBackend::new(
+            std::path::PathBuf::from(&music_dir),
+        )));
+        crate::services::scanner::initialize_database(&db_conn, &scan_registry)
             .await
             .unwrap();
 
@@ -566,6 +575,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         });
 
         let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
@@ -598,7 +608,11 @@ mod tests {
             .await
             .unwrap();
 
-        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
+        scan_registry.register(std::sync::Arc::new(crate::file_ops::StdFsScanBackend::new(
+            std::path::PathBuf::from(&music_dir),
+        )));
+        crate::services::scanner::initialize_database(&db_conn, &scan_registry)
             .await
             .unwrap();
 
@@ -615,6 +629,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         });
 
         let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
@@ -646,6 +661,7 @@ mod tests {
             "Test Player".to_string(),
             2080,
         ));
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
         let app_state = web::Data::new(AppState {
             music_path: Arc::new(music_dir.to_str().unwrap().to_string()),
             download_root: Arc::new(music_dir.to_str().unwrap().to_string()),
@@ -654,6 +670,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         });
 
         let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
@@ -690,7 +707,11 @@ mod tests {
             .unwrap();
 
         // Initialize database to scan the music file
-        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
+        scan_registry.register(std::sync::Arc::new(crate::file_ops::StdFsScanBackend::new(
+            std::path::PathBuf::from(&music_dir),
+        )));
+        crate::services::scanner::initialize_database(&db_conn, &scan_registry)
             .await
             .unwrap();
 
@@ -707,6 +728,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         });
 
         let app = test::init_service(App::new().app_data(app_state).service(get_lyrics)).await;
@@ -783,7 +805,11 @@ mod tests {
         let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
             .await
             .unwrap();
-        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
+        scan_registry.register(std::sync::Arc::new(crate::file_ops::StdFsScanBackend::new(
+            std::path::PathBuf::from(&music_dir),
+        )));
+        crate::services::scanner::initialize_database(&db_conn, &scan_registry)
             .await
             .unwrap();
 
@@ -800,6 +826,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         });
 
         let app =

@@ -133,9 +133,10 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 - On desktop, YouTube full downloads are finalized through Kaulan's backend FFmpeg pipeline. Opus sources are remuxed into `.mka` with stream copy only instead of being rewritten as `.ogg`, which keeps the audio unchanged and lets Kaulan attach cover art. Related sources: `backend/src/services/download/youtube.rs`, `backend/src/ffmpeg.rs`.
 - Bilibili full downloads are remuxed to `.m4a` with FFmpeg stream copy only on both desktop and Android, because the provider audio is AAC and does not need transcoding. This avoids raw `.m4s` outputs, keeps the files indexable by the scanner, and lets the shared cover-art embedding path work on the saved file. Related sources: `backend/src/services/download/bilibili.rs`, `backend/src/handlers/download.rs`, `backend/src/file_ops/mod.rs`.
 - If the user selected a lyric candidate, Kaulan tries to save a matching `.lrc` file beside the audio file.
-- After a successful full download, Kaulan refreshes the music database across both library roots:
-  - the configured music directory
-  - the configured online download root
+- After a successful full download, Kaulan refreshes the music database through the registered scan backends:
+  - `StdFsScanBackend` for the configured music directory
+  - `StdFsScanBackend` for the configured online download root when it differs
+  - `MediaStoreScanBackend` on Android for device media
 - The download panel keeps completed and failed job entries visible until the user dismisses them. Completed entries show a reminder to refresh the library if the new file is not visible yet. Related frontend sources: `frontend/src/stores/downloads.ts`, `frontend/src/components/DownloadJobsView.vue`.
 
 ### Android YouTube cookie refresh note

@@ -220,11 +220,8 @@ sequenceDiagram
     Frontend->>API: GET /api/lyrics/id/{id}
     API->>DB: Find music by ID
     DB-->>API: file_path = content://...
-    API->>MediaStore: resolve_media_path(content_uri)
-    MediaStore-->>API: /storage/emulated/0/Music/song.wav
-    API->>API: Swap extension → song.lrc, fallback song.vtt
-    API->>FileSystem: std::fs::read(first matching lyric file)
-    FileSystem-->>API: lyric content or not found
+    API->>MediaStore: find sidecar lyric for content URI
+    MediaStore-->>API: lyric text if readable
     API-->>Frontend: 200 + content or 404
 ```
 

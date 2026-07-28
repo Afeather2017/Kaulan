@@ -3,7 +3,7 @@ use std::env;
 // Import from the library (init_tracing is now in the library)
 use kaulan::{
     cli::{apply_standalone_auth, parse_cli_options, CliOptions},
-    establish_connection, init_tracing, start_server, update_database_with_roots,
+    establish_connection, file_ops, init_tracing, start_server,
 };
 
 #[actix_web::main]
@@ -52,8 +52,13 @@ async fn main() -> std::io::Result<()> {
 
     match command.as_str() {
         "run" => {
+            // Build the scan registry here; start_server populates it with
+            // StdFs backends for music_path / download_root. The Tauri host
+            // builds its own registry with MediaStoreScanBackend pre-registered
+            // and passes that.
+            let scan_registry = std::sync::Arc::new(file_ops::ScanRegistry::new());
             // Start the server (spawns in background)
-            match start_server(cli_options.music_path.clone()).await {
+            match start_server(cli_options.music_path.clone(), scan_registry).await {
                 Ok(server_info) => {
                     tracing::info!("Server started successfully on: {}", server_info.url());
                     println!("Server started on: {}", server_info.url());
@@ -100,10 +105,22 @@ async fn main() -> std::io::Result<()> {
                     return Err(std::io::Error::other(e.to_string()));
                 }
             };
+            // Build a scan registry for the standalone update command —
+            // start_server isn't called on this path, so we register StdFs
+            // backends explicitly. The `run` command lets start_server
+            // populate its own registry.
             let download_root =
                 env::var("KAULAN_DOWNLOAD_ROOT").unwrap_or_else(|_| music_path.clone());
-            let library_roots = [music_path.as_str(), download_root.as_str()];
-            match update_database_with_roots(&library_roots, &db_conn).await {
+            let scan_registry = std::sync::Arc::new(file_ops::ScanRegistry::new());
+            scan_registry.register(std::sync::Arc::new(file_ops::StdFsScanBackend::new(
+                std::path::PathBuf::from(&music_path),
+            )));
+            if download_root != music_path {
+                scan_registry.register(std::sync::Arc::new(file_ops::StdFsScanBackend::new(
+                    std::path::PathBuf::from(&download_root),
+                )));
+            }
+            match kaulan::update_database(&db_conn, &scan_registry).await {
                 Ok(_) => {
                     tracing::info!("Database update completed successfully");
                 }

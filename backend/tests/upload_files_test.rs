@@ -7,7 +7,10 @@
 
 use actix_web::web::Bytes;
 use actix_web::{http, test, web, App};
-use kaulan::{get_all_music, upload_files, AppState};
+use kaulan::{
+    file_ops::{ScanRegistry, StdFsScanBackend},
+    get_all_music, upload_files, AppState,
+};
 use sea_orm::{
     sea_query::TableCreateStatement, ConnectionTrait, Database, DatabaseConnection, DbErr, Schema,
 };
@@ -93,6 +96,7 @@ async fn test_upload_single_file_to_root() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     });
 
     let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
@@ -146,6 +150,7 @@ async fn test_upload_to_subdirectory() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     });
 
     let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
@@ -198,6 +203,7 @@ async fn test_upload_unsupported_file_type_rejected() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     });
 
     let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
@@ -248,6 +254,7 @@ async fn test_upload_path_traversal_protection() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     });
 
     let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
@@ -298,6 +305,11 @@ async fn test_upload_updates_database() {
         "Test Player".to_string(),
         2080,
     ));
+    let scan_registry = Arc::new(ScanRegistry::new());
+    scan_registry.register(Arc::new(StdFsScanBackend::new(std::path::PathBuf::from(
+        &temp_dir,
+    ))));
+
     let app_state = web::Data::new(AppState {
         music_path: Arc::new(music_path.clone()),
         download_root: Arc::new(music_path.clone()),
@@ -306,6 +318,7 @@ async fn test_upload_updates_database() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry,
     });
 
     let app = test::init_service(
@@ -377,6 +390,7 @@ async fn test_upload_empty_request() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     });
 
     let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;
@@ -424,6 +438,7 @@ async fn test_upload_to_nested_subdirectories() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: Arc::new(ScanRegistry::new()),
     });
 
     let app = test::init_service(App::new().app_data(app_state).service(upload_files)).await;

@@ -100,6 +100,7 @@ async fn test_timestamp_seek_valid() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -177,6 +178,7 @@ async fn test_timestamp_seek_start() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -236,6 +238,7 @@ async fn test_timestamp_seek_end() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -311,6 +314,7 @@ async fn test_timestamp_seek_negative() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -362,6 +366,7 @@ async fn test_timestamp_seek_exceeds_duration() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -412,6 +417,7 @@ async fn test_timestamp_seek_missing_duration() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -455,6 +461,7 @@ async fn test_timestamp_seek_invalid_id() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(
@@ -501,6 +508,7 @@ async fn test_normal_request_without_timestamp() {
         scan_lock: Arc::new(TokioMutex::new(())),
         download_jobs: Arc::new(kaulan::services::download::DownloadJobStore::new()),
         discovery: discovery_state,
+        scan_registry: std::sync::Arc::new(kaulan::file_ops::ScanRegistry::new()),
     };
 
     let app = test::init_service(

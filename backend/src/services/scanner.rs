@@ -1,120 +1,45 @@
-//! Directory scanning and database operations for the music library.
+//! Database operations for the music library.
 //!
 //! This module handles:
-//! - Recursive scanning of music directories
 //! - Database initialization on first run
 //! - Database updates for new/modified/deleted files
 //! - LUFS values are calculated on-demand during playback (see handlers/lufs.rs)
+//!
+//! Library scanning is backend-based: callers populate a
+//! [`crate::file_ops::ScanRegistry`] (owned by [`crate::types::AppState`])
+//! with `ScanBackend` instances, then this module iterates them via
+//! [`crate::file_ops::ScanRegistry::scan_all`].
+//! See `docs/android/mediastore-integration.md` for the source-vs-scan flow.
 
 use crate::entities::db_meta::{ActiveModel as DbMetaActiveModel, Entity as DbMetaEntity};
 use crate::entities::music::{
     ActiveModel as MusicActiveModel, Column as MusicColumn, Entity as MusicEntity,
 };
-use crate::file_ops::{get_music_file_lister, normalize_path, source_exists, MusicFileInfo};
+use crate::file_ops::{normalize_path, source_exists, ScanRegistry};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
     Set,
 };
-use std::collections::HashSet;
 use std::io;
-use std::path::Path;
 use tracing::{debug, error, info};
 
-/// Recursively scan directory for audio files (desktop version using std::fs)
+/// Initialize database by scanning all registered backends.
 ///
-/// This function is kept for backward compatibility but now delegates
-/// to the pluggable music file lister. On desktop, this uses the
-/// StdMusicFileLister; on Android, it uses the MediaStoreMusicFileLister.
-///
-/// Returns a list of MusicFileInfo structs containing file path, filename,
-/// and optional metadata (title, artist, album, duration).
-pub async fn scan_directory_recursive(
-    dir_path: &Path,
-    _music_path: &str,
-    media_types: &[String],
-) -> Result<Vec<MusicFileInfo>, io::Error> {
-    let lister = get_music_file_lister();
-    let dir_str = dir_path.to_string_lossy();
-
-    debug!("Scanning directory: {}", dir_str);
-
-    match lister.list_music_files(&dir_str, media_types).await {
-        Ok(files) => {
-            debug!(
-                "Directory scan complete. Found {} media files in {}",
-                files.len(),
-                dir_str
-            );
-            Ok(files)
-        }
-        Err(e) => {
-            error!("Failed to scan directory {}: {}", dir_str, e);
-            Err(e)
-        }
-    }
-}
-
-async fn scan_library_roots(
-    roots: &[&str],
-    media_types: &[String],
-) -> Result<Vec<MusicFileInfo>, DbErr> {
-    let mut seen_paths = HashSet::new();
-    let mut audio_files = Vec::new();
-
-    for root in roots {
-        info!("Scanning library root: {}", root);
-        let files = scan_directory_recursive(Path::new(root), root, media_types)
-            .await
-            .map_err(|e| {
-                error!("Failed to scan directory {}: {}", root, e);
-                DbErr::Custom(format!("Scan failed for {}: {}", root, e))
-            })?;
-
-        for file in files {
-            let normalized_path = normalize_path(&file.path);
-            if seen_paths.insert(normalized_path) {
-                audio_files.push(file);
-            }
-        }
-    }
-
-    Ok(audio_files)
-}
-
-/// Initialize database with music files (only insert if path not exists)
-///
-/// This function scans the music directory and adds any new files to the database.
-/// Files that already exist in the database (matched by file_path) are skipped.
+/// Scans every backend on `registry`, inserts newly-discovered files into the
+/// database (dedup by normalized path), and skips files that already exist.
 /// New files are added with null LUFS (calculated on-demand during playback).
-///
-/// # Arguments
-/// * `music_path` - Path to the music directory to scan
-/// * `db_conn` - Database connection
-///
-/// # Returns
-/// - `Ok(())` - Database initialized successfully
-/// - `Err(DbErr)` - Database error occurred
 pub async fn initialize_database(
-    music_path: &str,
     db_conn: &DatabaseConnection,
+    registry: &ScanRegistry,
 ) -> Result<(), sea_orm::DbErr> {
-    initialize_database_with_roots(&[music_path], db_conn).await
-}
-
-/// Initialize database using multiple library roots.
-///
-/// This is used when local uploads and online downloads can land in different
-/// directories but should both appear in the same music library database.
-pub async fn initialize_database_with_roots(
-    library_roots: &[&str],
-    db_conn: &DatabaseConnection,
-) -> Result<(), sea_orm::DbErr> {
-    let root_list = library_roots.join(", ");
-    info!("Initializing database with music from: {}", root_list);
+    info!("Initializing database from registered scan backends");
     let media_types = crate::config::load_media_types();
-    let audio_files = scan_library_roots(library_roots, &media_types).await?;
-    info!("Found {} audio files in library roots", audio_files.len());
+    let audio_files = registry
+        .scan_all(&media_types)
+        .await
+        .map_err(|e| DbErr::Custom(format!("scan_all failed: {e}")))?;
+    info!("Found {} audio files across backends", audio_files.len());
 
     let mut new_files: usize = 0;
     let mut existing_files: usize = 0;
@@ -213,43 +138,23 @@ pub async fn set_initial_scan_done(db_conn: &DatabaseConnection, done: bool) -> 
     Ok(())
 }
 
-/// Update database: scan for new files and remove deleted ones
+/// Update database: scan for new files and remove deleted ones.
 ///
-/// This function performs a database update:
-/// - Scans the music directory for all audio files
-/// - Adds new files with null LUFS (calculated on-demand during playback)
-/// - Removes database entries for files that no longer exist on disk
+/// Scans every backend on `registry`, inserts newly-discovered files (dedup
+/// by normalized path), and removes database entries for files that no
+/// longer resolve through any registered `Source`.
 ///
 /// LUFS values are calculated on-demand when songs start playing via the
 /// `/api/music/{id}/precache-lufs` endpoint.
-///
-/// # Arguments
-/// * `music_path` - Path to the music directory to scan
-/// * `db_conn` - Database connection
-///
-/// # Returns
-/// - `Ok(())` - Database updated successfully
-/// - `Err(io::Error)` - File system error occurred
 pub async fn update_database(
-    music_path: &str,
     db_conn: &DatabaseConnection,
-) -> Result<(), std::io::Error> {
-    update_database_with_roots(&[music_path], db_conn).await
-}
-
-/// Update database using multiple library roots.
-pub async fn update_database_with_roots(
-    library_roots: &[&str],
-    db_conn: &DatabaseConnection,
+    registry: &ScanRegistry,
 ) -> Result<(), std::io::Error> {
     info!("Starting database update");
-    debug!(
-        "Database update library roots: {}",
-        library_roots.join(", ")
-    );
 
     let media_types = crate::config::load_media_types();
-    let audio_files = scan_library_roots(library_roots, &media_types)
+    let audio_files = registry
+        .scan_all(&media_types)
         .await
         .map_err(|e| io::Error::other(e.to_string()))?;
     info!(
@@ -367,14 +272,17 @@ pub async fn update_database_with_roots(
 
 #[cfg(test)]
 mod tests {
-    use super::update_database_with_roots;
+    use super::update_database;
     use crate::database::establish_connection;
     use crate::entities::music::Entity as MusicEntity;
+    use crate::file_ops::{ScanRegistry, StdFsScanBackend};
     use sea_orm::EntityTrait;
     use std::collections::HashSet;
+    use std::path::PathBuf;
+    use std::sync::Arc;
 
     #[tokio::test]
-    async fn update_database_scans_download_root_when_it_differs_from_music_root() {
+    async fn update_database_scans_every_registered_std_fs_backend() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let music_root = temp_dir.path().join("music");
         let download_root = temp_dir.path().join("downloads");
@@ -384,19 +292,17 @@ mod tests {
         std::fs::write(music_root.join("local.mp3"), b"local").unwrap();
         std::fs::write(download_root.join("online.mp3"), b"downloaded").unwrap();
 
+        let registry = ScanRegistry::new();
+        registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(&music_root))));
+        registry.register(Arc::new(StdFsScanBackend::new(PathBuf::from(
+            &download_root,
+        ))));
+
         let db_conn = establish_connection(music_root.to_str().unwrap())
             .await
             .unwrap();
 
-        update_database_with_roots(
-            &[
-                music_root.to_str().unwrap(),
-                download_root.to_str().unwrap(),
-            ],
-            &db_conn,
-        )
-        .await
-        .unwrap();
+        update_database(&db_conn, &registry).await.unwrap();
 
         let music_rows = MusicEntity::find().all(&db_conn).await.unwrap();
         let filenames = music_rows

@@ -726,11 +726,7 @@ pub(crate) async fn finalize_downloaded_audio(
             )
             .await;
     }
-    let library_roots = [
-        data.music_path.as_ref().as_str(),
-        data.download_root.as_ref().as_str(),
-    ];
-    if let Err(err) = scanner::update_database_with_roots(&library_roots, &data.db_conn).await {
+    if let Err(err) = scanner::update_database(&data.db_conn, &data.scan_registry).await {
         warn!("[DOWNLOAD] Database update after download failed: {}", err);
         append_warning(&mut warning, format!("刷新曲库失败: {err}"));
     }
@@ -927,7 +923,11 @@ mod tests {
         let db_conn = crate::database::establish_connection(music_dir.to_str().unwrap())
             .await
             .unwrap();
-        crate::services::scanner::initialize_database(music_dir.to_str().unwrap(), &db_conn)
+        let scan_registry = std::sync::Arc::new(crate::file_ops::ScanRegistry::new());
+        scan_registry.register(std::sync::Arc::new(crate::file_ops::StdFsScanBackend::new(
+            std::path::PathBuf::from(&music_dir),
+        )));
+        crate::services::scanner::initialize_database(&db_conn, &scan_registry)
             .await
             .unwrap();
 
@@ -944,6 +944,7 @@ mod tests {
             scan_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_jobs: Arc::new(crate::services::download::DownloadJobStore::new()),
             discovery: discovery_state,
+            scan_registry,
         });
 
         (temp_dir, app_state)
