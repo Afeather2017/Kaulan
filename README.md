@@ -15,7 +15,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Lyric Display & Timing Edits** - Show synchronized LRC/WEBVTT lyrics and shift writable sidecar timing from the player
 - **Real-time Search** - Search across all songs instantly
-- **Device Discovery** - Automatic discovery of Kaulan instances on local network via UDP broadcast
+- **Device Discovery** - Bidirectional UDP discovery repairs changed device IPs, including router-hosted servers; periodic announcements are user-configurable to reduce battery use
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
 - **Remote Library Import** - Browse another Kaulan server's library and download its songs (audio + lyrics) into your own library — into the app library on desktop/Android, or directly to the device in a plain browser
 - **Standalone Web Hosting** - The backend can serve the built Vue app from `frontend/dist`
@@ -545,6 +545,25 @@ Get this device's information.
 }
 ```
 
+#### GET /api/discovery/periodic
+
+Get whether the local backend sends an identified discovery request every 10
+seconds. Periodic discovery is enabled by default.
+
+```json
+{ "enabled": true }
+```
+
+#### PUT /api/discovery/periodic
+
+Enable or disable periodic discovery immediately. The setting is persisted in
+the backend config. The permanent UDP listener and manual Refresh scan remain
+available when this is disabled.
+
+```json
+{ "enabled": false }
+```
+
 #### POST /api/discovery/name
 
 Set this device's name.
@@ -581,7 +600,8 @@ Start a manual discovery scan transaction.
 
 #### POST /api/discovery/request
 
-Send one UDP discovery request packet. The frontend calls this every 1 second for 10 seconds after pressing "刷新设备".
+Send one identified UDP discovery request packet. The frontend calls this every
+1 second for 3 seconds after pressing "刷新设备".
 
 **Response:**
 

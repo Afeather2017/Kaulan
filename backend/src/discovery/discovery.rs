@@ -14,6 +14,9 @@ use tracing::{debug, error, info, warn};
 /// Maximum receive buffer size
 const RECV_BUFFER_SIZE: usize = 1024;
 
+/// Low enough traffic for LAN use while still repairing changed IPs quickly.
+pub const PERIODIC_DISCOVERY_INTERVAL: Duration = Duration::from_secs(10);
+
 /// Start UDP discovery listener.
 ///
 /// Behavior:
@@ -71,7 +74,11 @@ pub async fn send_discovery_request(state: &DiscoveryState) -> Result<(), Discov
         .await
         .ok_or(DiscoveryError::SocketUnavailable)?;
 
-    let msg = DiscoveryMessage::new_request();
+    let msg = DiscoveryMessage::new_identified_request(
+        state.device_id.clone(),
+        state.get_device_name().await,
+        state.api_port,
+    );
     let payload = serde_json::to_vec(&msg)?;
 
     if payload.len() > DiscoveryMessage::MAX_SIZE {
@@ -84,6 +91,21 @@ pub async fn send_discovery_request(state: &DiscoveryState) -> Result<(), Discov
         .map_err(|_| DiscoveryError::SocketUnavailable)?;
 
     Ok(())
+}
+
+/// Periodically announce this server so peers that cannot broadcast, such as
+/// some router-hosted servers, can learn it from the incoming request.
+pub async fn run_periodic_discovery(state: Arc<DiscoveryState>) {
+    loop {
+        if state.is_periodic_discovery_enabled() {
+            if let Err(error) = send_discovery_request(&state).await {
+                warn!("Failed to send periodic discovery request: {}", error);
+            } else {
+                debug!("Sent periodic discovery request");
+            }
+        }
+        sleep(PERIODIC_DISCOVERY_INTERVAL).await;
+    }
 }
 
 /// Recreate the UDP socket after network change.
@@ -102,6 +124,7 @@ async fn handle_discovery_packet(
 
     match msg.message_type.as_str() {
         DiscoveryMessage::REQUEST_TYPE => {
+            record_identified_requester(&msg, addr, state).await?;
             respond_to_request(addr, state).await;
             Ok(())
         }
@@ -134,6 +157,32 @@ async fn handle_discovery_packet(
         }
         other => Err(DiscoveryError::InvalidType(other.to_string())),
     }
+}
+
+async fn record_identified_requester(
+    msg: &DiscoveryMessage,
+    addr: std::net::SocketAddr,
+    state: &Arc<DiscoveryState>,
+) -> Result<(), DiscoveryError> {
+    // Anonymous v1.1 requests from older Kaulan versions remain compatible.
+    let Some(device_id) = msg.device_id.clone() else {
+        return Ok(());
+    };
+    if device_id == state.device_id {
+        return Ok(());
+    }
+    let device_name = msg
+        .device_name
+        .clone()
+        .ok_or_else(|| DiscoveryError::MissingField("device_name".to_string()))?;
+    let api_port = msg
+        .api_port
+        .ok_or_else(|| DiscoveryError::MissingField("api_port".to_string()))?;
+    let device = DiscoveredDevice::new(device_id, device_name.clone(), addr, api_port);
+    let api_url = device.api_url.clone();
+    state.upsert_discovered_device(device).await;
+    info!("Discovered requester: {} at {}", device_name, api_url);
+    Ok(())
 }
 
 async fn respond_to_request(requester_addr: std::net::SocketAddr, state: &Arc<DiscoveryState>) {
@@ -181,5 +230,32 @@ mod tests {
         let msg =
             DiscoveryMessage::new_response("test-id".to_string(), "Test Player".to_string(), 2080);
         assert!(msg.validate().is_ok());
+    }
+
+    /// Regression coverage for issue #35. The receiver must learn an
+    /// identified requester even when the receiver cannot broadcast.
+    /// See `docs/device-discovery.md`.
+    #[tokio::test]
+    async fn identified_requester_is_recorded_from_source_address() {
+        let state = Arc::new(DiscoveryState::new(
+            "router-id".to_string(),
+            "Router".to_string(),
+            2080,
+        ));
+        let request = DiscoveryMessage::new_identified_request(
+            "client-id".to_string(),
+            "Phone".to_string(),
+            3080,
+        );
+        let addr = "192.168.1.23:2082".parse().unwrap();
+
+        record_identified_requester(&request, addr, &state)
+            .await
+            .unwrap();
+
+        let devices = state.get_devices().await;
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].device_id, "client-id");
+        assert_eq!(devices[0].api_url, "http://192.168.1.23:3080/api");
     }
 }

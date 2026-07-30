@@ -2,7 +2,8 @@
 
 ## Overview
 
-Kaulan uses an on-demand local-network discovery protocol.
+Kaulan uses identified UDP requests for on-demand scans and optional periodic
+local-network announcements.
 
 Discovery runs in these cases:
 
@@ -10,7 +11,9 @@ Discovery runs in these cases:
 - when the **添加设备** sheet opens
 - when the user presses **刷新** in the nearby-device section
 
-There is no timer-based periodic discovery loop after startup.
+Periodic discovery is enabled by default and can be disabled under
+**设置 → 设备与来源 → 定期发现附近设备** to reduce background battery use.
+Disabling it does not close the UDP listener or disable manual refresh.
 
 For the local device name, backend uses this fallback order:
 
@@ -33,6 +36,9 @@ For the local device name, backend uses this fallback order:
 {
   "type": "kaulan-discovery-request",
   "version": "1.1",
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "device_name": "Living Room Player",
+  "api_port": 2080,
   "timestamp": 1678912345678
 }
 ```
@@ -51,6 +57,16 @@ For the local device name, backend uses this fallback order:
 ```
 
 ## Scan Behavior
+
+Every 10 seconds, an enabled backend broadcasts an identified request. A peer
+records the requester using the UDP source IP and request metadata, then sends
+the normal unicast response. This bidirectional behavior supports router-hosted
+servers whose own broadcast packets cannot enter the LAN. Anonymous requests
+from older Kaulan versions remain supported.
+
+Passively discovered devices are retained. They are updated by stable
+`device_id` when their IP changes and are replaced only when the next successful
+explicit scan commits (Option A). Failed scans restore the prior list.
 
 When discovery refresh runs:
 
@@ -87,6 +103,21 @@ Return committed discovered devices list.
 ### `GET /api/discovery/self`
 Return current server's `device_id` and `device_name`.
 
+### `GET /api/discovery/periodic`
+
+Return `{ "enabled": true }` when periodic announcements are enabled.
+
+### `PUT /api/discovery/periodic`
+
+Enable or disable periodic announcements immediately and persist the setting.
+Manual discovery remains available.
+
+Request body:
+
+```json
+{ "enabled": false }
+```
+
 ### `POST /api/discovery/name`
 Set current server's device name.
 
@@ -115,10 +146,17 @@ sequenceDiagram
     participant UDP as UDP LAN
     participant Peer as Peer Backend
 
+    loop Every 10 seconds when enabled
+        API->>UDP: Broadcast identified discovery-request
+        UDP->>Peer: Receive identified request
+        Peer->>Peer: Upsert API by sender device_id and source IP
+        Peer-->>API: Unicast discovery-response
+    end
+
     User->>FE: Click "刷新设备"
     FE->>API: POST /api/discovery/scan/start
 
-    loop 10 times (1s interval)
+    loop 3 times (1s interval)
         FE->>API: POST /api/discovery/request
         API->>UDP: Broadcast discovery-request
         UDP->>Peer: Receive request

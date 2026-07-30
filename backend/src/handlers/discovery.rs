@@ -3,7 +3,7 @@
 //! This module provides HTTP API endpoints for device discovery.
 //! See [docs/device-discovery.md](../../../docs/device-discovery.md) for protocol details.
 
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_web::{get, post, put, web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -36,6 +36,34 @@ pub async fn get_self_device(discovery: web::Data<DiscoveryState>) -> impl Respo
     HttpResponse::Ok().json(SelfDeviceResponse {
         device_id: discovery.device_id.clone(),
         device_name,
+    })
+}
+
+/// Get the persisted runtime setting for periodic LAN announcements.
+#[get("/api/discovery/periodic")]
+pub async fn get_periodic_discovery(discovery: web::Data<DiscoveryState>) -> impl Responder {
+    HttpResponse::Ok().json(PeriodicDiscoveryResponse {
+        enabled: discovery.is_periodic_discovery_enabled(),
+    })
+}
+
+/// Enable or disable periodic LAN announcements without affecting manual scans.
+#[put("/api/discovery/periodic")]
+pub async fn set_periodic_discovery(
+    req: web::Json<SetPeriodicDiscoveryRequest>,
+    discovery: web::Data<DiscoveryState>,
+) -> impl Responder {
+    if let Err(error) = crate::config::save_periodic_discovery_enabled(req.enabled) {
+        return HttpResponse::InternalServerError().json(OperationResponse {
+            success: false,
+            message: format!("Failed to save periodic discovery setting: {}", error),
+        });
+    }
+    discovery.set_periodic_discovery_enabled(req.enabled);
+    info!("Periodic device discovery enabled: {}", req.enabled);
+    HttpResponse::Ok().json(OperationResponse {
+        success: true,
+        message: "Periodic discovery setting updated".to_string(),
     })
 }
 
@@ -128,6 +156,16 @@ pub struct DiscoveredDeviceResponse {
 pub struct SelfDeviceResponse {
     pub device_id: String,
     pub device_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PeriodicDiscoveryResponse {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetPeriodicDiscoveryRequest {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]

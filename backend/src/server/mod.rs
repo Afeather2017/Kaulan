@@ -32,8 +32,8 @@ use crate::types::AppState;
 // Re-export handler modules for convenience and for integration tests
 pub use database::update_database_endpoint;
 pub use discovery::{
-    finish_discovery_scan, get_discovered_devices, get_self_device, request_discovery_once,
-    set_device_name, start_discovery_scan,
+    finish_discovery_scan, get_discovered_devices, get_periodic_discovery, get_self_device,
+    request_discovery_once, set_device_name, set_periodic_discovery, start_discovery_scan,
 };
 pub use download::{
     apply_lyric, create_download_job, download_preview, download_track, get_bilibili_thumbnail,
@@ -314,7 +314,11 @@ pub async fn start_server(
         .unwrap_or_else(|| config::generate_fallback_device_name(&device_id));
     info!("Device ID: {}", device_id);
     info!("Device name: {}", device_name);
-    info!("Discovery mode: manual scan request/reply");
+    let periodic_discovery_enabled = config::load_periodic_discovery_enabled();
+    info!(
+        "Periodic device discovery enabled: {}",
+        periodic_discovery_enabled
+    );
 
     // Create shared UDP socket for discovery (single socket for both send and receive)
     let discovery_socket: Option<Arc<UdpSocket>> =
@@ -326,11 +330,14 @@ pub async fn start_server(
             }
         };
 
-    let discovery_state = Arc::new(crate::discovery::types::DiscoveryState::new(
-        device_id.clone(),
-        device_name.clone(),
-        2080, // API port
-    ));
+    let discovery_state = Arc::new(
+        crate::discovery::types::DiscoveryState::new_with_periodic_discovery(
+            device_id.clone(),
+            device_name.clone(),
+            2080, // API port
+            periodic_discovery_enabled,
+        ),
+    );
 
     // Drain the cold-start launch file seed (set by the Tauri shell before the
     // backend started) into the launch broker. If a frontend mount-time GET
@@ -352,10 +359,18 @@ pub async fn start_server(
 
     // Start discovery listener if socket was created
     if let Some(socket) = discovery_socket {
+        // Publish the socket before either task starts so the first periodic
+        // announcement cannot race the listener's initialization.
+        discovery_state.set_socket(socket.clone()).await;
         let discovery_state_clone = discovery_state.clone();
         tokio::spawn(async move {
             crate::discovery::discovery::start_discovery_listener(socket, discovery_state_clone)
                 .await;
+        });
+
+        let periodic_state = discovery_state.clone();
+        tokio::spawn(async move {
+            crate::discovery::discovery::run_periodic_discovery(periodic_state).await;
         });
 
         info!("Device discovery services started");
@@ -446,6 +461,8 @@ pub async fn start_server(
                 // Discovery endpoints (order matters - specific routes first)
                 .service(get_discovered_devices)
                 .service(get_self_device)
+                .service(get_periodic_discovery)
+                .service(set_periodic_discovery)
                 .service(start_discovery_scan)
                 .service(request_discovery_once)
                 .service(finish_discovery_scan)
