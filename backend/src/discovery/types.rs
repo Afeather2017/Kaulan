@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::UdpSocket;
@@ -13,8 +14,9 @@ use tokio::sync::RwLock;
 
 /// Discovery message sent via UDP.
 ///
-/// Protocol v1.1 uses on-demand scanning:
-/// - `kaulan-discovery-request`: sent by scanner every 1 second during scan window
+/// Protocol v1.1 uses identified requests for both manual scans and periodic
+/// announcements:
+/// - `kaulan-discovery-request`: may include sender identity and API metadata
 /// - `kaulan-discovery-response`: immediate unicast response with service metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveryMessage {
@@ -66,6 +68,18 @@ impl DiscoveryMessage {
         }
     }
 
+    /// Create a request that lets receivers discover the requester directly.
+    pub fn new_identified_request(device_id: String, device_name: String, api_port: u16) -> Self {
+        Self {
+            message_type: Self::REQUEST_TYPE.to_string(),
+            version: Self::EXPECTED_VERSION.to_string(),
+            device_id: Some(device_id),
+            device_name: Some(device_name),
+            api_port: Some(api_port),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
     /// Create a new discovery response message.
     pub fn new_response(device_id: String, device_name: String, api_port: u16) -> Self {
         Self {
@@ -85,25 +99,32 @@ impl DiscoveryMessage {
         }
 
         match self.message_type.as_str() {
-            Self::REQUEST_TYPE => Ok(()),
-            Self::RESPONSE_TYPE => {
-                if self.device_id.as_deref().unwrap_or_default().is_empty() {
-                    return Err(DiscoveryError::MissingField("device_id".to_string()));
+            Self::REQUEST_TYPE => {
+                let is_anonymous = self.device_id.is_none()
+                    && self.device_name.is_none()
+                    && self.api_port.is_none();
+                if is_anonymous {
+                    return Ok(());
                 }
-
-                let device_name = self.device_name.as_deref().unwrap_or_default();
-                if device_name.is_empty() || device_name.len() > 64 {
-                    return Err(DiscoveryError::InvalidDeviceName);
-                }
-
-                if self.api_port.unwrap_or(0) == 0 {
-                    return Err(DiscoveryError::InvalidPort);
-                }
-
-                Ok(())
+                self.validate_identity()
             }
+            Self::RESPONSE_TYPE => self.validate_identity(),
             other => Err(DiscoveryError::InvalidType(other.to_string())),
         }
+    }
+
+    fn validate_identity(&self) -> Result<(), DiscoveryError> {
+        if self.device_id.as_deref().unwrap_or_default().is_empty() {
+            return Err(DiscoveryError::MissingField("device_id".to_string()));
+        }
+        let device_name = self.device_name.as_deref().unwrap_or_default();
+        if device_name.is_empty() || device_name.len() > 64 {
+            return Err(DiscoveryError::InvalidDeviceName);
+        }
+        if self.api_port.unwrap_or(0) == 0 {
+            return Err(DiscoveryError::InvalidPort);
+        }
+        Ok(())
     }
 }
 
@@ -165,11 +186,23 @@ pub struct DiscoveryState {
 
     /// Backup of committed map for rollback when scan fails.
     pub scan_backup: Arc<RwLock<Option<HashMap<String, DiscoveredDevice>>>>,
+
+    /// Runtime switch for the low-frequency background announcement task.
+    pub periodic_discovery_enabled: Arc<AtomicBool>,
 }
 
 impl DiscoveryState {
     /// Create a new discovery state.
     pub fn new(device_id: String, device_name: String, api_port: u16) -> Self {
+        Self::new_with_periodic_discovery(device_id, device_name, api_port, true)
+    }
+
+    pub fn new_with_periodic_discovery(
+        device_id: String,
+        device_name: String,
+        api_port: u16,
+        periodic_discovery_enabled: bool,
+    ) -> Self {
         Self {
             device_id,
             device_name: Arc::new(RwLock::new(device_name)),
@@ -178,7 +211,17 @@ impl DiscoveryState {
             discovered_devices: Arc::new(RwLock::new(HashMap::new())),
             scan_buffer: Arc::new(RwLock::new(None)),
             scan_backup: Arc::new(RwLock::new(None)),
+            periodic_discovery_enabled: Arc::new(AtomicBool::new(periodic_discovery_enabled)),
         }
+    }
+
+    pub fn is_periodic_discovery_enabled(&self) -> bool {
+        self.periodic_discovery_enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn set_periodic_discovery_enabled(&self, enabled: bool) {
+        self.periodic_discovery_enabled
+            .store(enabled, Ordering::Relaxed);
     }
 
     /// Get the current device name.
@@ -303,5 +346,22 @@ mod tests {
         );
         assert!(msg.validate().is_ok());
         assert_eq!(msg.message_type, DiscoveryMessage::RESPONSE_TYPE);
+    }
+
+    #[test]
+    fn test_identified_request_validation() {
+        let msg = DiscoveryMessage::new_identified_request(
+            "test-device-id".to_string(),
+            "Test Player".to_string(),
+            2080,
+        );
+        assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_partial_identified_request_is_rejected() {
+        let mut msg = DiscoveryMessage::new_request();
+        msg.device_id = Some("test-device-id".to_string());
+        assert!(msg.validate().is_err());
     }
 }

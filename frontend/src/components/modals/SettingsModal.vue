@@ -358,6 +358,29 @@
               </button>
             </div>
           </div>
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                class="setting-checkbox"
+                :checked="periodicDiscoveryEnabled"
+                :disabled="isSavingPeriodicDiscovery"
+                @change="handlePeriodicDiscoveryChange"
+              />
+              <span>定期发现附近设备</span>
+            </label>
+            <p class="setting-hint">
+              每 10 秒在局域网广播一次设备信息，用于自动发现设备和更新变化后的
+              IP 地址。关闭可减少后台耗电，手动刷新仍然可用。
+            </p>
+            <p
+              v-if="periodicDiscoveryMessage"
+              class="setting-hint"
+              :class="{ 'setting-error': periodicDiscoveryError }"
+            >
+              {{ periodicDiscoveryMessage }}
+            </p>
+          </div>
           <div class="mode-toggle">
             <div class="mode-label">媒体类型过滤</div>
           </div>
@@ -507,6 +530,10 @@ const { selfDevice, fetchSelfDevice, setDeviceName } = useDeviceDiscovery();
 
 const deviceNameInput = ref<string>("");
 const isSavingDeviceName = ref<boolean>(false);
+const periodicDiscoveryEnabled = ref<boolean>(true);
+const isSavingPeriodicDiscovery = ref<boolean>(false);
+const periodicDiscoveryMessage = ref<string>("");
+const periodicDiscoveryError = ref<boolean>(false);
 
 const selectedMediaTypes = ref<string[]>(getMediaTypes());
 const isLoadingMediaTypes = ref<boolean>(false);
@@ -747,6 +774,7 @@ onMounted(async () => {
   }
 
   await loadMediaTypes();
+  await loadPeriodicDiscovery();
 
   runtimeCapabilities.value = await getRuntimeCapabilities();
 
@@ -796,6 +824,56 @@ const saveDeviceName = async () => {
     alert("设备名称已更新");
   } else {
     alert("保存设备名称失败");
+  }
+};
+
+const loadPeriodicDiscovery = async (): Promise<void> => {
+  periodicDiscoveryMessage.value = "";
+  periodicDiscoveryError.value = false;
+  try {
+    const response = await fetch(`${getLocalApiBase()}/discovery/periodic`);
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+    const result = await response.json();
+    periodicDiscoveryEnabled.value = result.enabled !== false;
+  } catch (error) {
+    console.error("Failed to load periodic discovery setting:", error);
+    periodicDiscoveryMessage.value = "读取定期发现设置失败。";
+    periodicDiscoveryError.value = true;
+  }
+};
+
+const handlePeriodicDiscoveryChange = async (event: Event): Promise<void> => {
+  const enabled = (event.target as HTMLInputElement).checked;
+  const previous = periodicDiscoveryEnabled.value;
+  periodicDiscoveryEnabled.value = enabled;
+  isSavingPeriodicDiscovery.value = true;
+  periodicDiscoveryMessage.value = "";
+  periodicDiscoveryError.value = false;
+
+  try {
+    const response = await fetch(`${getLocalApiBase()}/discovery/periodic`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.message || `Request failed with status ${response.status}`,
+      );
+    }
+    periodicDiscoveryMessage.value = enabled
+      ? "定期发现已开启。"
+      : "定期发现已关闭，手动刷新仍然可用。";
+  } catch (error) {
+    console.error("Failed to save periodic discovery setting:", error);
+    periodicDiscoveryEnabled.value = previous;
+    periodicDiscoveryMessage.value = `保存定期发现设置失败: ${error}`;
+    periodicDiscoveryError.value = true;
+  } finally {
+    isSavingPeriodicDiscovery.value = false;
   }
 };
 

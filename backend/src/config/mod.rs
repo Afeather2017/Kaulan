@@ -28,10 +28,11 @@ const GENERIC_HOSTNAMES: &[&str] = &[
 ///   "music_directory": "/path/to/music",
 ///   "device_id": "550e8400-e29b-41d4-a716-446655440000",
 ///   "device_name": "Living Room Player",
+///   "periodic_discovery_enabled": true,
 ///   "media_types": ["audio"]
 /// }
 /// ```
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     /// Music directory path
     pub music_directory: Option<String>,
@@ -42,6 +43,10 @@ pub struct Config {
     /// Human-readable device name (user-configurable)
     pub device_name: Option<String>,
 
+    /// Whether this server periodically announces itself on the LAN.
+    #[serde(default = "default_periodic_discovery_enabled")]
+    pub periodic_discovery_enabled: bool,
+
     /// Enabled media types for scanning: "audio" and/or "video"
     #[serde(default = "default_media_types")]
     pub media_types: Option<Vec<String>>,
@@ -49,6 +54,22 @@ pub struct Config {
 
 fn default_media_types() -> Option<Vec<String>> {
     Some(vec!["audio".to_string()])
+}
+
+fn default_periodic_discovery_enabled() -> bool {
+    true
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            music_directory: None,
+            device_id: None,
+            device_name: None,
+            periodic_discovery_enabled: true,
+            media_types: default_media_types(),
+        }
+    }
 }
 
 /// Get the config directory path
@@ -253,6 +274,26 @@ pub fn set_device_name(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Load whether periodic LAN discovery announcements are enabled.
+///
+/// This defaults to `true` for existing installations so IP changes are
+/// repaired automatically. Manual scans remain available when it is disabled.
+pub fn load_periodic_discovery_enabled() -> bool {
+    load_full_config()
+        .map(|config| config.periodic_discovery_enabled)
+        .unwrap_or(true)
+}
+
+/// Persist the periodic LAN discovery setting.
+pub fn save_periodic_discovery_enabled(enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
+    save_config_field(|config| Config {
+        periodic_discovery_enabled: enabled,
+        ..config
+    })?;
+    info!("Periodic device discovery enabled: {}", enabled);
+    Ok(())
+}
+
 /// Load enabled media types from config
 ///
 /// # Returns
@@ -340,7 +381,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{load_media_types, save_media_types};
+    use super::{
+        load_media_types, load_periodic_discovery_enabled, save_media_types,
+        save_periodic_discovery_enabled,
+    };
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
@@ -444,5 +488,15 @@ mod tests {
         assert!(err
             .to_string()
             .contains("At least one media type must be selected"));
+    }
+
+    #[test]
+    fn periodic_discovery_defaults_to_enabled_and_round_trips() {
+        let _lock = config_env_lock().lock().expect("lock poisoned");
+        let _guard = ConfigEnvGuard::new();
+
+        assert!(load_periodic_discovery_enabled());
+        save_periodic_discovery_enabled(false).expect("save should succeed");
+        assert!(!load_periodic_discovery_enabled());
     }
 }

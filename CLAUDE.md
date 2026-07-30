@@ -136,6 +136,7 @@ backend/src/
 │   └── prelude.rs
 ├── file_ops/
 │   └── mod.rs       # Source registry, scan-backend registry, path resolver, and backend file operations
+├── discovery/       # Permanent UDP listener, identified periodic announcements, and discovery state
 └── lufsgen.rs       # FFmpeg-based LUFS analysis utility
 ```
 
@@ -157,6 +158,7 @@ backend/src/
   - Android registers `MediaStoreScanBackend` to query all device audio through MediaStore
   - Backends live in a per-server `ScanRegistry` owned by `AppState` (not a global) — each `start_server` invocation and each test gets its own
   - `scanner::initialize_database(db, &registry)` and `scanner::update_database(db, &registry)` iterate the registry via `ScanRegistry::scan_all`
+- **Bidirectional device discovery** - each enabled backend periodically sends an identified UDP request, and permanent listeners learn both requesters and responders. The Settings toggle persists `periodic_discovery_enabled`; disabling it leaves manual scans and the listener active. See [`docs/device-discovery.md`](docs/device-discovery.md).
 
 ### Frontend Structure
 ```
