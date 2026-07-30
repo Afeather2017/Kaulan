@@ -15,7 +15,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Lyric Display & Timing Edits** - Show synchronized LRC/WEBVTT lyrics and shift writable sidecar timing from the player
 - **Real-time Search** - Search across all songs instantly
-- **Device Discovery** - Bidirectional UDP discovery repairs changed device IPs, including router-hosted servers; periodic announcements are user-configurable to reduce battery use
+- **Device Discovery** - Bidirectional UDP discovery repairs changed device IPs, including router-hosted servers; periodic announcements are user-configurable and a scan grace period prevents device-list flicker
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
 - **Remote Library Import** - Browse another Kaulan server's library and download its songs (audio + lyrics) into your own library — into the app library on desktop/Android, or directly to the device in a plain browser
 - **Standalone Web Hosting** - The backend can serve the built Vue app from `frontend/dist`
