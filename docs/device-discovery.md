@@ -64,16 +64,19 @@ the normal unicast response. This bidirectional behavior supports router-hosted
 servers whose own broadcast packets cannot enter the LAN. Anonymous requests
 from older Kaulan versions remain supported.
 
-Passively discovered devices are retained. They are updated by stable
-`device_id` when their IP changes and are replaced only when the next successful
-explicit scan commits (Option A). Failed scans restore the prior list.
+Passively discovered devices are updated by stable `device_id` when their IP
+changes. When an explicit scan commits, devices seen within the previous 30
+seconds are merged into the scan result. This grace period prevents a healthy
+device from disappearing merely because its 10-second periodic announcement
+missed the 3-second scan window. Older devices absent from the scan are removed,
+and failed scans restore the complete prior list.
 
 When discovery refresh runs:
 
 1. Frontend calls `POST /api/discovery/scan/start`
 2. Frontend calls `POST /api/discovery/request` every 1 second during the scan window
 3. Backend listener receives unicast responses and stores them in scan buffer
-4. Frontend calls `POST /api/discovery/scan/finish` with `{ "success": true }`
+4. Frontend calls `POST /api/discovery/scan/finish` with `{ "success": true }`; backend commits the scan and retains devices seen in the 30-second grace period
 5. Frontend calls `GET /api/discovery/devices` to render final results
 6. Frontend reconciles saved manual devices by `device_id` when possible, updating stored API URLs if the device IP changed
 

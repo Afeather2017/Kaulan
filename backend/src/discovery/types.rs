@@ -8,9 +8,14 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
+
+/// Keep recently seen devices across short explicit scans. The grace period is
+/// three periodic-announcement intervals, so a healthy peer is not removed
+/// merely because its 10-second announcement missed a 3-second scan window.
+pub const DISCOVERY_LIVENESS_GRACE: Duration = Duration::from_secs(30);
 
 /// Discovery message sent via UDP.
 ///
@@ -255,11 +260,18 @@ impl DiscoveryState {
 
     /// Finish scan transaction and either commit or rollback.
     pub async fn finish_scan(&self, success: bool) {
-        let buffer = self.scan_buffer.write().await.take();
+        let mut buffer = self.scan_buffer.write().await.take();
         let backup = self.scan_backup.write().await.take();
 
         if success {
-            if let Some(next) = buffer {
+            if let Some(mut next) = buffer.take() {
+                if let Some(previous) = backup {
+                    for (device_id, device) in previous {
+                        if device.last_seen.elapsed() <= DISCOVERY_LIVENESS_GRACE {
+                            next.entry(device_id).or_insert(device);
+                        }
+                    }
+                }
                 *self.discovered_devices.write().await = next;
             }
             return;
@@ -363,5 +375,71 @@ mod tests {
         let mut msg = DiscoveryMessage::new_request();
         msg.device_id = Some("test-device-id".to_string());
         assert!(msg.validate().is_err());
+    }
+
+    #[tokio::test]
+    async fn successful_scan_keeps_recent_device_that_missed_scan_window() {
+        let state = DiscoveryState::new("local-id".to_string(), "Local".to_string(), 2080);
+        state
+            .upsert_discovered_device(DiscoveredDevice::new(
+                "peer-id".to_string(),
+                "Peer".to_string(),
+                "192.168.1.20:2082".parse().unwrap(),
+                2080,
+            ))
+            .await;
+
+        state.start_scan().await;
+        state.finish_scan(true).await;
+
+        let devices = state.get_devices().await;
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].device_id, "peer-id");
+    }
+
+    #[tokio::test]
+    async fn successful_scan_removes_device_older_than_liveness_grace() {
+        let state = DiscoveryState::new("local-id".to_string(), "Local".to_string(), 2080);
+        let mut stale = DiscoveredDevice::new(
+            "stale-id".to_string(),
+            "Stale Peer".to_string(),
+            "192.168.1.21:2082".parse().unwrap(),
+            2080,
+        );
+        stale.last_seen = Instant::now() - DISCOVERY_LIVENESS_GRACE - Duration::from_secs(1);
+        state.upsert_discovered_device(stale).await;
+
+        state.start_scan().await;
+        state.finish_scan(true).await;
+
+        assert!(state.get_devices().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scan_result_replaces_recent_backup_with_same_device_id() {
+        let state = DiscoveryState::new("local-id".to_string(), "Local".to_string(), 2080);
+        state
+            .upsert_discovered_device(DiscoveredDevice::new(
+                "peer-id".to_string(),
+                "Peer".to_string(),
+                "192.168.1.20:2082".parse().unwrap(),
+                2080,
+            ))
+            .await;
+
+        state.start_scan().await;
+        state
+            .upsert_discovered_device(DiscoveredDevice::new(
+                "peer-id".to_string(),
+                "Peer".to_string(),
+                "192.168.1.99:2082".parse().unwrap(),
+                2080,
+            ))
+            .await;
+        state.finish_scan(true).await;
+
+        let devices = state.get_devices().await;
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].api_url, "http://192.168.1.99:2080/api");
     }
 }
