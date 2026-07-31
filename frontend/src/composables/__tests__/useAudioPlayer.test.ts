@@ -239,26 +239,22 @@ describe("useAudioPlayer - duration loading", () => {
     await playSongAtIndex(mockSongs[1], 1, mockSongs);
 
     expect(getStoredPlaybackSession()).toEqual({
+      currentDeviceId: null,
       currentSongId: 2,
-      currentSongUrl: "http://localhost:2080/api/music/id/2",
       queue: [
         {
-          id: 1,
+          device_id: "",
+          song_id: 1,
+          filename: "song1.mp3",
           name: "Test Song 1",
-          path: "/test/song1.mp3",
-          url: "http://localhost:2080/api/music/id/1",
           lufs: -12,
-          coverUrl: "http://localhost:2080/api/music/id/1/cover",
-          sourceKey: "http://localhost:2080/api",
         },
         {
-          id: 2,
+          device_id: "",
+          song_id: 2,
+          filename: "song2.mp3",
           name: "Test Song 2",
-          path: "/test/song2.mp3",
-          url: "http://localhost:2080/api/music/id/2",
           lufs: null,
-          coverUrl: "http://localhost:2080/api/music/id/2/cover",
-          sourceKey: "http://localhost:2080/api",
         },
       ],
       timestamp: expect.any(Number),
@@ -311,24 +307,22 @@ describe("useAudioPlayer - duration loading", () => {
 
   it("should restore queue and current song from stored playback session on init", async () => {
     setStoredPlaybackSession({
+      currentDeviceId: "",
       currentSongId: 2,
-      currentSongUrl: "http://localhost:2080/api/music/id/2",
       queue: [
         {
-          id: 1,
+          device_id: "",
+          song_id: 1,
+          filename: "song1.mp3",
           name: "Test Song 1",
-          path: "/test/song1.mp3",
-          url: "http://localhost:2080/api/music/id/1",
           lufs: -12,
-          sourceKey: "http://localhost:2080/api",
         },
         {
-          id: 2,
+          device_id: "",
+          song_id: 2,
+          filename: "song2.mp3",
           name: "Test Song 2",
-          path: "/test/song2.mp3",
-          url: "http://localhost:2080/api/music/id/2",
           lufs: null,
-          sourceKey: "http://localhost:2080/api",
         },
       ],
       timestamp: Date.now(),
@@ -353,6 +347,7 @@ describe("useAudioPlayer - duration loading", () => {
         name: "Remote Song",
         lufs: -12,
         path: "/remote/song1.mp3",
+        device_id: "remote-device",
         stream_url: "http://offline.example:2080/api/music/id/1",
       },
       {
@@ -375,6 +370,19 @@ describe("useAudioPlayer - duration loading", () => {
     const { playSongAtIndex, activeQueue, currentSong, reconcileQueueSources } =
       useAudioPlayer({
         songs: () => queue,
+        sourceGroups: () => [
+          {
+            sourceKey: "http://offline.example:2080/api",
+            apiBase: "http://offline.example:2080/api",
+            device_id: "remote-device",
+            name: "Remote",
+            isLoading: false,
+            isOnline: true,
+            playlists: [],
+            onlineProviderStatuses: [],
+            capabilities: {} as never,
+          },
+        ],
       });
 
     await playSongAtIndex(queue[0], 0, queue);
@@ -384,26 +392,122 @@ describe("useAudioPlayer - duration loading", () => {
     expect(currentSong.value?.name).toBe("Local Song");
   });
 
+  it("should rehydrate queue URLs after discovery remaps a device", async () => {
+    const oldApiBase = "http://192.168.1.10:2080/api";
+    const newApiBase = "http://192.168.1.11:2080/api";
+    let apiBase = oldApiBase;
+    const queue: MusicInfo[] = [
+      {
+        id: 7,
+        name: "Rotating IP Song",
+        lufs: -11,
+        path: "song.mp3",
+        device_id: "rotating-device",
+        source_key: oldApiBase,
+        stream_url: `${oldApiBase}/music/id/7`,
+      },
+    ];
+    const onDeviceUnreachable = vi.fn(async () => {
+      apiBase = newApiBase;
+    });
+    vi.mocked(global.fetch).mockImplementation(
+      async (input) =>
+        ({
+          ok: String(input).startsWith(newApiBase),
+          json: async () => ({}),
+        }) as Response,
+    );
+
+    const { playSongAtIndex, activeQueue, reconcileQueueSources } =
+      useAudioPlayer({
+        songs: () => queue,
+        sourceGroups: () => [
+          {
+            sourceKey: apiBase,
+            apiBase,
+            device_id: "rotating-device",
+            name: "Remote",
+            isLoading: false,
+            isOnline: true,
+            playlists: [],
+            onlineProviderStatuses: [],
+            capabilities: {} as never,
+          },
+        ],
+        onDeviceUnreachable,
+      });
+
+    await playSongAtIndex(queue[0], 0, queue);
+    await reconcileQueueSources();
+
+    expect(onDeviceUnreachable).toHaveBeenCalledWith("rotating-device");
+    expect(activeQueue.value).toHaveLength(1);
+    expect(activeQueue.value[0].stream_url).toBe(`${newApiBase}/music/id/7`);
+  });
+
+  it("should keep a temporarily unavailable device when the retry succeeds", async () => {
+    const apiBase = "http://temporary.example:2080/api";
+    let probeCount = 0;
+    const queue: MusicInfo[] = [
+      {
+        id: 8,
+        name: "Temporary Song",
+        lufs: -11,
+        path: "temporary.mp3",
+        device_id: "temporary-device",
+        source_key: apiBase,
+        stream_url: `${apiBase}/music/id/8`,
+      },
+    ];
+    vi.mocked(global.fetch).mockImplementation(async () => {
+      probeCount += 1;
+      return { ok: probeCount > 1, json: async () => ({}) } as Response;
+    });
+    const onDeviceUnreachable = vi.fn(async () => {});
+    const { playSongAtIndex, activeQueue, reconcileQueueSources } =
+      useAudioPlayer({
+        songs: () => queue,
+        sourceGroups: () => [
+          {
+            sourceKey: apiBase,
+            apiBase,
+            device_id: "temporary-device",
+            name: "Remote",
+            isLoading: false,
+            isOnline: true,
+            playlists: [],
+            onlineProviderStatuses: [],
+            capabilities: {} as never,
+          },
+        ],
+        onDeviceUnreachable,
+      });
+
+    await playSongAtIndex(queue[0], 0, queue);
+    await reconcileQueueSources();
+
+    expect(onDeviceUnreachable).toHaveBeenCalledOnce();
+    expect(activeQueue.value).toHaveLength(1);
+  });
+
   it("should keep remote playback URLs when restoring Android-originated queue data", async () => {
     setStoredPlaybackSession({
+      currentDeviceId: "remote-device",
       currentSongId: 2,
-      currentSongUrl: "http://192.168.1.10:2080/api/music/id/2",
       queue: [
         {
-          id: 1,
+          device_id: "remote-device",
+          song_id: 1,
+          filename: "1.mp3",
           name: "Remote Song 1",
-          path: "content://media/external/audio/media/1",
-          url: "http://192.168.1.10:2080/api/music/id/1",
           lufs: -12,
-          sourceKey: "http://192.168.1.10:2080/api",
         },
         {
-          id: 2,
+          device_id: "remote-device",
+          song_id: 2,
+          filename: "2.mp3",
           name: "Remote Song 2",
-          path: "content://media/external/audio/media/2",
-          url: "http://192.168.1.10:2080/api/music/id/2",
           lufs: -10,
-          sourceKey: "http://192.168.1.10:2080/api",
         },
       ],
       timestamp: Date.now(),
@@ -412,6 +516,19 @@ describe("useAudioPlayer - duration loading", () => {
     const { initAudio, activeQueue, currentSong, currentIndex } =
       useAudioPlayer({
         songs: () => mockSongs,
+        sourceGroups: () => [
+          {
+            sourceKey: "http://192.168.1.10:2080/api",
+            apiBase: "http://192.168.1.10:2080/api",
+            device_id: "remote-device",
+            name: "Remote",
+            isLoading: false,
+            isOnline: true,
+            playlists: [],
+            onlineProviderStatuses: [],
+            capabilities: {} as never,
+          },
+        ],
       });
 
     await initAudio();

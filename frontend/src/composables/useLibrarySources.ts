@@ -4,6 +4,7 @@ import { getLocalApiBase, isSessionLocalApiBase } from "@/utils/api";
 import {
   refreshDiscoveredDevices,
   refreshStoredManualDevices,
+  type DiscoveredDevice,
 } from "@/utils/discovery";
 import { loadItemsIncrementally, upsertSortedItem } from "@/utils/sourceGroups";
 import {
@@ -30,9 +31,9 @@ const buildSongApiUrl = (apiBase: string, suffix: string): string => {
 export const buildSongRowKey = (song: {
   id: number;
   name: string;
-  source_key?: string | null;
+  device_id?: string | null;
 }): string => {
-  return `${song.source_key || "local"}:${song.id}:${song.name}`;
+  return `${song.device_id || "local"}:${song.id}:${song.name}`;
 };
 
 export const inferMediaType = (song: {
@@ -57,17 +58,19 @@ export const inferMediaType = (song: {
 
 const normalizeSourceSong = (
   apiBase: string,
+  deviceId: string,
   sourceLabel: string,
   song: MusicInfo,
 ): MusicInfo => ({
   ...song,
+  device_id: song.device_id || deviceId,
   stream_url:
     song.stream_url || buildSongApiUrl(apiBase, `/music/id/${song.id}`),
   cover_url:
     song.cover_url || buildSongApiUrl(apiBase, `/music/id/${song.id}/cover`),
   source_key: apiBase,
   sourceLabel,
-  rowKey: `${apiBase}:${song.id}:${song.name}`,
+  rowKey: `${deviceId || "local"}:${song.id}:${song.name}`,
   mediaType: song.mediaType || inferMediaType(song),
 });
 
@@ -90,6 +93,9 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
   const onlineSearchApiBase = ref<string>(getDefaultOnlineSearchApiBase());
 
   let sourceRefreshToken = 0;
+  let discoveryRefreshPromise: Promise<void> | null = null;
+  const pendingRecoveryDeviceIds = new Set<string>();
+  let hasLegacyRecoveryTarget = false;
 
   const filteredSourceGroups = computed<LibrarySourceGroup[]>(() =>
     sourceGroups.value
@@ -257,6 +263,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
   const buildLoadingSourceGroup = (apiBase: string): LibrarySourceGroup => ({
     sourceKey: apiBase,
     apiBase,
+    device_id: "",
     name: buildSourceLabel(apiBase),
     isLoading: true,
     isOnline: false,
@@ -294,6 +301,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
 
   const fetchSourceGroup = async (
     apiBase: string,
+    recoverOnFailure = true,
   ): Promise<LibrarySourceGroup> => {
     const fallbackName = buildSourceLabel(apiBase);
 
@@ -334,6 +342,8 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
         string,
         MusicInfo[]
       >;
+      const deviceId =
+        typeof selfData.device_id === "string" ? selfData.device_id : "";
       const sourceLabel = selfData.device_name || fallbackName;
       const canUpload = !!directoryTreeResponse?.ok;
       const canChangeDirectory = !!musicDirectoryResponse?.ok;
@@ -347,13 +357,14 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       const playlists = Object.entries(playlistMap).map(([name, songs]) => ({
         name,
         songs: songs.map((song) =>
-          normalizeSourceSong(apiBase, sourceLabel, song),
+          normalizeSourceSong(apiBase, deviceId, sourceLabel, song),
         ),
       }));
 
       return {
         sourceKey: apiBase,
         apiBase,
+        device_id: deviceId,
         name: sourceLabel,
         isLoading: false,
         isOnline: true,
@@ -371,9 +382,24 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       };
     } catch (error) {
       console.warn("Failed to load source group:", apiBase, error);
+      if (
+        recoverOnFailure &&
+        getManualDevices().some((device) => device.api_url === apiBase)
+      ) {
+        const failedDevice = getManualDevices().find(
+          (device) => device.api_url === apiBase,
+        );
+        if (failedDevice?.device_id) {
+          pendingRecoveryDeviceIds.add(failedDevice.device_id);
+        } else {
+          hasLegacyRecoveryTarget = true;
+        }
+        void recoverUnreachableSources();
+      }
       return {
         sourceKey: apiBase,
         apiBase,
+        device_id: "",
         name: fallbackName,
         isLoading: false,
         isOnline: false,
@@ -449,7 +475,10 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     });
   };
 
-  const refreshSingleSource = async (apiBase: string) => {
+  const refreshSingleSource = async (
+    apiBase: string,
+    recoverOnFailure = true,
+  ) => {
     sourceGroups.value = upsertSortedItem(
       sourceGroups.value,
       buildLoadingSourceGroup(apiBase),
@@ -457,7 +486,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       sortSourceGroups,
     );
 
-    const updated = await fetchSourceGroup(apiBase);
+    const updated = await fetchSourceGroup(apiBase, recoverOnFailure);
     sourceGroups.value = upsertSortedItem(
       sourceGroups.value,
       updated,
@@ -467,11 +496,68 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     ensureOnlineSearchSourceExists();
   };
 
-  const refreshDiscoveryState = async () => {
+  const applyDiscoveredRecoveryTargets = async (
+    discoveredDevices: DiscoveredDevice[],
+  ) => {
+    const manualDevices = getManualDevices();
+    let changed = false;
+    const refreshes: Promise<void>[] = [];
+
+    for (const discovered of discoveredDevices) {
+      if (!pendingRecoveryDeviceIds.has(discovered.device_id)) {
+        continue;
+      }
+      const index = manualDevices.findIndex(
+        (device) => device.device_id === discovered.device_id,
+      );
+      if (index < 0) {
+        pendingRecoveryDeviceIds.delete(discovered.device_id);
+        continue;
+      }
+
+      const previousApiBase = manualDevices[index].api_url;
+      manualDevices[index] = {
+        ...manualDevices[index],
+        api_url: discovered.api_url,
+        device_name: discovered.device_name,
+        last_fetched: Date.now(),
+      };
+      changed = true;
+      pendingRecoveryDeviceIds.delete(discovered.device_id);
+
+      if (previousApiBase !== discovered.api_url) {
+        sourceGroups.value = sourceGroups.value.filter(
+          (group) => group.sourceKey !== previousApiBase,
+        );
+        if (selectedLibrarySourceKey.value === previousApiBase) {
+          selectedLibrarySourceKey.value = discovered.api_url;
+        }
+        if (onlineSearchApiBase.value === previousApiBase) {
+          setOnlineSearchSource(discovered.api_url);
+        }
+      }
+      refreshes.push(refreshSingleSource(discovered.api_url, false));
+    }
+
+    if (changed) {
+      setManualDevices(manualDevices);
+    }
+    void Promise.all(refreshes);
+  };
+
+  const refreshDiscoveryState = async (recoveryWindowMs?: number) => {
     const previousManualDevices = getManualDevices();
 
     try {
-      const discoveredDevices = await refreshDiscoveredDevices();
+      const discoveredDevices = await refreshDiscoveredDevices({
+        windowMs: recoveryWindowMs,
+        onUpdate: applyDiscoveredRecoveryTargets,
+        shouldStop:
+          recoveryWindowMs === undefined
+            ? undefined
+            : () =>
+                pendingRecoveryDeviceIds.size === 0 && !hasLegacyRecoveryTarget,
+      });
       const updatedManualDevices =
         await refreshStoredManualDevices(discoveredDevices);
 
@@ -490,7 +576,17 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
           ? previousByDeviceId.get(device.device_id)
           : previousByApiUrl.get(device.api_url);
 
-        if (!previousApiBase || previousApiBase === device.api_url) {
+        if (!previousApiBase) {
+          continue;
+        }
+
+        if (previousApiBase === device.api_url) {
+          const currentGroup = sourceGroups.value.find(
+            (group) => group.apiBase === device.api_url,
+          );
+          if (currentGroup && !currentGroup.isOnline) {
+            await refreshSingleSource(device.api_url, false);
+          }
           continue;
         }
 
@@ -506,11 +602,23 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
           setOnlineSearchSource(device.api_url);
         }
 
-        await refreshSingleSource(device.api_url);
+        await refreshSingleSource(device.api_url, false);
       }
     } catch (error) {
       console.warn("[app] startup discovery refresh failed:", error);
     }
+  };
+
+  const recoverUnreachableSources = async (): Promise<void> => {
+    if (discoveryRefreshPromise) {
+      return await discoveryRefreshPromise;
+    }
+
+    discoveryRefreshPromise = refreshDiscoveryState(20_000).finally(() => {
+      discoveryRefreshPromise = null;
+      hasLegacyRecoveryTarget = false;
+    });
+    return await discoveryRefreshPromise;
   };
 
   const openFilterSheet = () => {
@@ -741,6 +849,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
     refreshSourceGroups,
     refreshSingleSource,
     refreshDiscoveryState,
+    recoverUnreachableSources,
     openFilterSheet,
     toggleDraftMediaType,
     applyLibraryFilter,

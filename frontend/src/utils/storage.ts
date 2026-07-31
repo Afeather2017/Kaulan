@@ -5,6 +5,77 @@
  */
 
 import { getLocalApiBase } from "@/utils/api";
+import type { OnlineMusicSource } from "@/types/music";
+
+/**
+ * Split a filesystem path (or Android content URI) down to its basename.
+ *
+ * Stored song entries keep only the basename so the persisted shape has no
+ * dependency on the device's IP. The full path is rebuilt at runtime via
+ * /api/music/id/{song_id}.
+ */
+const basenameOf = (path: string): string => {
+  if (!path) {
+    return "";
+  }
+  const segments = path.split(/[\\/]/);
+  return segments[segments.length - 1] || path;
+};
+
+/**
+ * Build the persisted shape for a song entering a collection. Used by both the
+ * Pinia store and the composable so they cannot drift on the field set.
+ */
+export function toStoredCollectionSong(song: {
+  id: number;
+  name: string;
+  path?: string;
+  lufs?: number | null;
+  device_id?: string | null;
+  mediaType?: "audio" | "video";
+  source?: OnlineMusicSource;
+  rowKey?: string;
+}): StoredCollectionSong {
+  return {
+    device_id: song.device_id ?? "",
+    song_id: song.id,
+    filename: basenameOf(song.path ?? ""),
+    name: song.name,
+    lufs: song.lufs ?? null,
+    mediaType: song.mediaType,
+    source: song.source,
+    rowKey: song.rowKey,
+  };
+}
+
+/**
+ * Build the persisted shape for a song entering the play queue. Returns null
+ * for online (search-result) songs and other temporary entries — those are
+ * not tied to a Kaulan device and should not survive a reload.
+ */
+export function toStoredPlaybackQueueSong(song: {
+  id: number;
+  name: string;
+  path?: string;
+  lufs?: number | null;
+  device_id?: string | null;
+  mediaType?: "audio" | "video";
+  source?: OnlineMusicSource;
+  is_temporary?: boolean;
+}): StoredPlaybackQueueSong | null {
+  if (song.source || song.is_temporary) {
+    return null;
+  }
+  return {
+    device_id: song.device_id ?? "",
+    song_id: song.id,
+    filename: basenameOf(song.path ?? ""),
+    name: song.name,
+    lufs: song.lufs ?? null,
+    mediaType: song.mediaType,
+    source: song.source,
+  };
+}
 
 /**
  * Storage keys used throughout the application
@@ -36,16 +107,14 @@ export interface ManualDevice {
 }
 
 export interface StoredCollectionSong {
-  id: number;
-  name: string;
-  lufs: number | null;
-  path: string;
-  stream_url?: string | null;
-  cover_url?: string | null;
-  source_key?: string | null;
-  sourceLabel?: string;
-  rowKey?: string;
+  device_id: string;
+  song_id: number;
+  filename: string;
+  name?: string;
+  lufs?: number | null;
   mediaType?: "audio" | "video";
+  source?: OnlineMusicSource;
+  rowKey?: string;
 }
 
 export interface StoredLocalCollection {
@@ -56,18 +125,18 @@ export interface StoredLocalCollection {
 }
 
 export interface StoredPlaybackQueueSong {
-  id: number;
-  name: string;
-  path: string;
-  url: string;
-  lufs: number | null;
-  coverUrl?: string | null;
-  sourceKey?: string | null;
+  device_id: string;
+  song_id: number;
+  filename: string;
+  name?: string;
+  lufs?: number | null;
+  mediaType?: "audio" | "video";
+  source?: OnlineMusicSource;
 }
 
 export interface StoredPlaybackSession {
+  currentDeviceId: string | null;
   currentSongId: number | null;
-  currentSongUrl?: string | null;
   queue: StoredPlaybackQueueSong[];
   timestamp: number;
 }
@@ -307,25 +376,21 @@ function isStoredCollectionSong(value: unknown): value is StoredCollectionSong {
 
   const song = value as Record<string, unknown>;
   return (
-    typeof song.id === "number" &&
-    typeof song.name === "string" &&
-    (typeof song.lufs === "number" || song.lufs === null) &&
-    typeof song.path === "string" &&
-    (typeof song.stream_url === "string" ||
-      song.stream_url === null ||
-      typeof song.stream_url === "undefined") &&
-    (typeof song.cover_url === "string" ||
-      song.cover_url === null ||
-      typeof song.cover_url === "undefined") &&
-    (typeof song.source_key === "string" ||
-      song.source_key === null ||
-      typeof song.source_key === "undefined") &&
-    (typeof song.sourceLabel === "string" ||
-      typeof song.sourceLabel === "undefined") &&
-    (typeof song.rowKey === "string" || typeof song.rowKey === "undefined") &&
+    typeof song.device_id === "string" &&
+    typeof song.song_id === "number" &&
+    typeof song.filename === "string" &&
+    (typeof song.name === "string" || typeof song.name === "undefined") &&
+    (typeof song.lufs === "number" ||
+      song.lufs === null ||
+      typeof song.lufs === "undefined") &&
     (song.mediaType === "audio" ||
       song.mediaType === "video" ||
-      typeof song.mediaType === "undefined")
+      typeof song.mediaType === "undefined") &&
+    (song.source === "youtube" ||
+      song.source === "netease" ||
+      song.source === "bilibili" ||
+      typeof song.source === "undefined") &&
+    (typeof song.rowKey === "string" || typeof song.rowKey === "undefined")
   );
 }
 
@@ -376,17 +441,20 @@ function isStoredPlaybackQueueSong(
 
   const song = value as Record<string, unknown>;
   return (
-    typeof song.id === "number" &&
-    typeof song.name === "string" &&
-    typeof song.path === "string" &&
-    typeof song.url === "string" &&
-    (typeof song.lufs === "number" || song.lufs === null) &&
-    (typeof song.coverUrl === "string" ||
-      song.coverUrl === null ||
-      typeof song.coverUrl === "undefined") &&
-    (typeof song.sourceKey === "string" ||
-      song.sourceKey === null ||
-      typeof song.sourceKey === "undefined")
+    typeof song.device_id === "string" &&
+    typeof song.song_id === "number" &&
+    typeof song.filename === "string" &&
+    (typeof song.name === "string" || typeof song.name === "undefined") &&
+    (typeof song.lufs === "number" ||
+      song.lufs === null ||
+      typeof song.lufs === "undefined") &&
+    (song.mediaType === "audio" ||
+      song.mediaType === "video" ||
+      typeof song.mediaType === "undefined") &&
+    (song.source === "youtube" ||
+      song.source === "netease" ||
+      song.source === "bilibili" ||
+      typeof song.source === "undefined")
   );
 }
 
@@ -413,12 +481,14 @@ export function getStoredPlaybackSession(): StoredPlaybackSession | null {
 
     const currentSongId =
       typeof parsed.currentSongId === "number" ? parsed.currentSongId : null;
-    const currentSongUrl =
-      typeof parsed.currentSongUrl === "string" ? parsed.currentSongUrl : null;
+    const currentDeviceId =
+      typeof parsed.currentDeviceId === "string"
+        ? parsed.currentDeviceId
+        : null;
 
     return {
+      currentDeviceId,
       currentSongId,
-      currentSongUrl,
       queue,
       timestamp: parsed.timestamp,
     };

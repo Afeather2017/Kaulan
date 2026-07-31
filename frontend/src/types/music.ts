@@ -10,6 +10,7 @@ export interface BackendMusicInfo {
 }
 
 export interface MusicInfo extends BackendMusicInfo {
+  device_id?: string | null;
   cover_url?: string | null;
   lyrics_url?: string | null;
   source_key?: string | null;

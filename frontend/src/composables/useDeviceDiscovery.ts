@@ -27,20 +27,31 @@ export function useDeviceDiscovery() {
   };
 
   /**
-   * Refresh devices using manual 10-second request scan.
+   * Refresh devices using a 20-second observation window.
    *
    * Flow:
    * 1. Start scan transaction
-   * 2. Send discovery request every 1 second for 10 seconds
-   * 3. Commit scan on success, rollback on failure
-   * 4. Fetch committed device list
+   * 2. Send three discovery requests during the first two seconds
+   * 3. Observe identified periodic requests for the rest of the 20-second window
+   * 4. Commit scan on success, rollback on failure
+   * 5. Fetch committed device list
    */
   const refreshDevices = async (): Promise<void> => {
     isLoading.value = true;
     error.value = null;
 
     try {
-      devices.value = await refreshDiscoveredDevices();
+      devices.value = await refreshDiscoveredDevices({
+        onUpdate: (nextDevices) => {
+          const merged = new Map(
+            devices.value.map((device) => [device.device_id, device]),
+          );
+          for (const device of nextDevices) {
+            merged.set(device.device_id, device);
+          }
+          devices.value = Array.from(merged.values());
+        },
+      });
     } catch (err) {
       error.value = err instanceof Error ? err.message : "Unknown error";
       console.error("Failed to refresh discovered devices:", err);

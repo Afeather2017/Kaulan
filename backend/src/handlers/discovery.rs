@@ -10,10 +10,13 @@ use tracing::{info, warn};
 use crate::discovery::discovery::send_discovery_request;
 use crate::discovery::types::DiscoveryState;
 
-/// Get all discovered devices.
+/// Get discovered devices.
+///
+/// During an active scan this returns fresh scan-buffer observations so clients
+/// can update incrementally. Outside a scan it returns the committed list.
 #[get("/api/discovery/devices")]
 pub async fn get_discovered_devices(discovery: web::Data<DiscoveryState>) -> impl Responder {
-    let devices = discovery.get_devices().await;
+    let devices = discovery.get_visible_devices().await;
 
     let device_list: Vec<DiscoveredDeviceResponse> = devices
         .into_iter()

@@ -4,8 +4,20 @@ import type { MusicInfo } from "@/composables/useAudioPlayer";
 import {
   getLocalCollections,
   setLocalCollections,
+  toStoredCollectionSong,
+  type StoredCollectionSong,
   type StoredLocalCollection,
 } from "@/utils/storage";
+import { storedCollectionSongToMusicInfo } from "@/utils/songRestore";
+import { useLibraryStore } from "@/stores/library";
+import {
+  buildSongRowKey,
+  inferMediaType,
+} from "@/composables/useLibrarySources";
+
+const buildStoredSongRowKey = (song: StoredCollectionSong): string =>
+  song.rowKey ||
+  `${song.device_id || "local"}:${song.song_id}:${song.name ?? song.filename}`;
 
 export const useCollectionsStore = defineStore("collections", () => {
   const localCollections = ref<StoredLocalCollection[]>([]);
@@ -19,31 +31,34 @@ export const useCollectionsStore = defineStore("collections", () => {
   const collectionNames = computed(() =>
     localCollections.value.map((collection) => collection.name),
   );
-  const collectionPlaylists = computed<Record<string, MusicInfo[]>>(() =>
-    Object.fromEntries(
+
+  // Materialize each stored song into a playable MusicInfo using the current
+  // source list. Reactive on libraryStore.sourceGroups so collections
+  // rehydrate automatically when a device's apiBase resolves or changes.
+  const collectionPlaylists = computed<Record<string, MusicInfo[]>>(() => {
+    const libraryStore = useLibraryStore();
+    const sourceGroups = libraryStore.sourceGroups;
+    return Object.fromEntries(
       localCollections.value.map((collection) => [
         collection.name,
-        collection.songs,
+        collection.songs.map((song) => {
+          const info = storedCollectionSongToMusicInfo(song, sourceGroups);
+          return {
+            ...info,
+            rowKey: buildStoredSongRowKey(song),
+            mediaType: info.mediaType || inferMediaType(info),
+          };
+        }),
       ]),
-    ),
-  );
+    );
+  });
 
   const syncLocalCollections = () => {
     setLocalCollections(localCollections.value);
   };
 
-  const loadLocalCollections = (
-    buildSongRowKey: (song: MusicInfo) => string,
-    inferMediaType: (song: MusicInfo) => "audio" | "video",
-  ) => {
-    localCollections.value = getLocalCollections().map((collection) => ({
-      ...collection,
-      songs: collection.songs.map((song) => ({
-        ...song,
-        rowKey: buildSongRowKey(song),
-        mediaType: song.mediaType || inferMediaType(song),
-      })),
-    }));
+  const loadLocalCollections = () => {
+    localCollections.value = getLocalCollections();
   };
 
   const showAddToCollectionModal = (songs: MusicInfo[] = []) => {
@@ -74,7 +89,6 @@ export const useCollectionsStore = defineStore("collections", () => {
   const addToCollection = (
     currentSongs: MusicInfo[],
     selectedSongKeys: Set<string>,
-    buildSongRowKey: (song: MusicInfo) => string,
     clearSongSelection: () => void,
   ) => {
     if (selectedCollections.value.length === 0) {
@@ -100,23 +114,18 @@ export const useCollectionsStore = defineStore("collections", () => {
       }
 
       const existingKeys = new Set(
-        collection.songs.map(
-          (song) => `${song.source_key || "local"}:${song.id}:${song.name}`,
-        ),
+        collection.songs.map((song) => buildStoredSongRowKey(song)),
       );
       const nextSongs = collection.songs.slice();
 
       for (const song of selectedVisibleSongs) {
-        const songKey = `${song.source_key || "local"}:${song.id}:${song.name}`;
+        const songKey = song.rowKey || buildSongRowKey(song);
         if (existingKeys.has(songKey)) {
           continue;
         }
 
         existingKeys.add(songKey);
-        nextSongs.push({
-          ...song,
-          rowKey: song.rowKey || songKey,
-        });
+        nextSongs.push(toStoredCollectionSong({ ...song, rowKey: songKey }));
       }
 
       return {
@@ -135,7 +144,6 @@ export const useCollectionsStore = defineStore("collections", () => {
   const removeSongsFromCollection = (
     collectionName: string,
     selectedSongKeys: Set<string>,
-    buildSongRowKey: (song: MusicInfo) => string,
   ) => {
     if (selectedSongKeys.size === 0) {
       alert("没有选中的歌曲");
@@ -150,7 +158,7 @@ export const useCollectionsStore = defineStore("collections", () => {
       return {
         ...collection,
         songs: collection.songs.filter(
-          (song) => !selectedSongKeys.has(song.rowKey || buildSongRowKey(song)),
+          (song) => !selectedSongKeys.has(buildStoredSongRowKey(song)),
         ),
       };
     });
@@ -163,7 +171,6 @@ export const useCollectionsStore = defineStore("collections", () => {
   const removeSingleSongFromCollection = (
     collectionName: string,
     song: MusicInfo,
-    buildSongRowKey: (item: MusicInfo) => string,
   ) => {
     const songKey = song.rowKey || buildSongRowKey(song);
     localCollections.value = localCollections.value.map((collection) => {
@@ -174,7 +181,7 @@ export const useCollectionsStore = defineStore("collections", () => {
       return {
         ...collection,
         songs: collection.songs.filter(
-          (item) => (item.rowKey || buildSongRowKey(item)) !== songKey,
+          (item) => buildStoredSongRowKey(item) !== songKey,
         ),
       };
     });
@@ -182,10 +189,7 @@ export const useCollectionsStore = defineStore("collections", () => {
     syncLocalCollections();
   };
 
-  const pruneSongsByKeys = (
-    songKeys: Set<string>,
-    buildSongRowKey: (song: MusicInfo) => string,
-  ) => {
+  const pruneSongsByKeys = (songKeys: Set<string>) => {
     if (songKeys.size === 0) {
       return;
     }
@@ -193,7 +197,7 @@ export const useCollectionsStore = defineStore("collections", () => {
     localCollections.value = localCollections.value.map((collection) => ({
       ...collection,
       songs: collection.songs.filter(
-        (song) => !songKeys.has(song.rowKey || buildSongRowKey(song)),
+        (song) => !songKeys.has(buildStoredSongRowKey(song)),
       ),
     }));
 

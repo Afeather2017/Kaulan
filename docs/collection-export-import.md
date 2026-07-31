@@ -5,14 +5,12 @@ which is wiped when the app is re-installed. The export / import feature lets
 users back up their collections to a JSON file before re-install (or when
 moving to another device) and restore them afterward.
 
-The export deliberately **drops volatile fields** (`id`, `lufs`, `path`,
-`stream_url`, `cover_url`, …) and keys each song by `(source, song_name)`.
+The export deliberately **drops volatile fields** (`song_id`, `lufs`, `path`,
+`stream_url`, `cover_url`, …) and keys each song by `(device_id, song_name)`.
 The reason: the local SQLite DB is rebuilt on re-install, so song `id`
-values change. Remote server IDs can change too. The API base URL of each
-source is stable across re-installs (the local server is always
-`http://localhost:2080/api`; remote servers persist via
-`kaulan_manual_devices`), and song filenames are stable as long as the user's
-files don't move — so that pair is the right durable key.
+values change. The device UUID remains stable even when its IP address changes,
+and song filenames are stable as long as the user's files don't move, so that
+pair is the durable import key.
 
 Related source files:
 - Frontend utility: `frontend/src/utils/collectionTransfer.ts` (`buildCollectionsExport`, `parseCollectionsExport`, `mergeCollectionsFromImport`)
@@ -29,15 +27,15 @@ Related source files:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exported_at": "2026-07-16T12:00:00.000Z",
   "collections": [
     {
       "name": "My Favorites",
       "created_at": "2026-01-15T08:30:00.000Z",
       "songs": [
-        { "source": "http://localhost:2080/api", "name": "Artist - Song.mp3" },
-        { "source": "http://192.168.1.10:2080/api", "name": "Other.flac" }
+        { "device_id": "550e8400-e29b-41d4-a716-446655440000", "name": "Artist - Song.mp3" },
+        { "device_id": "550e8400-e29b-41d4-a716-446655440001", "name": "Other.flac" }
       ]
     }
   ]
@@ -54,14 +52,14 @@ personal library.
 
 The matcher builds a lookup table from `allLibrarySongs` (the flat list of
 every song in every currently-loaded source), keyed by
-`${source_key} ${name}` → library song. Each payload entry is an O(1)
+`${device_id} ${name}` → library song. Each payload entry is an O(1)
 lookup. There are **no per-server queries at import time** — only the data
 that was already fetched on library load.
 
 First match wins: if two songs on the same source share a filename, only the
 first one encountered (in source-then-playlist order) is used.
 
-If a payload song's `(source, name)` isn't present in the current library
+If a payload song's `(device_id, name)` isn't present in the current library
 (because the remote server hasn't been re-added, the file was renamed, or the
 library hasn't finished loading), the song is **skipped and counted** in the
 summary. No partial entry is stored — the collection either has the full
@@ -99,7 +97,7 @@ sequenceDiagram
 ```
 
 Dedupe is by the same row-key shape used elsewhere in the app:
-`${source_key || "local"}:${id}:${name}`. Re-importing the same file is
+`${device_id || "local"}:${song_id}:${name}`. Re-importing the same file is
 idempotent — every payload song either matches an existing entry (deduped) or
 appends fresh.
 
@@ -129,6 +127,10 @@ deleted, the skipped songs cannot be reconstructed.
 If the library is still loading when the user imports, songs from not-yet-
 loaded sources will be counted as skipped. The user should wait for the
 library to finish loading before importing.
+
+An export is tied to the original Kaulan device UUIDs. Importing on another
+instance requires adding the original source devices first; unrelated devices
+with similar files do not match automatically.
 
 ## Why not `tauri-plugin-file-access`?
 

@@ -308,6 +308,19 @@ impl DiscoveryState {
             .cloned()
             .collect()
     }
+
+    /// Get devices visible during the current scan.
+    ///
+    /// While a scan is active, only its fresh observations are returned. This
+    /// prevents clients from mistaking a stale committed address for a device
+    /// rediscovered during the current recovery window.
+    pub async fn get_visible_devices(&self) -> Vec<DiscoveredDevice> {
+        let scan = self.scan_buffer.read().await.clone();
+        if let Some(scan) = scan {
+            return scan.into_values().collect();
+        }
+        self.get_devices().await
+    }
 }
 
 /// Discovery protocol errors
@@ -441,5 +454,24 @@ mod tests {
         let devices = state.get_devices().await;
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].api_url, "http://192.168.1.99:2080/api");
+    }
+
+    #[tokio::test]
+    async fn active_scan_devices_are_visible_before_commit() {
+        let state = DiscoveryState::new("local-id".to_string(), "Local".to_string(), 2080);
+        state.start_scan().await;
+        state
+            .upsert_discovered_device(DiscoveredDevice::new(
+                "peer-id".to_string(),
+                "Peer".to_string(),
+                "192.168.1.20:2082".parse().unwrap(),
+                2080,
+            ))
+            .await;
+
+        let visible = state.get_visible_devices().await;
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].device_id, "peer-id");
+        assert!(state.get_devices().await.is_empty());
     }
 }

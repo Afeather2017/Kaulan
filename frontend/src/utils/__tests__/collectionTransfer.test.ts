@@ -23,6 +23,7 @@ const buildLibrarySong = (
   stream_url: `${source}/music/id/${id}`,
   cover_url: `${source}/music/id/${id}/cover`,
   source_key: source,
+  device_id: source === LOCAL ? LOCAL_DEVICE : REMOTE_DEVICE,
   sourceLabel: source,
   rowKey: `${source}:${id}:${name}`,
   mediaType: "audio",
@@ -30,9 +31,11 @@ const buildLibrarySong = (
 
 const LOCAL = "http://localhost:2080/api";
 const REMOTE = "http://192.168.1.10:2080/api";
+const LOCAL_DEVICE = "local-device";
+const REMOTE_DEVICE = "remote-device";
 
 describe("buildCollectionsExport", () => {
-  it("strips volatile fields and keeps (source, name) pairs", () => {
+  it("strips volatile fields and keeps (device_id, name) pairs", () => {
     const collections: StoredLocalCollection[] = [
       {
         id: 1,
@@ -40,14 +43,11 @@ describe("buildCollectionsExport", () => {
         created_at: "2026-01-01T00:00:00.000Z",
         songs: [
           {
-            id: 42,
+            device_id: LOCAL_DEVICE,
+            song_id: 42,
+            filename: "track.mp3",
             name: "track.mp3",
             lufs: -10,
-            path: "/music/track.mp3",
-            stream_url: `${LOCAL}/music/id/42`,
-            cover_url: `${LOCAL}/music/id/42/cover`,
-            source_key: LOCAL,
-            sourceLabel: LOCAL,
             rowKey: `${LOCAL}:42:track.mp3`,
             mediaType: "audio",
           },
@@ -67,13 +67,13 @@ describe("buildCollectionsExport", () => {
         {
           name: "Favorites",
           created_at: "2026-01-01T00:00:00.000Z",
-          songs: [{ source: LOCAL, name: "track.mp3" }],
+          songs: [{ device_id: LOCAL_DEVICE, name: "track.mp3" }],
         },
       ],
     });
   });
 
-  it("normalizes a missing source_key to an empty string", () => {
+  it("preserves an empty device_id", () => {
     const collections: StoredLocalCollection[] = [
       {
         id: 1,
@@ -81,11 +81,11 @@ describe("buildCollectionsExport", () => {
         created_at: "2026-01-01T00:00:00.000Z",
         songs: [
           {
-            id: 1,
+            device_id: "",
+            song_id: 1,
+            filename: "n.mp3",
             name: "n.mp3",
             lufs: null,
-            path: "p",
-            source_key: null,
           },
         ],
       },
@@ -94,7 +94,7 @@ describe("buildCollectionsExport", () => {
     const payload = buildCollectionsExport(collections);
 
     expect(payload.collections[0].songs[0]).toEqual({
-      source: "",
+      device_id: "",
       name: "n.mp3",
     });
   });
@@ -119,14 +119,14 @@ describe("parseCollectionsExport", () => {
     ).toThrowError(/collections/);
   });
 
-  it("rejects a song entry missing source or name", () => {
+  it("rejects a song entry missing device_id or name", () => {
     const bad = {
       version: COLLECTION_EXPORT_VERSION,
       collections: [
         {
           name: "F",
           created_at: "x",
-          songs: [{ source: LOCAL }],
+          songs: [{ device_id: LOCAL_DEVICE }],
         },
       ],
     };
@@ -155,7 +155,7 @@ describe("parseCollectionsExport", () => {
           {
             name: "F",
             created_at: "x",
-            songs: [{ source: LOCAL, name: songName }],
+            songs: [{ device_id: LOCAL_DEVICE, name: songName }],
           },
         ],
       };
@@ -165,14 +165,14 @@ describe("parseCollectionsExport", () => {
     }
   });
 
-  it("accepts an empty source (normalized form of missing source_key)", () => {
+  it("accepts an empty device_id for an unidentified local source", () => {
     const payload = {
       version: COLLECTION_EXPORT_VERSION,
       collections: [
         {
           name: "F",
           created_at: "x",
-          songs: [{ source: "", name: "a.mp3" }],
+          songs: [{ device_id: "", name: "a.mp3" }],
         },
       ],
     };
@@ -194,8 +194,8 @@ describe("mergeCollectionsFromImport", () => {
           name: "Mix",
           created_at: "2026-01-01T00:00:00.000Z",
           songs: [
-            { source: LOCAL, name: "a.mp3" },
-            { source: REMOTE, name: "b.flac" },
+            { device_id: LOCAL_DEVICE, name: "a.mp3" },
+            { device_id: REMOTE_DEVICE, name: "b.flac" },
           ],
         },
       ],
@@ -218,10 +218,10 @@ describe("mergeCollectionsFromImport", () => {
     expect(songs.map((s) => s.name).sort()).toEqual(["a.mp3", "b.flac"]);
     // Resolved songs carry current library metadata (id, lufs, rowKey, etc).
     expect(songs[0]).toMatchObject({
-      id: expect.any(Number),
+      song_id: expect.any(Number),
       lufs: -10,
       rowKey: expect.any(String),
-      source_key: expect.any(String),
+      device_id: expect.any(String),
     });
   });
 
@@ -235,8 +235,8 @@ describe("mergeCollectionsFromImport", () => {
           name: "Mix",
           created_at: "x",
           songs: [
-            { source: LOCAL, name: "a.mp3" },
-            { source: REMOTE, name: "missing.flac" },
+            { device_id: LOCAL_DEVICE, name: "a.mp3" },
+            { device_id: REMOTE_DEVICE, name: "missing.flac" },
           ],
         },
       ],
@@ -263,11 +263,11 @@ describe("mergeCollectionsFromImport", () => {
         created_at: "x",
         songs: [
           {
-            id: songA.id,
+            device_id: songA.device_id!,
+            song_id: songA.id,
+            filename: songA.name,
             name: songA.name,
             lufs: songA.lufs,
-            path: songA.path,
-            source_key: songA.source_key,
             rowKey: songA.rowKey,
             mediaType: "audio",
           },
@@ -282,8 +282,8 @@ describe("mergeCollectionsFromImport", () => {
           name: "Mix",
           created_at: "x",
           songs: [
-            { source: LOCAL, name: "a.mp3" },
-            { source: LOCAL, name: "b.mp3" },
+            { device_id: LOCAL_DEVICE, name: "a.mp3" },
+            { device_id: LOCAL_DEVICE, name: "b.mp3" },
           ],
         },
       ],
@@ -319,7 +319,7 @@ describe("mergeCollectionsFromImport", () => {
         {
           name: "Mix",
           created_at: "x",
-          songs: [{ source: LOCAL, name: "a.mp3" }],
+          songs: [{ device_id: LOCAL_DEVICE, name: "a.mp3" }],
         },
       ],
     };
@@ -343,8 +343,8 @@ describe("mergeCollectionsFromImport", () => {
           name: "Mix",
           created_at: "x",
           songs: [
-            { source: LOCAL, name: "a.mp3" },
-            { source: REMOTE, name: "b.flac" },
+            { device_id: LOCAL_DEVICE, name: "a.mp3" },
+            { device_id: REMOTE_DEVICE, name: "b.flac" },
           ],
         },
       ],
@@ -386,7 +386,7 @@ describe("mergeCollectionsFromImport", () => {
         {
           name: "Mix",
           created_at: "x",
-          songs: [{ source: LOCAL, name: "dup.mp3" }],
+          songs: [{ device_id: LOCAL_DEVICE, name: "dup.mp3" }],
         },
       ],
     };
@@ -399,7 +399,7 @@ describe("mergeCollectionsFromImport", () => {
 
     expect(result.matchedSongs).toBe(1);
     expect(collections[0].songs).toHaveLength(1);
-    expect(collections[0].songs[0].id).toBe(1);
+    expect(collections[0].songs[0].song_id).toBe(1);
   });
 
   it("creates separate collections for distinct names", () => {
@@ -411,12 +411,12 @@ describe("mergeCollectionsFromImport", () => {
         {
           name: "One",
           created_at: "x",
-          songs: [{ source: LOCAL, name: "a.mp3" }],
+          songs: [{ device_id: LOCAL_DEVICE, name: "a.mp3" }],
         },
         {
           name: "Two",
           created_at: "x",
-          songs: [{ source: LOCAL, name: "a.mp3" }],
+          songs: [{ device_id: LOCAL_DEVICE, name: "a.mp3" }],
         },
       ],
     };
