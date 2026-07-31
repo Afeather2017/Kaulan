@@ -476,6 +476,7 @@ import {
   MAX_LUFS_PRECACHE_COUNT,
 } from "@/utils/storage";
 import { useDeviceDiscovery } from "@/composables/useDeviceDiscovery";
+import { usePeriodicDiscovery } from "@/composables/usePeriodicDiscovery";
 import { useCollectionsStore } from "@/stores/collections";
 import { useLibraryStore } from "@/stores/library";
 import {
@@ -527,13 +528,17 @@ const emit = defineEmits<{
 }>();
 
 const { selfDevice, fetchSelfDevice, setDeviceName } = useDeviceDiscovery();
+const {
+  enabled: periodicDiscoveryEnabled,
+  isSaving: isSavingPeriodicDiscovery,
+  message: periodicDiscoveryMessage,
+  hasError: periodicDiscoveryError,
+  load: loadPeriodicDiscovery,
+  save: savePeriodicDiscovery,
+} = usePeriodicDiscovery();
 
 const deviceNameInput = ref<string>("");
 const isSavingDeviceName = ref<boolean>(false);
-const periodicDiscoveryEnabled = ref<boolean>(true);
-const isSavingPeriodicDiscovery = ref<boolean>(false);
-const periodicDiscoveryMessage = ref<string>("");
-const periodicDiscoveryError = ref<boolean>(false);
 
 const selectedMediaTypes = ref<string[]>(getMediaTypes());
 const isLoadingMediaTypes = ref<boolean>(false);
@@ -827,54 +832,9 @@ const saveDeviceName = async () => {
   }
 };
 
-const loadPeriodicDiscovery = async (): Promise<void> => {
-  periodicDiscoveryMessage.value = "";
-  periodicDiscoveryError.value = false;
-  try {
-    const response = await fetch(`${getLocalApiBase()}/discovery/periodic`);
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-    const result = await response.json();
-    periodicDiscoveryEnabled.value = result.enabled !== false;
-  } catch (error) {
-    console.error("Failed to load periodic discovery setting:", error);
-    periodicDiscoveryMessage.value = "读取定期发现设置失败。";
-    periodicDiscoveryError.value = true;
-  }
-};
-
 const handlePeriodicDiscoveryChange = async (event: Event): Promise<void> => {
-  const enabled = (event.target as HTMLInputElement).checked;
-  const previous = periodicDiscoveryEnabled.value;
-  periodicDiscoveryEnabled.value = enabled;
-  isSavingPeriodicDiscovery.value = true;
-  periodicDiscoveryMessage.value = "";
-  periodicDiscoveryError.value = false;
-
-  try {
-    const response = await fetch(`${getLocalApiBase()}/discovery/periodic`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      throw new Error(
-        result.message || `Request failed with status ${response.status}`,
-      );
-    }
-    periodicDiscoveryMessage.value = enabled
-      ? "定期发现已开启。"
-      : "定期发现已关闭，手动刷新仍然可用。";
-  } catch (error) {
-    console.error("Failed to save periodic discovery setting:", error);
-    periodicDiscoveryEnabled.value = previous;
-    periodicDiscoveryMessage.value = `保存定期发现设置失败: ${error}`;
-    periodicDiscoveryError.value = true;
-  } finally {
-    isSavingPeriodicDiscovery.value = false;
-  }
+  const nextEnabled = (event.target as HTMLInputElement).checked;
+  await savePeriodicDiscovery(nextEnabled);
 };
 
 // Collection export/import

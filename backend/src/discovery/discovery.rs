@@ -27,7 +27,10 @@ pub const PERIODIC_DISCOVERY_INTERVAL: Duration = Duration::from_secs(10);
 pub async fn start_discovery_listener(socket: Arc<UdpSocket>, state: Arc<DiscoveryState>) {
     info!("Starting discovery listener");
 
-    state.set_socket(socket.clone()).await;
+    // The caller (server::start_server) publishes the socket before spawning
+    // this task so the periodic announcer can send immediately. Don't re-set
+    // it here: doing so would race a `recreate_socket` swap if one were in
+    // flight on another task (there isn't today, but the invariant matters).
 
     let mut buf = [0u8; RECV_BUFFER_SIZE];
     let mut current_socket = socket;
@@ -124,7 +127,13 @@ async fn handle_discovery_packet(
 
     match msg.message_type.as_str() {
         DiscoveryMessage::REQUEST_TYPE => {
-            record_identified_requester(&msg, addr, state).await?;
+            // Recording the requester is best-effort: a malformed-but-valid
+            // request must still get a unicast response so the peer learns
+            // about us. Validation has already rejected partial identification,
+            // so an error here is unexpected — log it and move on.
+            if let Err(error) = record_identified_requester(&msg, addr, state).await {
+                debug!("Skipped recording requester at {}: {}", addr, error);
+            }
             respond_to_request(addr, state).await;
             Ok(())
         }
