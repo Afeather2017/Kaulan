@@ -23,8 +23,10 @@ interface OperationResponse {
   message: string;
 }
 
-const SCAN_SECONDS = 3;
+const MANUAL_SCAN_WINDOW_MS = 3000;
+const SCAN_REQUEST_COUNT = 3;
 const SCAN_INTERVAL_MS = 1000;
+const DEVICE_INFO_TIMEOUT_MS = 3000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -41,7 +43,19 @@ export async function fetchDiscoveredDevices(): Promise<DiscoveredDevice[]> {
   return response.json();
 }
 
-export async function refreshDiscoveredDevices(): Promise<DiscoveredDevice[]> {
+interface DiscoveryScanOptions {
+  windowMs?: number;
+  onUpdate?: (devices: DiscoveredDevice[]) => Promise<void> | void;
+  shouldStop?: (devices: DiscoveredDevice[]) => boolean;
+}
+
+export async function refreshDiscoveredDevices(
+  options: DiscoveryScanOptions = {},
+): Promise<DiscoveredDevice[]> {
+  const windowMs = Math.max(
+    MANUAL_SCAN_WINDOW_MS,
+    options.windowMs ?? MANUAL_SCAN_WINDOW_MS,
+  );
   let scanStarted = false;
 
   try {
@@ -56,28 +70,41 @@ export async function refreshDiscoveredDevices(): Promise<DiscoveredDevice[]> {
     }
     scanStarted = true;
 
-    for (let i = 0; i < SCAN_SECONDS; i += 1) {
-      const requestResponse = await fetch(
-        `${getLocalApiBase()}/discovery/request`,
-        {
-          method: "POST",
-        },
-      );
-
-      if (!requestResponse.ok) {
-        throw new Error(
-          `Failed to send discovery request: ${requestResponse.statusText}`,
+    const scanStartedAt = Date.now();
+    let iteration = 0;
+    while (true) {
+      if (iteration < SCAN_REQUEST_COUNT) {
+        const requestResponse = await fetch(
+          `${getLocalApiBase()}/discovery/request`,
+          {
+            method: "POST",
+          },
         );
+
+        if (!requestResponse.ok) {
+          throw new Error(
+            `Failed to send discovery request: ${requestResponse.statusText}`,
+          );
+        }
+
+        const requestResult: OperationResponse = await requestResponse.json();
+        if (!requestResult.success) {
+          throw new Error(requestResult.message);
+        }
       }
 
-      const requestResult: OperationResponse = await requestResponse.json();
-      if (!requestResult.success) {
-        throw new Error(requestResult.message);
+      const devices = await fetchDiscoveredDevices();
+      await options.onUpdate?.(devices);
+      if (options.shouldStop?.(devices)) {
+        break;
       }
 
-      if (i < SCAN_SECONDS - 1) {
-        await sleep(SCAN_INTERVAL_MS);
+      const remainingWindowMs = windowMs - (Date.now() - scanStartedAt);
+      if (remainingWindowMs <= 0) {
+        break;
       }
+      await sleep(Math.min(SCAN_INTERVAL_MS, remainingWindowMs));
+      iteration += 1;
     }
 
     const finishResponse = await fetch(
@@ -93,7 +120,9 @@ export async function refreshDiscoveredDevices(): Promise<DiscoveredDevice[]> {
       throw new Error(`Failed to finish scan: ${finishResponse.statusText}`);
     }
 
-    return fetchDiscoveredDevices();
+    const devices = await fetchDiscoveredDevices();
+    await options.onUpdate?.(devices);
+    return devices;
   } catch (error) {
     if (scanStarted) {
       try {
@@ -114,9 +143,15 @@ export async function refreshDiscoveredDevices(): Promise<DiscoveredDevice[]> {
 export async function fetchSelfDeviceInfo(
   apiBase: string,
 ): Promise<SelfDevice | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, DEVICE_INFO_TIMEOUT_MS);
   try {
     const normalizedUrl = normalizeApiBase(apiBase);
-    const response = await fetch(`${normalizedUrl}/discovery/self`);
+    const response = await fetch(`${normalizedUrl}/discovery/self`, {
+      signal: controller.signal,
+    });
     if (!response.ok) {
       return null;
     }
@@ -133,6 +168,8 @@ export async function fetchSelfDeviceInfo(
   } catch (error) {
     console.warn(`Failed to fetch device info from ${apiBase}:`, error);
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

@@ -46,6 +46,7 @@ export interface OnlineSearchSourceOption {
 export interface LibrarySourceGroup {
   apiBase: string;
   sourceKey: string;
+  device_id: string;
   name: string;
   isLoading: boolean;
   isOnline: boolean;

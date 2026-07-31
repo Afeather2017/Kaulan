@@ -7,7 +7,8 @@ local-network announcements.
 
 Discovery runs in these cases:
 
-- during app startup, before library sources are refreshed
+- during startup or playback recovery only when a saved manual-device URL is
+  unreachable
 - when the **添加设备** sheet opens
 - when the user presses **刷新** in the nearby-device section
 
@@ -67,8 +68,7 @@ from older Kaulan versions remain supported.
 Passively discovered devices are updated by stable `device_id` when their IP
 changes. When an explicit scan commits, devices seen within the previous 30
 seconds are merged into the scan result. This grace period prevents a healthy
-device from disappearing merely because its 10-second periodic announcement
-missed the 3-second scan window. Older devices absent from the scan are removed,
+device from disappearing because of a brief packet loss. Older devices absent from the scan are removed,
 and failed scans restore the complete prior list.
 
 > **Note:** a successful scan that finds zero responders still retains peers
@@ -80,13 +80,67 @@ and failed scans restore the complete prior list.
 When discovery refresh runs:
 
 1. Frontend calls `POST /api/discovery/scan/start`
-2. Frontend calls `POST /api/discovery/request` every 1 second during the scan window
-3. Backend listener receives unicast responses and stores them in scan buffer
-4. Frontend calls `POST /api/discovery/scan/finish` with `{ "success": true }`; backend commits the scan and retains devices seen in the 30-second grace period
-5. Frontend calls `GET /api/discovery/devices` to render final results
-6. Frontend reconciles saved manual devices by `device_id` when possible, updating stored API URLs if the device IP changed
+2. Frontend sends up to three `POST /api/discovery/request` calls during the first two seconds
+3. Frontend polls `GET /api/discovery/devices` every second; during an active scan this returns fresh scan-buffer observations
+4. A manual UI scan lasts three seconds and updates the visible list after every poll
+5. Background startup/playback recovery may remain open for up to 20 seconds, but resolves each target immediately and stops early when every failed `device_id` is found
+6. Frontend calls `POST /api/discovery/scan/finish` with `{ "success": true }`; backend commits the scan and retains devices seen in the 30-second grace period
+7. Frontend reconciles saved manual devices by `device_id` when possible, updating stored API URLs if the device IP changed
 
 If scan fails, frontend calls `POST /api/discovery/scan/finish` with `{ "success": false }` and backend rolls back to pre-scan list.
+
+## Device-keyed song persistence and lazy recovery
+
+Collection and playback-queue entries use the stable source identity rather
+than the source URL. The persisted song shape is:
+
+```json
+{
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "song_id": 42,
+  "filename": "Artist - Song.flac"
+}
+```
+
+Optional display metadata such as `name`, `lufs`, and `mediaType` may also be
+stored. Runtime-only fields including `source_key`, `stream_url`, and
+`cover_url` are never persisted. The frontend resolves the current API base by
+`device_id` and rebuilds those URLs when sources load or change. This keeps
+collections and queues valid when DHCP assigns a device a different IP.
+
+Startup source loading and playback recovery are lazy:
+
+1. Create a loading entry for every remembered server and query all servers concurrently.
+2. Publish each entry as soon as that server responds; reachable servers never wait for discovery or another server.
+3. If any remembered server fails, start one shared discovery scan in the background, with a maximum 20-second recovery window. Simultaneous failures join the same scan.
+4. As soon as a requested `device_id` appears in a one-second poll, reconcile its URL and retry that source immediately while polling continues for other failed devices.
+5. Rehydrate queued URLs when a device resolves at a new address.
+6. Remove that device's queue entries only when playback recovery still cannot reach it after discovery.
+
+```mermaid
+sequenceDiagram
+    participant Player as Queue / Player
+    participant Sources as Library Sources
+    participant Discovery as Device Discovery
+    participant Peer as Remote Device
+
+    Sources->>Peer: Load remembered server
+    alt Server is reachable
+        Peer-->>Sources: Library response
+        Sources-->>Player: Publish entry immediately
+    else Server is unreachable
+        Sources-->>Player: Publish offline entry
+        Sources->>Discovery: Start shared background scan
+        Discovery-->>Sources: Updated URL for device_id (next 1s poll)
+        Sources->>Peer: Probe updated URL
+        alt Device recovered
+            Peer-->>Sources: 200 OK
+            Sources-->>Player: Rehydrate stream and cover URLs
+        else Device remains unreachable
+            Sources-->>Player: Prune queue entries for device_id
+        end
+    end
+```
 
 ## Settings UI
 
@@ -165,7 +219,7 @@ sequenceDiagram
     User->>FE: Click "刷新设备"
     FE->>API: POST /api/discovery/scan/start
 
-    loop 3 times (1s interval)
+    loop 3 requests during first 2 seconds
         FE->>API: POST /api/discovery/request
         API->>UDP: Broadcast discovery-request
         UDP->>Peer: Receive request
@@ -173,6 +227,8 @@ sequenceDiagram
         UDP->>API: Receive response
         API->>API: Upsert into scan buffer
     end
+
+    Note over FE,API: Manual scan: 3s. Background recovery: up to 20s, stopping when all targets resolve.
 
     FE->>API: POST /api/discovery/scan/finish {success:true}
     FE->>API: GET /api/discovery/devices
@@ -185,4 +241,7 @@ sequenceDiagram
 - `backend/src/discovery/discovery.rs`
 - `backend/src/handlers/discovery.rs`
 - `frontend/src/composables/useDeviceDiscovery.ts`
+- `frontend/src/composables/useLibrarySources.ts`
+- `frontend/src/composables/useAudioPlayer.ts`
+- `frontend/src/utils/songRestore.ts`
 - `frontend/src/components/modals/SettingsModal.vue`

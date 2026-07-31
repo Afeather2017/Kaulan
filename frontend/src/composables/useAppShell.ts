@@ -7,10 +7,7 @@ import { useDownloadsStore } from "@/stores/downloads";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore, type PlaylistSelection } from "@/stores/ui";
 import { useLibraryStore } from "@/stores/library";
-import {
-  buildSongRowKey,
-  inferMediaType,
-} from "@/composables/useLibrarySources";
+import { buildSongRowKey } from "@/composables/useLibrarySources";
 import {
   useSelection,
   type SongSelectionAction,
@@ -129,6 +126,10 @@ export function useAppShell() {
 
   playerStore.setQueuePrecacheHandler(async (queue, index, mode) => {
     void requestQueueLufs(queue, index, player.lufsPrecacheCount.value, mode);
+  });
+
+  playerStore.setDeviceUnreachableHandler(async () => {
+    await libraryStore.recoverUnreachableSources();
   });
 
   const shellLayout = useAppShellLayout({
@@ -961,7 +962,7 @@ export function useAppShell() {
     }
 
     if (deletedKeys.size > 0) {
-      collectionsStore.pruneSongsByKeys(deletedKeys, buildSongRowKey);
+      collectionsStore.pruneSongsByKeys(deletedKeys);
       await Promise.all(
         Array.from(songsByApiBase.keys()).map((apiBase) =>
           libraryStore.refreshSingleSource(apiBase),
@@ -1021,7 +1022,6 @@ export function useAppShell() {
     const removed = collectionsStore.removeSongsFromCollection(
       ui.selectedPlaylist.value.name,
       selection.selectedSongs.value,
-      buildSongRowKey,
     );
     if (!removed) {
       return;
@@ -1047,7 +1047,6 @@ export function useAppShell() {
     collectionsStore.addToCollection(
       visibleSongs.value,
       selection.selectedSongs.value,
-      buildSongRowKey,
       clearSongSelection,
     );
   };
@@ -1155,8 +1154,7 @@ export function useAppShell() {
     }
     await libraryStore.triggerDatabaseUpdate(ui.isScanning);
     await libraryStore.initRuntimeCapabilities();
-    collectionsStore.loadLocalCollections(buildSongRowKey, inferMediaType);
-    void libraryStore.refreshDiscoveryState();
+    collectionsStore.loadLocalCollections();
     await libraryStore.refreshSourceGroups();
     await playerStore.initAudio();
     if (sharedLinkIntent?.hasShareIntent) {

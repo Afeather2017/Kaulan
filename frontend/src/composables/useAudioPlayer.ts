@@ -1,12 +1,17 @@
 import { ref, watch, getCurrentScope, onScopeDispose, toRaw } from "vue";
-import { resolveSourceApiBase } from "@/utils/api";
+import { getLocalApiBase, resolveSourceApiBase } from "@/utils/api";
 import { getRuntimeCapabilities, isLocalhostApiBase } from "@/utils/platform";
 import {
   getStoredPlaybackSession,
   removeStoredPlaybackSession,
   setStoredPlaybackSession,
-  type StoredPlaybackQueueSong,
+  toStoredPlaybackQueueSong,
 } from "@/utils/storage";
+import {
+  rehydrateSongUrls,
+  storedQueueSongToMusicInfo,
+} from "@/utils/songRestore";
+import type { LibrarySourceGroup } from "@/types/library";
 import type { MusicInfo } from "@/types/music";
 import type {
   PlaybackSession,
@@ -44,6 +49,15 @@ interface UseAudioPlayerOptions {
     playMode: PlayMode,
   ) => Promise<void> | void;
   prepareSong?: (song: MusicInfo) => Promise<MusicInfo>;
+  sourceGroups?: () => LibrarySourceGroup[];
+  /**
+   * Called when a queue probe finds a device's stored apiBase unreachable.
+   * The handler should run lazy discovery (probe stored manual-device URLs +
+   * refresh discovery state) so the caller can re-resolve the device against
+   * the updated source list. Idempotent — repeated calls during the same
+   * outage are safe.
+   */
+  onDeviceUnreachable?: (deviceId: string) => Promise<void>;
 }
 
 type MusicNotificationApi = typeof import("music-notification-api");
@@ -53,7 +67,7 @@ interface ResolvedQueueState {
   currentIndex: number;
   currentSong: MusicInfo | null;
   currentSongId: number | null;
-  currentSongUrl: string | null;
+  currentDeviceId: string | null;
 }
 
 interface PlaybackBackend {
@@ -93,8 +107,15 @@ interface PlaybackBackend {
 }
 
 export function useAudioPlayer(options: UseAudioPlayerOptions) {
-  const { songs, onSongEnd, onSongStart, onPlaybackQueueStart, prepareSong } =
-    options;
+  const {
+    songs,
+    onSongEnd,
+    onSongStart,
+    onPlaybackQueueStart,
+    prepareSong,
+    sourceGroups,
+    onDeviceUnreachable,
+  } = options;
 
   const audioElement = ref<HTMLAudioElement | null>(null);
   const currentSong = ref<MusicInfo | null>(null);
@@ -106,6 +127,11 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const currentIndex = ref(-1);
   const activeQueue = ref<MusicInfo[]>([]);
   const isAndroidPlayer = ref(false);
+
+  // Access the live source list at call time so songs restored from storage
+  // rehydrate against the current apiBase of each device. Stored songs carry
+  // only device_id + song_id; URLs are derived from the source list at runtime.
+  const getSourceGroups = (): LibrarySourceGroup[] => sourceGroups?.() ?? [];
 
   const POLL_INTERVAL_MS = 1000;
   const SOURCE_POLL_INTERVAL_MS = 5000;
@@ -209,8 +235,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   };
 
   const getSongIdentity = (song: MusicInfo): string => {
-    const playbackUrl = buildSongPlaybackUrl(song);
-    return playbackUrl || `${song.id}:${song.path}`;
+    if (song.source) {
+      return `online:${song.source}:${song.id}:${song.name}`;
+    }
+    return `${song.device_id ?? "local"}:${song.id}`;
   };
 
   const songsMatch = (left: MusicInfo, right: MusicInfo): boolean => {
@@ -226,69 +254,75 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     coverUrl: song.cover_url ?? buildCoverUrl(song.id, getSongSourceKey(song)),
   });
 
-  const toMusicInfo = (song: {
+  // Convert an Android plugin QueueSong (URL-bearing shape) to MusicInfo.
+  // Used for songs arriving from the music-notification-api plugin, where the
+  // device_id is reconstructed by matching the URL prefix against the source
+  // list.
+  const androidSongToMusicInfo = (song: {
     id: number;
     name: string;
     path: string;
+    url: string;
     lufs: number | null;
-    url?: string | null;
     coverUrl?: string | null;
-    sourceKey?: string | null;
-  }): MusicInfo => ({
-    id: song.id,
-    name: song.name,
-    path: song.path,
-    lufs: song.lufs,
-    stream_url: song.url ?? null,
-    cover_url:
-      song.coverUrl ??
-      buildCoverUrl(
-        song.id,
-        song.sourceKey ?? deriveSourceKeyFromUrl(song.url ?? ""),
-      ),
-    source_key: song.sourceKey ?? deriveSourceKeyFromUrl(song.url ?? ""),
-  });
-
-  const toStoredPlaybackQueueSong = (
-    song: MusicInfo,
-  ): StoredPlaybackQueueSong => ({
-    id: song.id,
-    name: song.name,
-    path: song.path,
-    url: buildSongPlaybackUrl(song),
-    lufs: song.lufs,
-    coverUrl: song.cover_url ?? buildCoverUrl(song.id, getSongSourceKey(song)),
-    sourceKey: getSongSourceKey(song),
-  });
+  }): MusicInfo => {
+    const sourceKey = deriveSourceKeyFromUrl(song.url);
+    const deviceId =
+      getSourceGroups().find((group) => group.apiBase === sourceKey)
+        ?.device_id ?? "";
+    return {
+      id: song.id,
+      name: song.name,
+      path: song.path,
+      lufs: song.lufs,
+      device_id: deviceId,
+      stream_url: song.url,
+      cover_url: song.coverUrl ?? buildCoverUrl(song.id, sourceKey ?? null),
+      source_key: sourceKey,
+    };
+  };
 
   const persistPlaybackSession = (
     queue: MusicInfo[],
     currentSongInfo: MusicInfo | null,
   ) => {
-    if (queue.length === 0) {
+    const storedQueue = queue
+      .map(toStoredPlaybackQueueSong)
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    if (storedQueue.length === 0) {
       removeStoredPlaybackSession();
       return;
     }
 
+    const currentIsPersistable =
+      !!currentSongInfo &&
+      !currentSongInfo.source &&
+      !currentSongInfo.is_temporary;
+
     setStoredPlaybackSession({
-      currentSongId: currentSongInfo?.id ?? null,
-      currentSongUrl: currentSongInfo ? getSongIdentity(currentSongInfo) : null,
-      queue: queue.map(toStoredPlaybackQueueSong),
+      currentDeviceId: currentIsPersistable
+        ? (currentSongInfo!.device_id ?? null)
+        : null,
+      currentSongId: currentIsPersistable ? currentSongInfo!.id : null,
+      queue: storedQueue,
       timestamp: Date.now(),
     });
   };
 
   const resolveQueueState = (
     queue: MusicInfo[],
-    preferredCurrentSongUrl: string | null,
+    preferredCurrentDeviceId: string | null,
     preferredCurrentSongId: number | null,
     preferredIndex: number | null,
   ): ResolvedQueueState => {
     let resolvedIndex = -1;
 
-    if (preferredCurrentSongUrl) {
+    if (preferredCurrentDeviceId !== null && preferredCurrentSongId !== null) {
       resolvedIndex = queue.findIndex(
-        (song) => getSongIdentity(song) === preferredCurrentSongUrl,
+        (song) =>
+          (song.device_id ?? "") === preferredCurrentDeviceId &&
+          song.id === preferredCurrentSongId,
       );
     }
 
@@ -307,13 +341,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       resolvedIndex = preferredIndex;
     }
 
+    const currentSong =
+      resolvedIndex >= 0 ? (queue[resolvedIndex] ?? null) : null;
     return {
       queue,
       currentIndex: resolvedIndex,
-      currentSong: resolvedIndex >= 0 ? (queue[resolvedIndex] ?? null) : null,
-      currentSongId: resolvedIndex >= 0 ? queue[resolvedIndex].id : null,
-      currentSongUrl:
-        resolvedIndex >= 0 ? getSongIdentity(queue[resolvedIndex]) : null,
+      currentSong,
+      currentSongId: currentSong?.id ?? null,
+      currentDeviceId: currentSong?.device_id ?? null,
     };
   };
 
@@ -333,19 +368,34 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       return null;
     }
 
+    const sourceGroups = getSourceGroups();
+    const fallbackDeviceId =
+      sourceGroups.find((group) => fallbackUrl.startsWith(group.apiBase))
+        ?.device_id ?? null;
+    const fallbackSongId = fallbackSong?.id ?? null;
+
     const matchedIndexes = stored.queue
-      .map((song, index) => (song.url === fallbackUrl ? index : -1))
+      .map((song, index) =>
+        fallbackDeviceId !== null &&
+        fallbackSongId !== null &&
+        song.device_id === fallbackDeviceId &&
+        song.song_id === fallbackSongId
+          ? index
+          : -1,
+      )
       .filter((index) => index >= 0);
 
     if (matchedIndexes.length !== 1) {
       return null;
     }
 
-    const queue = stored.queue.map(toMusicInfo);
+    const queue = stored.queue.map((song) =>
+      storedQueueSongToMusicInfo(song, sourceGroups),
+    );
     const matchedIndex = matchedIndexes[0];
     return resolveQueueState(
       queue,
-      getSongIdentity(queue[matchedIndex]),
+      queue[matchedIndex].device_id ?? null,
       queue[matchedIndex].id,
       matchedIndex,
     );
@@ -357,10 +407,13 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       return;
     }
 
-    const queue = stored.queue.map(toMusicInfo);
+    const sourceGroups = getSourceGroups();
+    const queue = stored.queue.map((song) =>
+      storedQueueSongToMusicInfo(song, sourceGroups),
+    );
     const restored = resolveQueueState(
       queue,
-      stored.currentSongUrl ?? null,
+      stored.currentDeviceId,
       stored.currentSongId,
       null,
     );
@@ -523,7 +576,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     session: PlaybackSession,
     source = "unknown",
   ) => {
-    const sessionQueue = session.queue.songs.map((song) => toMusicInfo(song));
+    const sessionQueue = session.queue.songs.map(androidSongToMusicInfo);
     const shouldRecoverFromStorage =
       sessionQueue.length === 1 && sessionQueue[0]?.id <= 0;
     const resolved = shouldRecoverFromStorage
@@ -718,10 +771,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     });
   };
 
-  const pruneQueueBySourceKeys = async (
-    unreachableSourceKeys: Set<string>,
+  const pruneQueueByDeviceIds = async (
+    unreachableDeviceIds: Set<string>,
   ): Promise<boolean> => {
-    if (unreachableSourceKeys.size === 0 || activeQueue.value.length === 0) {
+    if (unreachableDeviceIds.size === 0 || activeQueue.value.length === 0) {
       return false;
     }
 
@@ -733,8 +786,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     const previousIndex = currentIndex.value;
     const shouldResumePlayback = isPlaying.value;
     const filteredQueue = previousQueue.filter((song) => {
-      const sourceKey = getSongSourceKey(song);
-      return !sourceKey || !unreachableSourceKeys.has(sourceKey);
+      const deviceId = song.device_id ?? "";
+      return !deviceId || !unreachableDeviceIds.has(deviceId);
     });
 
     if (filteredQueue.length === previousQueue.length) {
@@ -743,13 +796,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
 
     const wasCurrentRemoved =
       previousCurrentSong !== null &&
-      (() => {
-        const currentSourceKey = getSongSourceKey(previousCurrentSong);
-        return (
-          typeof currentSourceKey === "string" &&
-          unreachableSourceKeys.has(currentSourceKey)
-        );
-      })();
+      unreachableDeviceIds.has(previousCurrentSong.device_id ?? "");
 
     if (filteredQueue.length === 0) {
       await clearPlaybackState();
@@ -786,7 +833,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       filteredQueue,
       currentIndex.value >= 0 ? currentIndex.value : 0,
       shouldResumePlayback,
-      "pruneQueueBySourceKeys",
+      "pruneQueueByDeviceIds",
     );
     return true;
   };
@@ -804,39 +851,113 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     }
   };
 
+  // Resolve the current apiBase for a device from the live source list. Stored
+  // songs carry only device_id; the URL can change between probes when the
+  // device's IP rotates and discovery remaps it.
+  const resolveDeviceApiBaseLocal = (deviceId: string): string | null => {
+    if (!deviceId) {
+      return getLocalApiBase();
+    }
+    const match = getSourceGroups().find(
+      (group) => group.device_id === deviceId,
+    );
+    return match?.apiBase ?? null;
+  };
+
   const reconcileQueueSources = async (): Promise<boolean> => {
     if (sourceCheckInFlight || activeQueue.value.length === 0) {
       return false;
     }
 
-    const sourceKeys = Array.from(
+    const deviceIds = Array.from(
       new Set(
-        activeQueue.value
-          .map((song) => getSongSourceKey(song))
-          .filter((sourceKey): sourceKey is string => Boolean(sourceKey)),
+        activeQueue.value.map((song) => song.device_id ?? "").filter(Boolean),
       ),
     );
 
-    if (sourceKeys.length === 0) {
+    if (deviceIds.length === 0) {
       return false;
     }
 
     sourceCheckInFlight = true;
     try {
-      const reachability = await Promise.all(
-        sourceKeys.map(async (sourceKey) => ({
-          sourceKey,
-          reachable: await checkSourceReachability(sourceKey),
-        })),
+      // First pass: probe each device's current apiBase.
+      const probeResults = await Promise.all(
+        deviceIds.map(async (deviceId) => {
+          const apiBase = resolveDeviceApiBaseLocal(deviceId);
+          if (!apiBase) {
+            return { deviceId, reachable: false, apiBase: null };
+          }
+          const reachable = await checkSourceReachability(apiBase);
+          return { deviceId, reachable, apiBase };
+        }),
       );
 
-      const unreachable = new Set(
-        reachability
-          .filter((item) => !item.reachable)
-          .map((item) => item.sourceKey),
-      );
+      const unreachableIds = probeResults
+        .filter((item) => !item.reachable)
+        .map((item) => item.deviceId);
 
-      return await pruneQueueBySourceKeys(unreachable);
+      if (unreachableIds.length === 0) {
+        return false;
+      }
+
+      // Second pass: trigger lazy discovery refresh, then re-resolve each
+      // unreachable device against the (possibly) updated source list. Only
+      // devices still unreachable after the refresh get pruned.
+      if (onDeviceUnreachable) {
+        await Promise.all(
+          unreachableIds.map((deviceId) =>
+            onDeviceUnreachable(deviceId).catch((error) => {
+              console.warn(
+                "[useAudioPlayer] onDeviceUnreachable handler failed:",
+                error,
+              );
+            }),
+          ),
+        );
+      }
+
+      const recoveryResults = await Promise.all(
+        unreachableIds.map(async (deviceId) => {
+          const apiBase = resolveDeviceApiBaseLocal(deviceId);
+          const reachable = apiBase
+            ? await checkSourceReachability(apiBase)
+            : false;
+          return { deviceId, reachable };
+        }),
+      );
+      const stillUnreachable = new Set(
+        recoveryResults
+          .filter((result) => !result.reachable)
+          .map((result) => result.deviceId),
+      );
+      const recoveredIds = new Set(
+        recoveryResults
+          .filter((result) => result.reachable)
+          .map((result) => result.deviceId),
+      );
+      const rehydratedQueue = activeQueue.value.map((song) => {
+        const deviceId = song.device_id ?? "";
+        if (!recoveredIds.has(deviceId)) {
+          return song;
+        }
+        return rehydrateSongUrls(song, getSourceGroups());
+      });
+
+      if (stillUnreachable.size === 0) {
+        // All devices recovered — accept the rehydrated queue without pruning.
+        if (
+          rehydratedQueue.some((song, idx) => song !== activeQueue.value[idx])
+        ) {
+          activeQueue.value = rehydratedQueue;
+          persistPlaybackSession(activeQueue.value, currentSong.value);
+          await getPlaybackBackend().syncQueueState();
+        }
+        return false;
+      }
+
+      activeQueue.value = rehydratedQueue;
+      return await pruneQueueByDeviceIds(stillUnreachable);
     } finally {
       sourceCheckInFlight = false;
     }
@@ -914,12 +1035,46 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       return;
     }
 
-    const sourceKey = getSongSourceKey(failedSong);
-    if (sourceKey) {
-      const reachable = await checkSourceReachability(sourceKey);
+    const failedDeviceId = failedSong.device_id ?? "";
+    if (failedDeviceId) {
+      const apiBase = resolveDeviceApiBaseLocal(failedDeviceId);
+      const reachable = apiBase
+        ? await checkSourceReachability(apiBase)
+        : false;
       if (!reachable) {
-        await pruneQueueBySourceKeys(new Set([sourceKey]));
-        return;
+        // Trigger lazy discovery before giving up on this device. If the
+        // device reappears with a new apiBase, rehydrate URLs and retry once.
+        if (onDeviceUnreachable) {
+          await onDeviceUnreachable(failedDeviceId).catch((error) => {
+            console.warn(
+              "[useAudioPlayer] onDeviceUnreachable handler failed:",
+              error,
+            );
+          });
+        }
+        const nextApiBase = resolveDeviceApiBaseLocal(failedDeviceId);
+        const recovered = nextApiBase
+          ? await checkSourceReachability(nextApiBase)
+          : false;
+        if (!recovered) {
+          await pruneQueueByDeviceIds(new Set([failedDeviceId]));
+          return;
+        }
+        // Device remapped — re-stamp URLs across the queue and retry playback.
+        const sourceGroups = getSourceGroups();
+        activeQueue.value = activeQueue.value.map((song) =>
+          song.device_id === failedDeviceId
+            ? rehydrateSongUrls(song, sourceGroups)
+            : song,
+        );
+        const refreshedCurrent = activeQueue.value.find((song) =>
+          songsMatch(song, failedSong),
+        );
+        if (refreshedCurrent) {
+          currentSong.value = refreshedCurrent;
+          persistPlaybackSession(activeQueue.value, currentSong.value);
+          await getPlaybackBackend().syncQueueState();
+        }
       }
     }
 
@@ -1567,7 +1722,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     },
     previousSong: async () => {
       const session = await fetchAndroidSession("previousSong:before");
-      const queue = session.queue.songs.map((song) => toMusicInfo(song));
+      const queue = session.queue.songs.map(androidSongToMusicInfo);
       if (queue.length === 0) return;
 
       const sessionIndex = session.queue.currentIndex ?? 0;
@@ -1582,7 +1737,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     },
     nextSong: async () => {
       const session = await fetchAndroidSession("nextSong:before");
-      const queue = session.queue.songs.map((song) => toMusicInfo(song));
+      const queue = session.queue.songs.map(androidSongToMusicInfo);
       if (queue.length === 0) return;
 
       const sessionIndex = session.queue.currentIndex ?? 0;

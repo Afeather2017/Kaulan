@@ -52,8 +52,8 @@ export function useLufs(options: UseLufsOptions) {
 
   const getSongRequestKey = (
     songId: number,
-    sourceKey: string | null | undefined,
-  ) => `${sourceKey ?? "local"}:${songId}`;
+    deviceId: string | null | undefined,
+  ) => `${deviceId ?? "local"}:${songId}`;
 
   const patchSongLufsInList = (
     songs: MusicInfo[],
@@ -134,9 +134,10 @@ export function useLufs(options: UseLufsOptions) {
   const pollSongLufs = async (
     songId: number,
     sourceKey: string | null | undefined,
+    deviceId: string | null | undefined,
     context: "current" | "next",
   ) => {
-    const requestKey = getSongRequestKey(songId, sourceKey);
+    const requestKey = getSongRequestKey(songId, deviceId);
     if (pendingLufsPolls.has(requestKey)) {
       console.log(
         `[app] LUFS ${context} poll already in flight for song ID:`,
@@ -203,7 +204,7 @@ export function useLufs(options: UseLufsOptions) {
     song: MusicInfo,
     context: "current" | "next" | "queue",
   ): Promise<MusicInfo> => {
-    const requestKey = getSongRequestKey(song.id, song.source_key);
+    const requestKey = getSongRequestKey(song.id, song.device_id);
     if (song.lufs !== null) {
       console.log(
         `[app] LUFS ${context} already cached for song ID:`,
@@ -260,6 +261,7 @@ export function useLufs(options: UseLufsOptions) {
         void pollSongLufs(
           song.id,
           song.source_key,
+          song.device_id,
           context === "queue" ? "next" : context,
         );
       }
@@ -293,7 +295,7 @@ export function useLufs(options: UseLufsOptions) {
         continue;
       }
 
-      const requestKey = getSongRequestKey(song.id, song.source_key);
+      const requestKey = getSongRequestKey(song.id, song.device_id);
       if (requestedSongKeys.has(requestKey)) {
         continue;
       }

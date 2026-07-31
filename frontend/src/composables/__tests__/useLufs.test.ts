@@ -13,12 +13,14 @@ const createSong = (
   id: number,
   sourceKey: string | null,
   lufs: number | null = null,
+  deviceId: string | null = sourceKey,
 ): MusicInfo => ({
   id,
   name: `Song ${id}`,
   path: `/music/${id}.mp3`,
   lufs,
   source_key: sourceKey,
+  device_id: deviceId,
 });
 
 const createUseLufs = () => {
@@ -118,5 +120,17 @@ describe("useLufs queue pre-cache", () => {
     expect(vi.mocked(global.fetch).mock.calls[1]?.[0]).toBe(
       "http://remote.example/api/music/1/precache-lufs",
     );
+  });
+
+  it("de-dupes an identical device song after its API URL changes", async () => {
+    const { requestQueueLufs } = createUseLufs();
+    const queue = [
+      createSong(1, "http://192.168.1.10/api", null, "same-device"),
+      createSong(1, "http://192.168.1.11/api", null, "same-device"),
+    ];
+
+    await requestQueueLufs(queue, 0, 2, "sequential");
+
+    expect(vi.mocked(global.fetch).mock.calls).toHaveLength(1);
   });
 });
