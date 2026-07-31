@@ -71,6 +71,12 @@ device from disappearing merely because its 10-second periodic announcement
 missed the 3-second scan window. Older devices absent from the scan are removed,
 and failed scans restore the complete prior list.
 
+> **Note:** a successful scan that finds zero responders still retains peers
+> seen within the 30-second grace window — the grace merge is unconditional.
+> "Empty result" therefore does **not** mean "clear the list"; only peers whose
+> `last_seen` is older than the grace period (or a failed scan rollback) can
+> remove entries.
+
 When discovery refresh runs:
 
 1. Frontend calls `POST /api/discovery/scan/start`
