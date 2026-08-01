@@ -22,7 +22,6 @@ type QueuePrecacheHandler = (
 type SongStartHandler =
   | ((currentSongInfo: MusicInfo, nextSongInfo: MusicInfo | null) => void)
   | null;
-type DeviceUnreachableHandler = (deviceId: string) => Promise<void>;
 
 export const usePlayerStore = defineStore("player", () => {
   const libraryStore = useLibraryStore();
@@ -32,9 +31,6 @@ export const usePlayerStore = defineStore("player", () => {
   const prepareSongHandler = ref<PrepareSongHandler>(async (song) => song);
   const queuePrecacheHandler = ref<QueuePrecacheHandler | null>(null);
   const songStartHandler = ref<SongStartHandler>(null);
-  const deviceUnreachableHandler = ref<DeviceUnreachableHandler>(
-    async () => {},
-  );
   const showLufs = ref(getShowLufs());
   const lufsPrecacheCount = ref(getLufsPrecacheCount());
 
@@ -79,9 +75,6 @@ export const usePlayerStore = defineStore("player", () => {
     },
     prepareSong: async (song) => await prepareSongHandler.value(song),
     sourceGroups: () => libraryStore.sourceGroups,
-    onDeviceUnreachable: async (deviceId) => {
-      await deviceUnreachableHandler.value(deviceId);
-    },
   });
 
   const playbackSongs = computed(() => activeQueue.value);
@@ -137,10 +130,6 @@ export const usePlayerStore = defineStore("player", () => {
 
   const setSongStartHandler = (handler: SongStartHandler) => {
     songStartHandler.value = handler;
-  };
-
-  const setDeviceUnreachableHandler = (handler: DeviceUnreachableHandler) => {
-    deviceUnreachableHandler.value = handler;
   };
 
   const setPlaylistSongs = (songs: MusicInfo[]) => {
@@ -297,7 +286,6 @@ export const usePlayerStore = defineStore("player", () => {
     setPrepareSongHandler,
     setQueuePrecacheHandler,
     setSongStartHandler,
-    setDeviceUnreachableHandler,
     setPlaylistSongs,
     setSearchPlaybackQueue,
     clearSearchPlaybackQueue,

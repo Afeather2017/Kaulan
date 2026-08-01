@@ -93,12 +93,6 @@ skipped, and native traversal checks at most one complete queue before stopping.
 Local `content://` entries remain direct `local_raw` paths; temporary preview
 URLs are not durable queue entries.
 
-For compatibility with queues produced by older frontend builds, the Android
-service also detects `local_raw` entries whose path is HTTP(S). When such an
-entry has a device ID, the service treats it as a remote Kaulan track and uses
-the localhost resolution endpoint before playback. Genuine filesystem and
-`content://` paths continue to play directly.
-
 ## LUFS Behavior
 
 Android playback also follows the shared LUFS playback rules documented in [`docs/lufs-playback-flow.md`](../lufs-playback-flow.md).

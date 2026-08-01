@@ -128,10 +128,6 @@ export function useAppShell() {
     void requestQueueLufs(queue, index, player.lufsPrecacheCount.value, mode);
   });
 
-  playerStore.setDeviceUnreachableHandler(async () => {
-    await libraryStore.recoverUnreachableSources();
-  });
-
   const shellLayout = useAppShellLayout({
     currentSong: player.currentSong,
     playerPanelMode: ui.playerPanelMode,

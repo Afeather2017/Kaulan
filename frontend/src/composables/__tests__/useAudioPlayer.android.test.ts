@@ -4,8 +4,6 @@
 //! - `docs/lyric-sync-timing.md`
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { setStoredPlaybackSession } from "@/utils/storage";
-import type { LibrarySourceGroup } from "@/types/library";
 
 const plugin = {
   getPlaybackSession: vi.fn(),
@@ -176,113 +174,5 @@ describe("useAudioPlayer - Android correction guard", () => {
     );
     expect(latestQueue?.songs?.[0]?.sourceKind).toBe("local_raw");
     expect(latestQueue?.songs?.[0]?.url).toBeUndefined();
-  });
-
-  it("should migrate an active legacy native queue when Resume follows discovery", async () => {
-    const oldApiBase = "http://192.168.20.222:2080/api";
-    const newApiBase = "http://192.168.20.221:2080/api";
-    const deviceId = "stable-device-id";
-    const legacySongs = [
-      {
-        id: 537,
-        name: "Moved Server Song",
-        path: "/music/moved-server-song.mp3",
-        url: `${oldApiBase}/music/id/537`,
-        lufs: -12,
-      },
-    ];
-    const sourceGroups: LibrarySourceGroup[] = [
-      {
-        apiBase: newApiBase,
-        sourceKey: newApiBase,
-        device_id: deviceId,
-        name: "Moved server",
-        isLoading: false,
-        isOnline: true,
-        playlists: [],
-        onlineProviderStatuses: [],
-        capabilities: {
-          canRefresh: true,
-          canUpload: false,
-          canChangeDirectory: false,
-          canUseForOnlineSearch: false,
-          isCurrentOnlineSearchSource: false,
-          canRetryConnection: true,
-          canShowSourceDetails: true,
-          canDeleteSource: true,
-        },
-      },
-    ];
-
-    setStoredPlaybackSession({
-      // Reproduces the broken upgrade where one legacy session poll had
-      // already overwritten the shadow's stable device identity.
-      currentDeviceId: null,
-      currentSongId: 537,
-      queue: [
-        {
-          device_id: "",
-          song_id: 537,
-          filename: "moved-server-song.mp3",
-          name: "Moved Server Song",
-          lufs: -12,
-        },
-      ],
-      timestamp: Date.now(),
-    });
-    plugin.getPlaybackSession.mockResolvedValue({
-      queue: { songs: legacySongs, currentIndex: 0 },
-      currentSongId: 537,
-      runtime: { isPlaying: true, positionMs: 0, durationMs: 180000 },
-      playMode: "sequential",
-    });
-
-    const { initAudio, play, currentSong, currentIndex } = useAudioPlayer({
-      songs: () => [],
-      sourceGroups: () => sourceGroups,
-    });
-
-    await initAudio();
-    sourceGroups[0].playlists.push({
-      name: "All",
-      songs: [
-        {
-          id: 537,
-          name: "Moved Server Song",
-          path: "/music/moved-server-song.mp3",
-          lufs: -12,
-          device_id: deviceId,
-          source_key: newApiBase,
-        },
-      ],
-    });
-    await play();
-
-    expect(plugin.stop).not.toHaveBeenCalled();
-    expect(plugin.setPlayingQueue).toHaveBeenCalledTimes(2);
-    const queueCalls = plugin.setPlayingQueue.mock.calls as unknown as Array<
-      Array<unknown>
-    >;
-    const payload = queueCalls[queueCalls.length - 1]?.[0] as {
-      songs: Array<{
-        id: number;
-        deviceId?: string | null;
-        sourceKind?: string | null;
-        url?: string;
-      }>;
-      currentIndex: number | null;
-    };
-    expect(payload.currentIndex).toBe(0);
-    expect(payload.songs).toEqual([
-      expect.objectContaining({
-        id: 537,
-        deviceId,
-        sourceKind: "kaulan",
-      }),
-    ]);
-    expect(payload.songs[0]).not.toHaveProperty("url");
-    expect(currentIndex.value).toBe(0);
-    expect(currentSong.value?.id).toBe(537);
-    expect(currentSong.value?.device_id).toBe(deviceId);
   });
 });
