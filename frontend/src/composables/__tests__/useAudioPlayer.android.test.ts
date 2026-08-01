@@ -175,4 +175,41 @@ describe("useAudioPlayer - Android correction guard", () => {
     expect(latestQueue?.songs?.[0]?.sourceKind).toBe("local_raw");
     expect(latestQueue?.songs?.[0]?.url).toBeUndefined();
   });
+
+  it("should resolve HTTP paths by identity despite a localhost source key", async () => {
+    const songs = [
+      {
+        id: 416,
+        name: "Remote Song",
+        lufs: -12,
+        path: "http://192.168.20.23:2080/api/music/id/416",
+        stream_url: "http://192.168.20.23:2080/api/music/id/416",
+        source_key: "http://localhost:2080/api",
+        device_id: "remote-device",
+      },
+    ];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [], currentIndex: null },
+      currentSongId: null,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 0 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex } = useAudioPlayer({
+      songs: () => songs,
+    });
+
+    await initAudio();
+    await playSongAtIndex(songs[0], 0, songs);
+
+    const queueCalls = plugin.setPlayingQueue.mock.calls as Array<
+      Array<unknown>
+    >;
+    const latestQueue = queueCalls[queueCalls.length - 1]?.[0] as {
+      songs?: Array<{ sourceKind?: string; url?: string }>;
+    };
+    expect(latestQueue.songs?.[0]?.sourceKind).toBe("kaulan");
+    expect(latestQueue.songs?.[0]?.url).toBeUndefined();
+  });
 });

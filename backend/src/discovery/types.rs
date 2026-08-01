@@ -314,10 +314,19 @@ impl DiscoveryState {
 
     /// Record a verified device address for this server lifetime.
     pub async fn mark_device_resolved(&self, device_id: String, api_url: String) {
-        self.resolved_devices
+        let previous = self
+            .resolved_devices
             .write()
             .await
-            .insert(device_id, api_url);
+            .insert(device_id.clone(), api_url.clone());
+        if previous.as_deref() != Some(api_url.as_str()) {
+            tracing::info!(
+                device_id = %device_id,
+                previous_api_url = previous.as_deref().unwrap_or("<unresolved>"),
+                api_url = %api_url,
+                "Device playback address mapping changed"
+            );
+        }
     }
 
     /// Resolve a stable device ID to the URL verified during this session.

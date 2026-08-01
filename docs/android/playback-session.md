@@ -92,6 +92,10 @@ music and cover endpoints from the returned API base. A missing resolution is
 skipped, and native traversal checks at most one complete queue before stopping.
 Local `content://` entries remain direct `local_raw` paths; temporary preview
 URLs are not durable queue entries.
+HTTP(S) paths are never classified as `local_raw`, even when restored metadata
+has a localhost source key. They are resolved by stable device identity before
+playback. The Android service applies the same check defensively for queues
+persisted by older frontend builds.
 
 ## LUFS Behavior
 

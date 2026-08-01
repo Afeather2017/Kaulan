@@ -1392,7 +1392,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     cleanup: () => {},
     usesRawPlaybackPath: (song) => {
       const sourceApiBase = resolveSourceApiBase(song.source_key);
-      return isLocalhostApiBase(sourceApiBase) && song.path.length > 0;
+      const isHttpPath = /^https?:\/\//i.test(song.path);
+      return (
+        isLocalhostApiBase(sourceApiBase) && song.path.length > 0 && !isHttpPath
+      );
     },
     playSong: async (song, seekTime, queueOverride, selectedIndex) => {
       const { queue, index } = buildQueueForMode(
