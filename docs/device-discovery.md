@@ -169,9 +169,10 @@ Return current server's `device_id` and `device_name`.
 
 ### `GET /api/discovery/resolutions/{device_id}`
 
-Return the session-only verified API address for a device. Returns `404` when
-startup probing or discovery has not resolved that device. This lookup does not
-start discovery.
+Return the session-only verified API address for a device. When startup probing
+or discovery has not resolved the ID, the local server address
+(`http://localhost:<api-port>/api`) is returned so webview playback can continue
+using the local backend. This lookup does not start discovery.
 
 ### `PUT /api/discovery/resolutions/{device_id}`
 
