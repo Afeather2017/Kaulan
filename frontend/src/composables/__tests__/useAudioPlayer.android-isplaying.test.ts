@@ -112,7 +112,7 @@ describe("useAudioPlayer - Android click flips isPlaying", () => {
     await initAudio();
     await playSongAtIndex(songs[0], 0, songs);
 
-    expect(plugin.play).toHaveBeenCalled();
+    expect(plugin.seekAndPlay).toHaveBeenCalledWith(0);
     // The explicit play command must flip isPlaying even when the lagging
     // session snapshot reports not-playing.
     expect(isPlaying.value).toBe(true);

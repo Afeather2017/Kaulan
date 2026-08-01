@@ -186,6 +186,11 @@ pub struct DiscoveryState {
     /// Committed discovered devices map (used by API response)
     pub discovered_devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
 
+    /// Session-only device address book used by playback backends. Unlike the
+    /// discovery list, this also contains remembered URLs verified by the
+    /// frontend during startup.
+    pub resolved_devices: Arc<RwLock<HashMap<String, String>>>,
+
     /// In-progress scan buffer. Active only between scan start/finish.
     pub scan_buffer: Arc<RwLock<Option<HashMap<String, DiscoveredDevice>>>>,
 
@@ -208,12 +213,18 @@ impl DiscoveryState {
         api_port: u16,
         periodic_discovery_enabled: bool,
     ) -> Self {
+        let mut resolved_devices = HashMap::new();
+        resolved_devices.insert(
+            device_id.clone(),
+            format!("http://localhost:{}/api", api_port),
+        );
         Self {
             device_id,
             device_name: Arc::new(RwLock::new(device_name)),
             api_port,
             socket: Arc::new(RwLock::new(None)),
             discovered_devices: Arc::new(RwLock::new(HashMap::new())),
+            resolved_devices: Arc::new(RwLock::new(resolved_devices)),
             scan_buffer: Arc::new(RwLock::new(None)),
             scan_backup: Arc::new(RwLock::new(None)),
             periodic_discovery_enabled: Arc::new(AtomicBool::new(periodic_discovery_enabled)),
@@ -286,6 +297,8 @@ impl DiscoveryState {
     ///
     /// If scan is active, updates scan buffer only; otherwise updates committed map.
     pub async fn upsert_discovered_device(&self, device: DiscoveredDevice) {
+        self.mark_device_resolved(device.device_id.clone(), device.api_url.clone())
+            .await;
         let mut scan_guard = self.scan_buffer.write().await;
         if let Some(scan_map) = scan_guard.as_mut() {
             scan_map.insert(device.device_id.clone(), device);
@@ -297,6 +310,19 @@ impl DiscoveryState {
             .write()
             .await
             .insert(device.device_id.clone(), device);
+    }
+
+    /// Record a verified device address for this server lifetime.
+    pub async fn mark_device_resolved(&self, device_id: String, api_url: String) {
+        self.resolved_devices
+            .write()
+            .await
+            .insert(device_id, api_url);
+    }
+
+    /// Resolve a stable device ID to the URL verified during this session.
+    pub async fn resolve_device(&self, device_id: &str) -> Option<String> {
+        self.resolved_devices.read().await.get(device_id).cloned()
     }
 
     /// Get committed discovered devices.
@@ -454,6 +480,10 @@ mod tests {
         let devices = state.get_devices().await;
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].api_url, "http://192.168.1.99:2080/api");
+        assert_eq!(
+            state.resolve_device("peer-id").await.as_deref(),
+            Some("http://192.168.1.99:2080/api")
+        );
     }
 
     #[tokio::test]

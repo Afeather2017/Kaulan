@@ -2,6 +2,7 @@ import { computed, ref, type Ref } from "vue";
 import type { MusicInfo } from "@/composables/useAudioPlayer";
 import { getLocalApiBase, isSessionLocalApiBase } from "@/utils/api";
 import {
+  markDeviceResolved,
   refreshDiscoveredDevices,
   refreshStoredManualDevices,
   type DiscoveredDevice,
@@ -344,6 +345,18 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
       >;
       const deviceId =
         typeof selfData.device_id === "string" ? selfData.device_id : "";
+      const rememberedDevice = getManualDevices().find(
+        (device) => device.api_url === apiBase,
+      );
+      if (
+        rememberedDevice?.device_id &&
+        rememberedDevice.device_id !== deviceId
+      ) {
+        throw new Error("Remembered address belongs to a different device");
+      }
+      if (deviceId) {
+        await markDeviceResolved(deviceId, apiBase);
+      }
       const sourceLabel = selfData.device_name || fallbackName;
       const canUpload = !!directoryTreeResponse?.ok;
       const canChangeDirectory = !!musicDirectoryResponse?.ok;
