@@ -30,7 +30,7 @@ To avoid that, the plugin persists a playback session and the frontend reloads i
 
 The Android plugin stores:
 
-- `queue.songs`
+- `queue.songs` as stable `deviceId + songId` identities for Kaulan tracks
 - `queue.currentIndex`
 - `runtime.isPlaying`
 - `runtime.positionMs`
@@ -43,12 +43,13 @@ The frontend app shell now consumes playback state through `frontend/src/stores/
 
 ## Frontend Responsibilities
 
-The Android frontend does not persist playback state locally.
+The Android frontend keeps a URL-free identity shadow in localStorage for
+compatibility and recovery, while the native service remains runtime authority.
 
 Instead it:
 
 1. copies a queue into the plugin
-2. asks the plugin to play a specific song
+2. asks the plugin to play a specific queue identity
 3. polls the plugin every second
 4. renders queue, song, time, and lyric state from the polled session
 
@@ -62,7 +63,7 @@ When the user taps a song in the Android webview:
 2. frontend computes the selected index
 3. frontend calls `stop()`
 4. frontend calls `setPlayingQueue(queue, playMode)`
-5. frontend calls `play(url, title)`
+5. frontend calls `seekAndPlay(0)`; the service resolves `deviceId` through localhost
 6. frontend polls `getPlaybackSession()`
 7. UI updates from the returned session
 
@@ -79,10 +80,24 @@ Instead:
 3. frontend computes the target index
 4. frontend calls `stop()`
 5. frontend calls `setPlayingQueue(queue, playMode)` with the new index
-6. frontend calls `play()` for the target song
+6. frontend asks the service to play the target queue identity
 7. frontend refreshes the session
 
 This is intentionally simple. Queue sizes are small enough that correctness is more important than avoiding one extra queue copy.
+
+Normal Kaulan queue entries do not persist stream or cover URLs. Immediately
+before playback, `MusicPlayerService` calls
+`GET http://localhost:2080/api/discovery/resolutions/{deviceId}` and builds the
+music and cover endpoints from the returned API base. A missing resolution is
+skipped, and native traversal checks at most one complete queue before stopping.
+Local `content://` entries remain direct `local_raw` paths; temporary preview
+URLs are not durable queue entries.
+
+For compatibility with queues produced by older frontend builds, the Android
+service also detects `local_raw` entries whose path is HTTP(S). When such an
+entry has a device ID, the service treats it as a remote Kaulan track and uses
+the localhost resolution endpoint before playback. Genuine filesystem and
+`content://` paths continue to play directly.
 
 ## LUFS Behavior
 

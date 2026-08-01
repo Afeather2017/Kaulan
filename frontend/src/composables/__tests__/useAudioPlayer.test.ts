@@ -340,7 +340,7 @@ describe("useAudioPlayer - duration loading", () => {
     expect(currentIndex.value).toBe(1);
   });
 
-  it("should prune unreachable source items from the active queue", async () => {
+  it("should skip unreachable source items without pruning the queue", async () => {
     const queue = [
       {
         id: 1,
@@ -388,11 +388,14 @@ describe("useAudioPlayer - duration loading", () => {
     await playSongAtIndex(queue[0], 0, queue);
     await reconcileQueueSources();
 
-    expect(activeQueue.value.map((song) => song.name)).toEqual(["Local Song"]);
+    expect(activeQueue.value.map((song) => song.name)).toEqual([
+      "Remote Song",
+      "Local Song",
+    ]);
     expect(currentSong.value?.name).toBe("Local Song");
   });
 
-  it("should rehydrate queue URLs after discovery remaps a device", async () => {
+  it("should not run discovery from playback reconciliation", async () => {
     const oldApiBase = "http://192.168.1.10:2080/api";
     const newApiBase = "http://192.168.1.11:2080/api";
     let apiBase = oldApiBase;
@@ -410,13 +413,21 @@ describe("useAudioPlayer - duration loading", () => {
     const onDeviceUnreachable = vi.fn(async () => {
       apiBase = newApiBase;
     });
-    vi.mocked(global.fetch).mockImplementation(
-      async (input) =>
-        ({
-          ok: String(input).startsWith(newApiBase),
-          json: async () => ({}),
-        }) as Response,
-    );
+    vi.mocked(global.fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/discovery/resolutions/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ api_url: apiBase }),
+        } as Response;
+      }
+      return {
+        ok: url.startsWith(newApiBase),
+        status: url.startsWith(newApiBase) ? 200 : 404,
+        json: async () => ({}),
+      } as Response;
+    });
 
     const { playSongAtIndex, activeQueue, reconcileQueueSources } =
       useAudioPlayer({
@@ -440,12 +451,12 @@ describe("useAudioPlayer - duration loading", () => {
     await playSongAtIndex(queue[0], 0, queue);
     await reconcileQueueSources();
 
-    expect(onDeviceUnreachable).toHaveBeenCalledWith("rotating-device");
+    expect(onDeviceUnreachable).not.toHaveBeenCalled();
     expect(activeQueue.value).toHaveLength(1);
-    expect(activeQueue.value[0].stream_url).toBe(`${newApiBase}/music/id/7`);
+    expect(activeQueue.value[0].stream_url).toBe(`${oldApiBase}/music/id/7`);
   });
 
-  it("should keep a temporarily unavailable device when the retry succeeds", async () => {
+  it("should leave queue state unchanged during playback reconciliation", async () => {
     const apiBase = "http://temporary.example:2080/api";
     let probeCount = 0;
     const queue: MusicInfo[] = [
@@ -459,9 +470,20 @@ describe("useAudioPlayer - duration loading", () => {
         stream_url: `${apiBase}/music/id/8`,
       },
     ];
-    vi.mocked(global.fetch).mockImplementation(async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/discovery/resolutions/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ api_url: apiBase }),
+        } as Response;
+      }
       probeCount += 1;
-      return { ok: probeCount > 1, json: async () => ({}) } as Response;
+      return {
+        ok: probeCount > 1,
+        status: probeCount > 1 ? 200 : 404,
+        json: async () => ({}),
+      } as Response;
     });
     const onDeviceUnreachable = vi.fn(async () => {});
     const { playSongAtIndex, activeQueue, reconcileQueueSources } =
@@ -486,7 +508,7 @@ describe("useAudioPlayer - duration loading", () => {
     await playSongAtIndex(queue[0], 0, queue);
     await reconcileQueueSources();
 
-    expect(onDeviceUnreachable).toHaveBeenCalledOnce();
+    expect(onDeviceUnreachable).not.toHaveBeenCalled();
     expect(activeQueue.value).toHaveLength(1);
   });
 

@@ -108,14 +108,15 @@ stored. Runtime-only fields including `source_key`, `stream_url`, and
 `device_id` and rebuilds those URLs when sources load or change. This keeps
 collections and queues valid when DHCP assigns a device a different IP.
 
-Startup source loading and playback recovery are lazy:
+Startup source loading and playback address resolution are lazy:
 
 1. Create a loading entry for every remembered server and query all servers concurrently.
 2. Publish each entry as soon as that server responds; reachable servers never wait for discovery or another server.
-3. If any remembered server fails, start one shared discovery scan in the background, with a maximum 20-second recovery window. Simultaneous failures join the same scan.
-4. As soon as a requested `device_id` appears in a one-second poll, reconcile its URL and retry that source immediately while polling continues for other failed devices.
-5. Rehydrate queued URLs when a device resolves at a new address.
-6. Remove that device's queue entries only when playback recovery still cannot reach it after discovery.
+3. A successful remembered-address probe publishes the verified `device_id -> api_url` mark to the localhost backend.
+4. If any remembered server fails, start one shared discovery scan in the background, with a maximum 20-second window. Simultaneous failures join the same scan.
+5. Discovery observations update the same in-memory resolution map immediately, without waiting for the scan to finish.
+6. Playback resolves a device from localhost when starting each song. A missing mark is skipped immediately; discovery is never started by playback.
+7. Skipped songs remain in the queue and become eligible after a later manual refresh resolves their device.
 
 ```mermaid
 sequenceDiagram
@@ -137,7 +138,7 @@ sequenceDiagram
             Peer-->>Sources: 200 OK
             Sources-->>Player: Rehydrate stream and cover URLs
         else Device remains unreachable
-            Sources-->>Player: Prune queue entries for device_id
+            Sources-->>Player: Keep song and skip it for this pass
         end
     end
 ```
@@ -165,6 +166,18 @@ Return committed discovered devices list.
 
 ### `GET /api/discovery/self`
 Return current server's `device_id` and `device_name`.
+
+### `GET /api/discovery/resolutions/{device_id}`
+
+Return the session-only verified API address for a device. Returns `404` when
+startup probing or discovery has not resolved that device. This lookup does not
+start discovery.
+
+### `PUT /api/discovery/resolutions/{device_id}`
+
+Publish an address already verified through the target server's
+`/api/discovery/self` endpoint. Request body: `{ "api_url": "http://host:2080/api" }`.
+The map is memory-only and is rebuilt on every backend startup.
 
 ### `GET /api/discovery/periodic`
 

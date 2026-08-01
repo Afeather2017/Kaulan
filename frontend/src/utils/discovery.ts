@@ -18,6 +18,46 @@ export interface SelfDevice {
   device_name: string;
 }
 
+export interface DeviceResolution {
+  device_id: string;
+  api_url: string;
+}
+
+/** Publish an address whose `/discovery/self` identity was verified. */
+export async function markDeviceResolved(
+  deviceId: string,
+  apiUrl: string,
+): Promise<void> {
+  const response = await fetch(
+    `${getLocalApiBase()}/discovery/resolutions/${encodeURIComponent(deviceId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_url: normalizeApiBase(apiUrl) }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to mark device resolution: ${response.status}`);
+  }
+}
+
+/** Resolve a device for this app session without starting discovery. */
+export async function fetchDeviceResolution(
+  deviceId: string,
+): Promise<DeviceResolution | null> {
+  const response = await fetch(
+    `${getLocalApiBase()}/discovery/resolutions/${encodeURIComponent(deviceId)}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to resolve device: ${response.status}`);
+  }
+  return (await response.json()) as DeviceResolution;
+}
+
 interface OperationResponse {
   success: boolean;
   message: string;

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { refreshDiscoveredDevices } from "@/utils/discovery";
+import {
+  fetchDeviceResolution,
+  markDeviceResolved,
+  refreshDiscoveredDevices,
+} from "@/utils/discovery";
 
 vi.mock("@/utils/api", () => ({
   getLocalApiBase: () => "http://localhost:2080/api",
@@ -92,5 +96,37 @@ describe("discovery scan timing", () => {
     await scan;
 
     expect(finishedAt - startedAt).toBe(1000);
+  });
+});
+
+describe("playback device resolutions", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("publishes verified addresses to localhost", async () => {
+    global.fetch = vi.fn(
+      async () => ({ ok: true, status: 200 }) as Response,
+    ) as typeof fetch;
+
+    await markDeviceResolved("remote-device", "http://192.168.1.20:2080/api");
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://localhost:2080/api/discovery/resolutions/remote-device",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          api_url: "http://192.168.1.20:2080/api",
+        }),
+      }),
+    );
+  });
+
+  it("treats an absent session mark as unavailable", async () => {
+    global.fetch = vi.fn(
+      async () => ({ ok: false, status: 404 }) as Response,
+    ) as typeof fetch;
+
+    await expect(fetchDeviceResolution("missing-device")).resolves.toBeNull();
   });
 });

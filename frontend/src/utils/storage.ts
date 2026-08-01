@@ -63,7 +63,7 @@ export function toStoredPlaybackQueueSong(song: {
   source?: OnlineMusicSource;
   is_temporary?: boolean;
 }): StoredPlaybackQueueSong | null {
-  if (song.source || song.is_temporary) {
+  if (song.source || (song.is_temporary && song.id <= 0)) {
     return null;
   }
   return {

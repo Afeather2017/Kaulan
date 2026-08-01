@@ -32,8 +32,9 @@ use crate::types::AppState;
 // Re-export handler modules for convenience and for integration tests
 pub use database::update_database_endpoint;
 pub use discovery::{
-    finish_discovery_scan, get_discovered_devices, get_periodic_discovery, get_self_device,
-    request_discovery_once, set_device_name, set_periodic_discovery, start_discovery_scan,
+    finish_discovery_scan, get_device_resolution, get_discovered_devices, get_periodic_discovery,
+    get_self_device, request_discovery_once, set_device_name, set_device_resolution,
+    set_periodic_discovery, start_discovery_scan,
 };
 pub use download::{
     apply_lyric, create_download_job, download_preview, download_track, get_bilibili_thumbnail,
@@ -461,6 +462,8 @@ pub async fn start_server(
                 // Discovery endpoints (order matters - specific routes first)
                 .service(get_discovered_devices)
                 .service(get_self_device)
+                .service(get_device_resolution)
+                .service(set_device_resolution)
                 .service(get_periodic_discovery)
                 .service(set_periodic_discovery)
                 .service(start_discovery_scan)

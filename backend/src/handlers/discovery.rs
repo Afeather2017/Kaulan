@@ -42,6 +42,46 @@ pub async fn get_self_device(discovery: web::Data<DiscoveryState>) -> impl Respo
     })
 }
 
+/// Resolve a stable device ID to its URL for the current server session.
+#[get("/api/discovery/resolutions/{device_id}")]
+pub async fn get_device_resolution(
+    device_id: web::Path<String>,
+    discovery: web::Data<DiscoveryState>,
+) -> impl Responder {
+    let device_id = device_id.into_inner();
+    match discovery.resolve_device(&device_id).await {
+        Some(api_url) => HttpResponse::Ok().json(DeviceResolutionResponse { device_id, api_url }),
+        None => HttpResponse::NotFound().finish(),
+    }
+}
+
+/// Publish a device URL already verified through `/discovery/self`.
+#[put("/api/discovery/resolutions/{device_id}")]
+pub async fn set_device_resolution(
+    device_id: web::Path<String>,
+    req: web::Json<SetDeviceResolutionRequest>,
+    discovery: web::Data<DiscoveryState>,
+) -> impl Responder {
+    let device_id = device_id.into_inner();
+    if device_id.trim().is_empty()
+        || !(req.api_url.starts_with("http://") || req.api_url.starts_with("https://"))
+    {
+        return HttpResponse::BadRequest().json(OperationResponse {
+            success: false,
+            message: "A device ID and HTTP(S) API URL are required".to_string(),
+        });
+    }
+
+    discovery
+        .mark_device_resolved(device_id.clone(), req.api_url.clone())
+        .await;
+    info!(device_id = %device_id, "Device playback address resolved");
+    HttpResponse::Ok().json(DeviceResolutionResponse {
+        device_id,
+        api_url: req.api_url.clone(),
+    })
+}
+
 /// Get the persisted runtime setting for periodic LAN announcements.
 #[get("/api/discovery/periodic")]
 pub async fn get_periodic_discovery(discovery: web::Data<DiscoveryState>) -> impl Responder {
@@ -162,6 +202,17 @@ pub struct SelfDeviceResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct DeviceResolutionResponse {
+    pub device_id: String,
+    pub api_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetDeviceResolutionRequest {
+    pub api_url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PeriodicDiscoveryResponse {
     pub enabled: bool,
 }
@@ -191,4 +242,56 @@ pub struct OperationResponse {
 pub struct SetDeviceNameResponse {
     pub success: bool,
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{http::StatusCode, test, App};
+
+    #[actix_web::test]
+    async fn resolution_api_is_session_scoped_and_seeded_with_local_device() {
+        let state = web::Data::new(DiscoveryState::new(
+            "local-device".to_string(),
+            "Local".to_string(),
+            2080,
+        ));
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .service(get_device_resolution)
+                .service(set_device_resolution),
+        )
+        .await;
+
+        let local = test::TestRequest::get()
+            .uri("/api/discovery/resolutions/local-device")
+            .to_request();
+        let local: DeviceResolutionResponse = test::call_and_read_body_json(&app, local).await;
+        assert_eq!(local.api_url, "http://localhost:2080/api");
+
+        let missing = test::TestRequest::get()
+            .uri("/api/discovery/resolutions/missing")
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, missing).await.status(),
+            StatusCode::NOT_FOUND
+        );
+
+        let mark = test::TestRequest::put()
+            .uri("/api/discovery/resolutions/remote-device")
+            .set_json(serde_json::json!({"api_url": "http://192.168.1.20:2080/api"}))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, mark).await.status(),
+            StatusCode::OK
+        );
+
+        let resolved = test::TestRequest::get()
+            .uri("/api/discovery/resolutions/remote-device")
+            .to_request();
+        let resolved: DeviceResolutionResponse =
+            test::call_and_read_body_json(&app, resolved).await;
+        assert_eq!(resolved.api_url, "http://192.168.1.20:2080/api");
+    }
 }
