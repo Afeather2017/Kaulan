@@ -276,7 +276,9 @@ impl DiscoveryState {
             *self.scan_backup.write().await = Some(current);
             *self.scan_buffer.write().await = Some(HashMap::new());
         }
-        *ref_count += 1;
+        *ref_count = ref_count
+            .checked_add(1)
+            .expect("discovery scan reference count overflow");
     }
 
     /// Finish scan transaction and either commit or rollback.
@@ -285,7 +287,9 @@ impl DiscoveryState {
         if *ref_count == 0 {
             return false;
         }
-        *ref_count -= 1;
+        *ref_count = ref_count
+            .checked_sub(1)
+            .expect("discovery scan reference count underflow");
         if *ref_count > 0 {
             return false;
         }
