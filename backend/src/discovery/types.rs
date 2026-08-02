@@ -197,6 +197,11 @@ pub struct DiscoveryState {
     /// Backup of committed map for rollback when scan fails.
     pub scan_backup: Arc<RwLock<Option<HashMap<String, DiscoveredDevice>>>>,
 
+    /// Number of callers currently participating in the shared scan window.
+    /// The first caller creates the transaction; the last caller commits or
+    /// rolls it back.
+    pub scan_ref_count: Arc<RwLock<usize>>,
+
     /// Runtime switch for the low-frequency background announcement task.
     pub periodic_discovery_enabled: Arc<AtomicBool>,
 }
@@ -227,6 +232,7 @@ impl DiscoveryState {
             resolved_devices: Arc::new(RwLock::new(resolved_devices)),
             scan_buffer: Arc::new(RwLock::new(None)),
             scan_backup: Arc::new(RwLock::new(None)),
+            scan_ref_count: Arc::new(RwLock::new(0)),
             periodic_discovery_enabled: Arc::new(AtomicBool::new(periodic_discovery_enabled)),
         }
     }
@@ -264,13 +270,27 @@ impl DiscoveryState {
     ///
     /// Creates a new empty scan buffer and stores current committed devices as backup.
     pub async fn start_scan(&self) {
-        let current = self.discovered_devices.read().await.clone();
-        *self.scan_backup.write().await = Some(current);
-        *self.scan_buffer.write().await = Some(HashMap::new());
+        let mut ref_count = self.scan_ref_count.write().await;
+        if *ref_count == 0 {
+            let current = self.discovered_devices.read().await.clone();
+            *self.scan_backup.write().await = Some(current);
+            *self.scan_buffer.write().await = Some(HashMap::new());
+        }
+        *ref_count += 1;
     }
 
     /// Finish scan transaction and either commit or rollback.
-    pub async fn finish_scan(&self, success: bool) {
+    pub async fn finish_scan(&self, success: bool) -> bool {
+        let mut ref_count = self.scan_ref_count.write().await;
+        if *ref_count == 0 {
+            return false;
+        }
+        *ref_count -= 1;
+        if *ref_count > 0 {
+            return false;
+        }
+        drop(ref_count);
+
         let mut buffer = self.scan_buffer.write().await.take();
         let backup = self.scan_backup.write().await.take();
 
@@ -285,12 +305,13 @@ impl DiscoveryState {
                 }
                 *self.discovered_devices.write().await = next;
             }
-            return;
+            return true;
         }
 
         if let Some(prev) = backup {
             *self.discovered_devices.write().await = prev;
         }
+        true
     }
 
     /// Add or update a discovered device.
@@ -346,13 +367,14 @@ impl DiscoveryState {
 
     /// Get devices visible during the current scan.
     ///
-    /// While a scan is active, only its fresh observations are returned. This
-    /// prevents clients from mistaking a stale committed address for a device
-    /// rediscovered during the current recovery window.
+    /// While a scan is active, fresh observations override committed entries,
+    /// while committed devices remain visible until the shared scan finishes.
     pub async fn get_visible_devices(&self) -> Vec<DiscoveredDevice> {
         let scan = self.scan_buffer.read().await.clone();
         if let Some(scan) = scan {
-            return scan.into_values().collect();
+            let mut visible = self.discovered_devices.read().await.clone();
+            visible.extend(scan);
+            return visible.into_values().collect();
         }
         self.get_devices().await
     }
@@ -512,5 +534,27 @@ mod tests {
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].device_id, "peer-id");
         assert!(state.get_devices().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn overlapping_scans_share_one_transaction_until_last_finish() {
+        let state = DiscoveryState::new("local-id".to_string(), "Local".to_string(), 2080);
+        state.start_scan().await;
+        state.start_scan().await;
+        state
+            .upsert_discovered_device(DiscoveredDevice::new(
+                "peer-id".to_string(),
+                "Peer".to_string(),
+                "192.168.1.20:2082".parse().unwrap(),
+                2080,
+            ))
+            .await;
+
+        assert!(!state.finish_scan(true).await);
+        assert!(state.get_devices().await.is_empty());
+        assert_eq!(state.get_visible_devices().await.len(), 1);
+
+        assert!(state.finish_scan(true).await);
+        assert_eq!(state.get_devices().await.len(), 1);
     }
 }
