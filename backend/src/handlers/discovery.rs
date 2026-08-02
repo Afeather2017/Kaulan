@@ -161,10 +161,11 @@ pub async fn finish_discovery_scan(
     req: web::Json<FinishScanRequest>,
     discovery: web::Data<DiscoveryState>,
 ) -> impl Responder {
-    discovery.finish_scan(req.success).await;
+    let completed = discovery.finish_scan(req.success).await;
 
-    HttpResponse::Ok().json(OperationResponse {
+    HttpResponse::Ok().json(ScanFinishResponse {
         success: true,
+        completed,
         message: if req.success {
             "Discovery scan committed".to_string()
         } else {
@@ -246,6 +247,13 @@ pub struct SetDeviceNameRequest {
 #[derive(Debug, Deserialize)]
 pub struct FinishScanRequest {
     pub success: bool,
+}
+
+#[derive(Serialize)]
+pub struct ScanFinishResponse {
+    pub success: bool,
+    pub completed: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize)]

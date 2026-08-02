@@ -18,6 +18,8 @@
  * Related documentation: `docs/collection-export-import.md`
  *
  * @module utils/collectionTransfer
+ *
+ * Keep this source file UTF-8 text so export-format changes remain reviewable.
  */
 
 import type { MusicInfo } from "@/types/music";
