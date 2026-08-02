@@ -51,13 +51,23 @@ pub async fn get_device_resolution(
     let device_id = device_id.into_inner();
     match discovery.resolve_device(&device_id).await {
         Some(api_url) => HttpResponse::Ok().json(DeviceResolutionResponse { device_id, api_url }),
-        // The webview uses the local backend for playback. Persisted queues can
-        // contain a device id from an earlier session, before this process has
-        // observed that id again; keep local playback usable in that case.
-        None => HttpResponse::Ok().json(DeviceResolutionResponse {
-            device_id,
-            api_url: format!("http://localhost:{}/api", discovery.api_port),
-        }),
+        None => {
+            // The local device always plays through localhost. (It is also
+            // seeded into the resolution map at startup, so this branch is a
+            // defensive guarantee that local playback keeps working even if the
+            // map is ever cleared.) Any other id not observed this session is
+            // genuinely unresolved → 404, so the web/Android player skips the
+            // song instead of playing a foreign song id against the local
+            // server and 404'ing at the music endpoint.
+            if discovery.device_id == device_id {
+                HttpResponse::Ok().json(DeviceResolutionResponse {
+                    device_id,
+                    api_url: format!("http://localhost:{}/api", discovery.api_port),
+                })
+            } else {
+                HttpResponse::NotFound().finish()
+            }
+        }
     }
 }
 
@@ -279,9 +289,8 @@ mod tests {
         let missing = test::TestRequest::get()
             .uri("/api/discovery/resolutions/missing")
             .to_request();
-        let missing: DeviceResolutionResponse = test::call_and_read_body_json(&app, missing).await;
-        assert_eq!(missing.device_id, "missing");
-        assert_eq!(missing.api_url, "http://localhost:2080/api");
+        let missing_resp = test::call_service(&app, missing).await;
+        assert_eq!(missing_resp.status(), StatusCode::NOT_FOUND);
 
         let mark = test::TestRequest::put()
             .uri("/api/discovery/resolutions/remote-device")
