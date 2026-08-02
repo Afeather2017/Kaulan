@@ -271,14 +271,15 @@ impl DiscoveryState {
     /// Creates a new empty scan buffer and stores current committed devices as backup.
     pub async fn start_scan(&self) {
         let mut ref_count = self.scan_ref_count.write().await;
+        let Some(next_ref_count) = ref_count.checked_add(1) else {
+            return;
+        };
         if *ref_count == 0 {
             let current = self.discovered_devices.read().await.clone();
             *self.scan_backup.write().await = Some(current);
             *self.scan_buffer.write().await = Some(HashMap::new());
         }
-        *ref_count = ref_count
-            .checked_add(1)
-            .expect("discovery scan reference count overflow");
+        *ref_count = next_ref_count;
     }
 
     /// Finish scan transaction and either commit or rollback.
@@ -287,9 +288,10 @@ impl DiscoveryState {
         if *ref_count == 0 {
             return false;
         }
-        *ref_count = ref_count
-            .checked_sub(1)
-            .expect("discovery scan reference count underflow");
+        let Some(next_ref_count) = ref_count.checked_sub(1) else {
+            return false;
+        };
+        *ref_count = next_ref_count;
         if *ref_count > 0 {
             return false;
         }
