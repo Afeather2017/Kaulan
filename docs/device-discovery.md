@@ -169,10 +169,12 @@ Return current server's `device_id` and `device_name`.
 
 ### `GET /api/discovery/resolutions/{device_id}`
 
-Return the session-only verified API address for a device. When startup probing
-or discovery has not resolved the ID, the local server address
-(`http://localhost:<api-port>/api`) is returned so webview playback can continue
-using the local backend. This lookup does not start discovery.
+Return the session-only verified API address for a device. Returns `404 Not Found`
+when startup probing or discovery has not yet resolved the ID; the web/Android
+player skips such a song without deleting it and it becomes playable again once a
+later refresh resolves its device. The local device is always seeded into the
+resolution map at startup, so local playback keeps resolving through localhost.
+This lookup does not start discovery.
 
 ### `PUT /api/discovery/resolutions/{device_id}`
 
