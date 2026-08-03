@@ -163,7 +163,11 @@
       <SongListView
         v-if="searchResults.length > 0 || selectMode"
         ref="searchViewRef"
-        title="库内结果"
+        :title="
+          selectedPlaylistTitle
+            ? `“${selectedPlaylistTitle}”内结果`
+            : '库内结果'
+        "
         :songs="searchResults"
         :select-mode="selectMode"
         :selected-songs="selectedSongs"

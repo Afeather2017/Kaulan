@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 
-import { useUiStore, type PlaylistSelection } from "@/stores/ui";
+import {
+  resolveSongMenuTab,
+  useUiStore,
+  type PlaylistSelection,
+} from "@/stores/ui";
 
 describe("ui store navigation stack", () => {
   const playlist: PlaylistSelection = {
@@ -42,6 +46,40 @@ describe("ui store navigation stack", () => {
     expect(store.goBack()).toBe(true);
     expect(store.currentView).toBe("playlists");
     expect(store.playerPanelMode).toBe("collapsed");
+  });
+
+  it("preserves collection actions for search within a collection", () => {
+    const store = useUiStore();
+
+    store.showTabHome("collections");
+    store.openCollectionPlaylist(playlist);
+    store.showSearchResults("shared song");
+
+    expect(store.currentView).toBe("search");
+    expect(store.activeTab).toBe("collections");
+    expect(store.selectedPlaylist).toEqual(playlist);
+    expect(
+      resolveSongMenuTab(
+        store.currentView,
+        store.activeTab,
+        store.selectedPlaylist,
+      ),
+    ).toBe("collections");
+  });
+
+  it("keeps global search actions in library mode", () => {
+    const store = useUiStore();
+
+    store.showTabHome("collections");
+    store.showSearchResults("shared song");
+
+    expect(
+      resolveSongMenuTab(
+        store.currentView,
+        store.activeTab,
+        store.selectedPlaylist,
+      ),
+    ).toBe("library");
   });
 
   it("normalizes player entries across layout changes", () => {
