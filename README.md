@@ -268,7 +268,7 @@ This command will:
 1. Open `http://localhost:3000` in your browser
 2. Select a playlist from the sidebar
 3. Click on a song to start playback
-4. Use the search bar to filter songs
+4. Use the search bar to filter songs; searches from an opened playlist are limited to that playlist, while the playlist list searches all sources
 5. Control playback with the audio player at the bottom
 
 ## API Reference

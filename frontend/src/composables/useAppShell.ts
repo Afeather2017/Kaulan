@@ -161,6 +161,7 @@ export function useAppShell() {
     uiStore.backToPlaylists();
     clearLibrarySelection();
     library.searchQuery.value = "";
+    libraryStore.setSearchScope(null);
   };
 
   const handleBackToPlaylists = () => {
@@ -208,6 +209,7 @@ export function useAppShell() {
     if (!trimmedQuery) {
       return;
     }
+    libraryStore.setSearchScope(ui.selectedPlaylist.value?.songs || null);
     uiStore.showSearchResults(trimmedQuery);
   };
 

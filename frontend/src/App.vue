@@ -9,7 +9,15 @@
         >
           <i class="fas fa-cog"></i>
         </button>
-        <SearchBar v-model="searchQuery" @search="handleSearch" />
+        <SearchBar
+          v-model="searchQuery"
+          :placeholder="
+            selectedPlaylist
+              ? `搜索歌单“${selectedPlaylist.name}”...`
+              : '搜索所有音乐来源...'
+          "
+          @search="handleSearch"
+        />
       </div>
 
       <!-- Scanning Message -->
