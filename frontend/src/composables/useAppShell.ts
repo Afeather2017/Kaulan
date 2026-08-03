@@ -5,7 +5,11 @@ import { useAppShellLayout } from "@/composables/useAppShellLayout";
 import { useCollectionsStore } from "@/stores/collections";
 import { useDownloadsStore } from "@/stores/downloads";
 import { usePlayerStore } from "@/stores/player";
-import { useUiStore, type PlaylistSelection } from "@/stores/ui";
+import {
+  resolveSongMenuTab,
+  useUiStore,
+  type PlaylistSelection,
+} from "@/stores/ui";
 import { useLibraryStore } from "@/stores/library";
 import { buildSongRowKey } from "@/composables/useLibrarySources";
 import {
@@ -76,7 +80,11 @@ export function useAppShell() {
   const startupStatusMessage = ref("");
   const showSharedPlayPrompt = ref(false);
   const songMenuTab = computed<"library" | "collections">(() =>
-    ui.currentView.value === "search" ? "library" : ui.activeTab.value,
+    resolveSongMenuTab(
+      ui.currentView.value,
+      ui.activeTab.value,
+      ui.selectedPlaylist.value,
+    ),
   );
   const songSelectionActionLabel = computed(() => {
     switch (selection.songSelectionAction.value) {

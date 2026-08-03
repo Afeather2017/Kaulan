@@ -12,6 +12,13 @@ export interface PlaylistSelection {
   songs: MusicInfo[];
 }
 
+export const resolveSongMenuTab = (
+  currentView: MainView,
+  activeTab: MainTab,
+  selectedPlaylist: PlaylistSelection | null,
+): MainTab =>
+  currentView === "search" && !selectedPlaylist ? "library" : activeTab;
+
 type ContentPanelState = {
   kind: "content";
   view: MainView;
