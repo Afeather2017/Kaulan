@@ -57,6 +57,31 @@ export const inferMediaType = (song: {
     : "video";
 };
 
+export const filterSongsBySearchQuery = (
+  songs: MusicInfo[],
+  query: string,
+): MusicInfo[] => {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const seenRowKeys = new Set<string>();
+  return songs.filter((song) => {
+    if (!song.name.toLowerCase().includes(normalizedQuery)) {
+      return false;
+    }
+
+    const rowKey = song.rowKey || buildSongRowKey(song);
+    if (seenRowKeys.has(rowKey)) {
+      return false;
+    }
+
+    seenRowKeys.add(rowKey);
+    return true;
+  });
+};
+
 const normalizeSourceSong = (
   apiBase: string,
   deviceId: string,
@@ -83,6 +108,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
   const { supportsRawContentPlayback } = options;
 
   const searchQuery = ref("");
+  const searchScopeSongs = ref<MusicInfo[] | null>(null);
   const sourceGroups = ref<LibrarySourceGroup[]>([]);
   const showFilterSheet = ref(false);
   const appliedSourceFilterKey = ref("all");
@@ -139,26 +165,10 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
   );
 
   const searchResults = computed(() => {
-    const query = searchQuery.value.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const seenRowKeys = new Set<string>();
-
-    return allLibrarySongs.value.filter((song) => {
-      if (!song.name.toLowerCase().includes(query)) {
-        return false;
-      }
-
-      const rowKey = song.rowKey || buildSongRowKey(song);
-      if (seenRowKeys.has(rowKey)) {
-        return false;
-      }
-
-      seenRowKeys.add(rowKey);
-      return true;
-    });
+    return filterSongsBySearchQuery(
+      searchScopeSongs.value || allLibrarySongs.value,
+      searchQuery.value,
+    );
   });
 
   const filterSources = computed(() =>
@@ -178,6 +188,10 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
   );
 
   const trimmedSearchQuery = computed(() => searchQuery.value.trim());
+
+  const setSearchScope = (songs: MusicInfo[] | null): void => {
+    searchScopeSongs.value = songs;
+  };
 
   const buildSourceLabel = (apiBase: string): string => {
     const manualMatch = getManualDevices().find(
@@ -841,6 +855,7 @@ export function useLibrarySources(options: UseLibrarySourcesOptions) {
 
   return {
     searchQuery,
+    setSearchScope,
     sourceGroups,
     showFilterSheet,
     draftSourceFilterKey,

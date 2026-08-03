@@ -6,7 +6,7 @@
         $emit('update:modelValue', ($event.target as HTMLInputElement).value)
       "
       type="text"
-      placeholder="搜索所有音乐来源..."
+      :placeholder="placeholder"
       class="search-input"
       name="library-search"
       @keyup.enter="$emit('search')"
@@ -18,6 +18,7 @@
 <script setup lang="ts">
 defineProps<{
   modelValue: string;
+  placeholder?: string;
 }>();
 
 defineEmits<{
