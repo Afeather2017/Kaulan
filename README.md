@@ -147,6 +147,18 @@ cargo run -- run /path/to/music \
 
 Runtime logs are emitted through `tracing`. Use `RUST_LOG=debug` when you need per-file scan detail during backend runs.
 
+### Headless server mode
+
+The desktop binary accepts `--server-mode` to run the HTTP backend without
+showing the player UI. This is useful when hosting the library for other
+clients:
+
+```bash
+kaulan --server-mode
+```
+
+The normal windowed player remains the default when the argument is omitted.
+
 In a separate terminal, start the frontend:
 
 ```bash

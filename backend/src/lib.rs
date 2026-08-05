@@ -3,6 +3,8 @@
 //! This is the main library for the Kaulan music player backend.
 //! It provides HTTP API endpoints, database operations, and file management.
 
+extern crate self as kaulan;
+
 use std::sync::Arc;
 use std::sync::OnceLock;
 use ytdl_audio::JsRunner;
@@ -12,6 +14,9 @@ pub use config::load_config;
 pub use database::establish_connection;
 pub use server::{start_server, ServerInfo};
 pub use services::scanner::{initialize_database, update_database};
+#[path = "main.rs"]
+mod backend_main;
+pub use backend_main::run_cli;
 
 // Re-export types for external use
 pub use types::AppState;

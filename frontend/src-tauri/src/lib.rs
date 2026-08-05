@@ -69,6 +69,17 @@ const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(not(target_os = "android"))]
 const TRAY_ID: &str = "kaulan-main-tray";
 
+/// Whether the process was launched as a headless backend server.
+///
+/// This is intentionally an application argument (rather than a build-time
+/// setting), so the same desktop binary can be used either as the normal UI
+/// player or as a standalone server:
+/// `kaulan --server-mode`.
+#[cfg(not(target_os = "android"))]
+fn server_mode_requested() -> bool {
+    std::env::args().skip(1).any(|arg| arg == "--server-mode")
+}
+
 #[cfg(target_os = "android")]
 static ANDROID_EXTERNAL_FILES_DIR: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 #[cfg(target_os = "android")]
@@ -430,6 +441,24 @@ pub fn run() {
     // Initialize tracing first (must happen before Tauri setup to avoid conflicts)
     kaulan::init_tracing();
 
+    #[cfg(not(target_os = "android"))]
+    let server_mode = server_mode_requested();
+    #[cfg(target_os = "android")]
+    let server_mode = false;
+    if server_mode {
+        log::info!("Server mode requested; starting backend without the UI");
+        let args: Vec<String> = std::env::args()
+            .filter(|arg| arg != "--server-mode")
+            .collect();
+        match tauri::async_runtime::block_on(kaulan::run_cli(args)) {
+            Ok(()) => return,
+            Err(err) => {
+                log::error!("Headless backend failed: {}", err);
+                return;
+            }
+        }
+    }
+
     let kaulan_server = Arc::new(KaulanServer {
         running: std::sync::atomic::AtomicBool::new(false),
         // music_dir is populated during setup() — either from config.json or
@@ -502,6 +531,16 @@ pub fn run() {
             log::info!("======================= Start =======================");
             let app_handle = app.handle().clone();
             #[cfg(not(target_os = "android"))]
+            if server_mode {
+                // Tauri creates configured windows before setup. Hide the
+                // window immediately so server mode never presents the UI,
+                // while keeping the application/event loop alive for the HTTP
+                // backend. The backend startup below is unchanged.
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    let _ = window.hide();
+                }
+            }
+            #[cfg(not(target_os = "android"))]
             let desktop_js_runner_app_handle = app_handle.clone();
             kaulan::set_youtube_js_runner_factory({
                 move || {
@@ -542,12 +581,16 @@ pub fn run() {
                 NCMDUMP_CONFIG_DIR_ENV,
                 online_config_dir.to_string_lossy().to_string(),
             );
-            std::env::set_var(
-                YOUTUBE_COOKIE_HEADER_PATH_ENV,
-                youtube_cookie_jar_path(&app_handle)?
-                    .to_string_lossy()
-                    .to_string(),
-            );
+            // Keep an explicitly supplied server-mode cookie file. Normal
+            // desktop launches continue to use the app-managed cookie jar.
+            if !server_mode || std::env::var_os(YOUTUBE_COOKIE_HEADER_PATH_ENV).is_none() {
+                std::env::set_var(
+                    YOUTUBE_COOKIE_HEADER_PATH_ENV,
+                    youtube_cookie_jar_path(&app_handle)?
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
 
             // Capture cold-start launch file from argv before the backend
             // thread starts. The backend drains this env var into its launch
@@ -685,8 +728,10 @@ pub fn run() {
             // way to actually quit the app once `on_window_event` starts
             // hiding the window on close/minimize. See docs/system-tray.md.
             #[cfg(not(target_os = "android"))]
-            if let Err(e) = build_system_tray(&app_handle) {
+            if !server_mode {
+                if let Err(e) = build_system_tray(&app_handle) {
                 log::error!("Failed to build system tray: {}", e);
+                }
             }
 
             Ok(())

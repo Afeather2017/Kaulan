@@ -8,9 +8,13 @@ use kaulan::{
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    init_tracing();
+    run_cli(env::args().collect()).await
+}
 
-    let args: Vec<String> = env::args().collect();
+/// Run the standalone backend CLI. This is also used by the desktop
+/// headless/server mode so both entry points share identical behavior.
+pub async fn run_cli(args: Vec<String>) -> std::io::Result<()> {
+    init_tracing();
     let program = args.first().map(String::as_str).unwrap_or("kaulan");
 
     if args.len() < 2 {
