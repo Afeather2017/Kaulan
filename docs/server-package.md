@@ -11,10 +11,10 @@ Four portable server artifacts are published for each release:
 - Windows x86_64 `.zip`
 - Windows ARM64 `.zip`
 
-The Linux AppImages include the FFmpeg shared libraries used by the backend,
-so no distribution package or separate FFmpeg installation is needed. The
-AppImage contains packaging metadata only; it does not install a desktop file,
-icon, service, or other host configuration.
+The Linux AppImages include the FFmpeg shared libraries used by the backend and
+the production frontend, so no distribution package or separate FFmpeg
+installation is needed. The AppImage does not install a desktop file, icon,
+service, or other host configuration.
 
 ## Start the server
 
@@ -35,9 +35,8 @@ The server listens on port `2080` by default. The music directory can also be
 provided through `KAULAN_MUSIC_DIR` or the Kaulan config file. See the main
 README for the complete configuration and standalone provider-auth options.
 
-No frontend is included, so `/api/...` endpoints work normally while `/`
-returns the normal missing-frontend response. A separately built frontend can
-be served by setting `KAULAN_FRONTEND_DIST`.
+The bundled frontend is served at `/`. A separately built frontend can override
+it by setting `KAULAN_FRONTEND_DIST`.
 
 ## Build flow
 

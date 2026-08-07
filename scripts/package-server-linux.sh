@@ -15,6 +15,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_ROOT="${PROJECT_ROOT}/target/server"
 DOC_FILE="${PROJECT_ROOT}/docs/server-package.md"
 ICON_FILE="${PROJECT_ROOT}/frontend/src-tauri/icons/128x128.png"
+FRONTEND_DIST="${PROJECT_ROOT}/frontend/dist"
 
 case "$ARCH" in
     x86_64)
@@ -33,8 +34,8 @@ if [ ! -x "$BINARY" ]; then
     echo "Backend binary is missing or not executable: $BINARY" >&2
     exit 1
 fi
-if [ ! -f "$DOC_FILE" ] || [ ! -f "$ICON_FILE" ]; then
-    echo "Server package documentation or icon is missing" >&2
+if [ ! -f "$DOC_FILE" ] || [ ! -f "$ICON_FILE" ] || [ ! -f "$FRONTEND_DIST/index.html" ]; then
+    echo "Server package documentation, icon, or frontend build is missing" >&2
     exit 1
 fi
 
@@ -60,7 +61,29 @@ PACKAGED_ICON="$WORK_ROOT/kaulan-server.png"
 LINUXDEPLOY="$WORK_ROOT/linuxdeploy.AppImage"
 OUTPUT_FILE="$OUTPUT_ROOT/kaulan-server-linux-$APPIMAGE_ARCH-$VERSION.AppImage"
 
-install -D -m 0755 "$BINARY" "$APPDIR/usr/bin/kaulan-server"
+install -D -m 0755 "$BINARY" "$APPDIR/usr/bin/kaulan-server-bin"
+install -d "$APPDIR/usr/share/kaulan"
+cp -a "$FRONTEND_DIST" "$APPDIR/usr/share/kaulan/frontend"
+cat > "$APPDIR/usr/bin/kaulan-server" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "${APPDIR:-}" ] && [ -x "$APPDIR/usr/bin/kaulan-server-bin" ]; then
+    IMAGE_ROOT="$APPDIR"
+elif [ "$(basename "$SCRIPT_DIR")" = "bin" ] && [ "$(basename "$(dirname "$SCRIPT_DIR")")" = "usr" ]; then
+    IMAGE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+else
+    IMAGE_ROOT="$SCRIPT_DIR"
+fi
+SERVER_BIN="$IMAGE_ROOT/usr/bin/kaulan-server-bin"
+if [ ! -x "$SERVER_BIN" ]; then
+    echo "Unable to locate kaulan-server-bin inside AppImage" >&2
+    exit 127
+fi
+export KAULAN_FRONTEND_DIST="${KAULAN_FRONTEND_DIST:-$IMAGE_ROOT/usr/share/kaulan/frontend}"
+exec "$SERVER_BIN" "$@"
+EOF
+chmod 0755 "$APPDIR/usr/bin/kaulan-server"
 install -m 0644 "$ICON_FILE" "$PACKAGED_ICON"
 
 # AppImage metadata is kept inside the image so packaging tools can identify
@@ -85,9 +108,22 @@ chmod +x "$LINUXDEPLOY"
 # APPIMAGE_EXTRACT_AND_RUN avoids requiring FUSE on GitHub-hosted runners.
 APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
-    --executable "$APPDIR/usr/bin/kaulan-server" \
+    --executable "$APPDIR/usr/bin/kaulan-server-bin" \
     --desktop-file "$DESKTOP_FILE" \
     --icon-file "$PACKAGED_ICON"
+
+# linuxdeploy's generated AppRun may expose itself as the invoked script path,
+# making a shell wrapper unable to derive usr/bin reliably. Install an explicit
+# entry point that passes the mounted or extracted image root to the wrapper.
+rm -f "$APPDIR/AppRun"
+cat > "$APPDIR/AppRun" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+IMAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export APPDIR="$IMAGE_ROOT"
+exec "$IMAGE_ROOT/usr/bin/kaulan-server" "$@"
+EOF
+chmod 0755 "$APPDIR/AppRun"
 
 install -D -m 0644 "$DOC_FILE" \
     "$APPDIR/usr/share/doc/kaulan-server/README.md"
