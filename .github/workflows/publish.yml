@@ -151,6 +151,21 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # The Tauri desktop build compiles the shared `kaulan` backend as a
+      # dependency. Keep its release artifacts available for the standalone
+      # server build that runs immediately afterwards, and across reruns on
+      # the same native platform.
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            rust-release-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Cache Windows vcpkg root
         if: runner.os == 'Windows'
         uses: actions/cache@v4
@@ -239,6 +254,62 @@ jobs:
           releaseId: ${{ github.event.release.id }}
           tagName: ${{ github.event.release.tag_name }}
           args: ${{ steps.release-version.outputs.args }}
+
+      - name: Build standalone server binary
+        run: cargo build --release -p kaulan --bin kaulan
+
+      - name: Build Linux standalone server AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ runner.arch }}" in
+            X64) server_arch=x86_64 ;;
+            ARM64) server_arch=aarch64 ;;
+            *) echo "Unsupported runner architecture: ${{ runner.arch }}" >&2; exit 1 ;;
+          esac
+          version="${RELEASE_TAG#v}"
+          bash ./scripts/package-server-linux.sh "$version" "$server_arch" target/release/kaulan
+
+      - name: Build Windows standalone server archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $arch = if ('${{ runner.arch }}' -eq 'ARM64') { 'arm64' } else { 'x86_64' }
+          $stage = Join-Path $env:RUNNER_TEMP "kaulan-server-$arch"
+          $output = Join-Path $env:GITHUB_WORKSPACE "target/server"
+          Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $output -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $stage, $output | Out-Null
+          Copy-Item target/release/kaulan.exe (Join-Path $stage 'kaulan-server.exe')
+          Copy-Item docs/server-package.md (Join-Path $stage 'README.md')
+          $dlls = Get-ChildItem target/release -File -Filter '*.dll' |
+            Where-Object { $_.Name -match '^(av|sw)[^/]*\.dll$' }
+          if (-not $dlls) {
+            $triplet = if ($arch -eq 'arm64') { 'arm64-windows' } else { 'x64-windows' }
+            $dllDir = Join-Path $env:VCPKG_ROOT "installed/$triplet/bin"
+            $dlls = Get-ChildItem $dllDir -File -Filter '*.dll' |
+              Where-Object { $_.Name -match '^(av|sw)[^/]*\.dll$' }
+          }
+          if (-not $dlls) { throw 'FFmpeg runtime DLLs were not found' }
+          $dlls | Copy-Item -Destination $stage
+          Compress-Archive -Path (Join-Path $stage '*') `
+            -DestinationPath (Join-Path $output "kaulan-server-windows-$arch-$version.zip")
+
+      - name: Upload standalone Linux server AppImage
+        if: runner.os == 'Linux'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: target/server/*.AppImage
+
+      - name: Upload standalone Windows server archive
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: target/server/*.zip
 
       # Convert the Tauri .deb into a pacman package (.pkg.tar.zst) so Arch
       # users can install via `pacman -U` instead of repackaging by hand.
