@@ -73,6 +73,10 @@ Every GitHub release since this feature landed includes:
 - `kaulan_<version>_amd64.deb` (from Tauri, for Debian/Ubuntu)
 - `kaulan-<version>-1-x86_64.pkg.tar.zst` (from `build-arch.sh`, for Arch)
 
+The same release also includes standalone server packages with the
+`kaulan-server` prefix. Those packages contain only the Rust backend and are
+separate from the desktop UI packages described above.
+
 Download the `.pkg.tar.zst` and:
 
 ```bash

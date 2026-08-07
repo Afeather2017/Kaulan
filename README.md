@@ -19,6 +19,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics
 - **Remote Library Import** - Browse another Kaulan server's library and download its songs (audio + lyrics) into your own library — into the app library on desktop/Android, or directly to the device in a plain browser
 - **Standalone Web Hosting** - The backend can serve the built Vue app from `frontend/dist`
+- **Standalone Server Packages** - Release artifacts include portable Linux AppImages and Windows archives for x86_64 and ARM64
 - **Shared Song Links** - Open `http://server_ip/?id={songId}` in a browser to load the player from that server and start the shared song
 - **Desktop System Tray** - Tauri desktop builds hide to the system tray on close/minimize and provide Show/Quit from the tray menu
 
@@ -196,6 +197,13 @@ step automatically on the Linux legs and attaches the package to each GitHub
 release. See [`docs/arch-linux-build.md`](docs/arch-linux-build.md) for details,
 and [`docs/default-music-app.md`](docs/default-music-app.md) for how to set
 Kaulan as the default audio handler afterwards.
+
+### Standalone Server Packages
+
+Release builds publish portable server-only AppImages for Linux and `.zip`
+archives for Windows, each for x86_64 and ARM64. These artifacts contain the
+Rust backend without the desktop UI. See
+[`docs/server-package.md`](docs/server-package.md) for startup instructions.
 
 ## How to Use
 
