@@ -112,6 +112,10 @@ defineEmits<{
   border-bottom: 1px solid #eee;
   margin-bottom: 10px;
   gap: 10px;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 5;
 }
 
 .list-header h2 {
