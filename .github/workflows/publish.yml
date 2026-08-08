@@ -284,6 +284,12 @@ jobs:
           New-Item -ItemType Directory -Path $stage, $output | Out-Null
           Copy-Item target/release/kaulan.exe (Join-Path $stage 'kaulan-server.exe')
           Copy-Item docs/server-package.md (Join-Path $stage 'README.md')
+          if (-not (Test-Path frontend/dist/index.html)) {
+            throw 'Frontend production build is missing'
+          }
+          # Keep the same layout that the backend resolves from its working
+          # directory, so the standalone Windows archive is self-contained.
+          Copy-Item frontend/dist (Join-Path $stage 'frontend') -Recurse
           $dlls = Get-ChildItem target/release -File -Filter '*.dll' |
             Where-Object { $_.Name -match '^(av|sw)[^/]*\.dll$' }
           if (-not $dlls) {

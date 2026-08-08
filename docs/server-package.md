@@ -11,10 +11,10 @@ Four portable server artifacts are published for each release:
 - Windows x86_64 `.zip`
 - Windows ARM64 `.zip`
 
-The Linux AppImages include the FFmpeg shared libraries used by the backend and
-the production frontend, so no distribution package or separate FFmpeg
-installation is needed. The AppImage does not install a desktop file, icon,
-service, or other host configuration.
+The Linux AppImages and Windows archives include the production frontend and
+the FFmpeg runtime libraries used by the backend, so no separate frontend
+build or FFmpeg installation is needed. These packages do not install a
+desktop file, icon, service, or other host configuration.
 
 ## Start the server
 
@@ -43,5 +43,5 @@ it by setting `KAULAN_FRONTEND_DIST`.
 The release matrix builds natively on Linux and Windows x86_64/ARM64 runners.
 [`scripts/package-server-linux.sh`](../scripts/package-server-linux.sh) uses
 `linuxdeploy` to collect the server's runtime dependency graph into an
-AppImage. Windows release archives copy the matching FFmpeg DLLs beside the
-server executable.
+AppImage. Windows release archives copy `frontend/dist` as `frontend/` beside
+the server executable and copy the matching FFmpeg DLLs beside it.

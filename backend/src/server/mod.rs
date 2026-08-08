@@ -94,6 +94,16 @@ pub fn resolve_frontend_dist() -> Option<PathBuf> {
         candidates.push(current_dir.join("../frontend/dist"));
     }
 
+    // Standalone server archives place `frontend/` beside the executable.
+    // Resolve relative to the executable as well, so launching it through an
+    // absolute path does not depend on the caller's working directory.
+    if let Ok(executable) = env::current_exe() {
+        if let Some(executable_dir) = executable.parent() {
+            candidates.push(executable_dir.join("frontend"));
+            candidates.push(executable_dir.join("frontend/dist"));
+        }
+    }
+
     candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/dist"));
 
     candidates
