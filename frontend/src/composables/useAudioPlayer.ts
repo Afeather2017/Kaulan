@@ -238,51 +238,69 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const toQueueSong = (song: MusicInfo) => {
     const localRaw = shouldUseRawPlaybackPath(song);
     const temporary = !!song.source || (!!song.is_temporary && song.id <= 0);
+    const sourceKind = temporary
+      ? ("temporary" as const)
+      : localRaw
+        ? ("local_raw" as const)
+        : ("kaulan" as const);
     return {
       id: song.id,
       name: song.name,
-      path: song.path,
-      deviceId: song.device_id ?? null,
-      sourceKind: localRaw
-        ? ("local_raw" as const)
-        : temporary
-          ? ("temporary" as const)
-          : ("kaulan" as const),
-      ...(temporary ? { url: buildSongPlaybackUrl(song) } : {}),
+      deviceId: sourceKind === "kaulan" ? (song.device_id ?? null) : null,
+      sourceKind,
+      localUri: sourceKind === "local_raw" ? song.path : null,
+      tempSongUrl:
+        sourceKind === "temporary" ? buildSongPlaybackUrl(song) : null,
       lufs: song.lufs,
-      coverUrl: temporary
-        ? (song.cover_url ?? buildCoverUrl(song.id, getSongSourceKey(song)))
-        : null,
+      coverUrl:
+        sourceKind === "temporary"
+          ? (song.cover_url ?? buildCoverUrl(song.id, getSongSourceKey(song)))
+          : null,
     };
   };
 
-  // Convert native identity entries back to frontend metadata. URL matching is
-  // retained only for persisted sessions written by older plugin versions.
+  // Convert the native source-specific queue shape back to frontend metadata.
   const androidSongToMusicInfo = (song: {
     id: number;
     name: string;
-    path: string;
     deviceId?: string | null;
-    sourceKind?: string | null;
-    url?: string;
+    sourceKind: "kaulan" | "local_raw" | "temporary";
+    localUri?: string | null;
+    tempSongUrl?: string | null;
     lufs: number | null;
     coverUrl?: string | null;
   }): MusicInfo => {
-    const sourceKey = song.url ? deriveSourceKeyFromUrl(song.url) : null;
-    const deviceId =
-      song.deviceId ??
-      getSourceGroups().find((group) => group.apiBase === sourceKey)
-        ?.device_id ??
-      "";
+    const deviceId = song.deviceId ?? "";
+    const sourceKey =
+      song.sourceKind === "kaulan"
+        ? (getSourceGroups().find((group) => group.device_id === deviceId)
+            ?.apiBase ?? null)
+        : null;
+    const kaulanUrl =
+      sourceKey === null ? null : `${sourceKey}/music/id/${song.id}`;
+    const path =
+      song.sourceKind === "local_raw"
+        ? (song.localUri ?? "")
+        : song.sourceKind === "temporary"
+          ? (song.tempSongUrl ?? "")
+          : (kaulanUrl ?? "");
     return {
       id: song.id,
       name: song.name,
-      path: song.path,
+      path,
       lufs: song.lufs,
       device_id: deviceId,
-      stream_url: song.url ?? null,
-      cover_url: song.coverUrl ?? buildCoverUrl(song.id, sourceKey ?? null),
+      stream_url:
+        song.sourceKind === "local_raw"
+          ? (song.localUri ?? null)
+          : song.sourceKind === "temporary"
+            ? (song.tempSongUrl ?? null)
+            : kaulanUrl,
+      cover_url:
+        song.coverUrl ??
+        (sourceKey === null ? null : buildCoverUrl(song.id, sourceKey)),
       source_key: sourceKey,
+      is_temporary: song.sourceKind === "temporary",
     };
   };
 
