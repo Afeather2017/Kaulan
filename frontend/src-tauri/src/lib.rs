@@ -39,6 +39,9 @@ use tauri_plugin_music_notification_api::{set_server, Server};
 const NETEASE_LOGIN_URL: &str = "https://music.163.com/";
 const BILIBILI_LOGIN_URL: &str = "https://www.bilibili.com/";
 const YOUTUBE_LOGIN_URL: &str = "https://www.youtube.com/";
+#[cfg(target_os = "android")]
+const ANDROID_DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const NCMDUMP_CONFIG_DIR_ENV: &str = "NCMDUMP_CONFIG_DIR";
 const YOUTUBE_COOKIE_HEADER_PATH_ENV: &str = "KAULAN_YOUTUBE_COOKIE_HEADER_PATH";
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -982,38 +985,58 @@ fn uses_mobile_login_mode(provider: OnlineProvider) -> bool {
 /// the other provider pages intentionally retain desktop mode.
 /// See `docs/online-search-download.md`.
 #[cfg(target_os = "android")]
-fn set_android_login_mobile_mode(enabled: bool) -> Result<(), String> {
-    let vm_guard = ANDROID_ACTIVITY_VM
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .map_err(|_| "android vm mutex poisoned".to_string())?;
-    let vm = vm_guard
-        .as_ref()
-        .ok_or_else(|| "android vm not initialized".to_string())?;
-    let activity_guard = ANDROID_ACTIVITY_GLOBAL
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .map_err(|_| "android activity mutex poisoned".to_string())?;
-    let activity = activity_guard
-        .as_ref()
-        .ok_or_else(|| "android activity not initialized".to_string())?;
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("failed to attach Android thread: {e}"))?;
-    let updated = env
-        .call_method(
-            activity.as_obj(),
-            "setLoginMobileMode",
-            "(Z)Z",
-            &[JValue::Bool(if enabled { 1 } else { 0 })],
-        )
-        .and_then(|value| value.z())
-        .map_err(|e| format!("failed to set Android login display mode: {e}"))?;
-    if updated {
-        Ok(())
-    } else {
-        Err("Android login webview was unavailable".to_string())
-    }
+fn set_android_login_mobile_mode(
+    window: &tauri::WebviewWindow,
+    enabled: bool,
+) -> Result<(), String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window
+        .with_webview(move |webview| {
+            webview.jni_handle().exec(move |env, activity, webview| {
+                let result = (|| -> Result<(), String> {
+                    let settings = env
+                        .call_method(
+                            &webview,
+                            "getSettings",
+                            "()Landroid/webkit/WebSettings;",
+                            &[],
+                        )
+                        .and_then(|value| value.l())
+                        .map_err(|e| format!("failed to get Android WebSettings: {e}"))?;
+                    let user_agent =
+                        if enabled {
+                            let class = env
+                                .find_class("android/webkit/WebSettings")
+                                .map_err(|e| format!("failed to find Android WebSettings: {e}"))?;
+                            env.call_static_method(
+                                class,
+                                "getDefaultUserAgent",
+                                "(Landroid/content/Context;)Ljava/lang/String;",
+                                &[JValue::Object(activity)],
+                            )
+                            .and_then(|value| value.l())
+                            .map_err(|e| format!("failed to get Android phone user agent: {e}"))?
+                        } else {
+                            JObject::from(env.new_string(ANDROID_DESKTOP_USER_AGENT).map_err(
+                                |e| format!("failed to allocate desktop user agent: {e}"),
+                            )?)
+                        };
+                    env.call_method(
+                        settings,
+                        "setUserAgentString",
+                        "(Ljava/lang/String;)V",
+                        &[JValue::Object(&user_agent)],
+                    )
+                    .map_err(|e| format!("failed to set Android WebView user agent: {e}"))?;
+                    Ok(())
+                })();
+                let _ = sender.send(result);
+            });
+        })
+        .map_err(|e| format!("failed to access Android login webview: {e}"))?;
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| format!("timed out setting Android login display mode: {e}"))?
 }
 
 fn resolve_online_config_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1348,9 +1371,9 @@ fn build_system_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 #[tauri::command]
 fn online_open_login(app: tauri::AppHandle, provider: OnlineProvider) -> Result<(), String> {
     let url = provider_login_url(provider);
-    #[cfg(target_os = "android")]
-    set_android_login_mobile_mode(uses_mobile_login_mode(provider))?;
     let window = login_webview_window(&app)?;
+    #[cfg(target_os = "android")]
+    set_android_login_mobile_mode(&window, uses_mobile_login_mode(provider))?;
     window
         .navigate(Url::parse(url).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())
@@ -1434,7 +1457,7 @@ fn online_capture_login(
         OnlineProvider::Youtube => {
             export_youtube_cookie_jar(&app, &youtube_cookie_jar_path(&app)?)?;
             #[cfg(target_os = "android")]
-            set_android_login_mobile_mode(false)?;
+            set_android_login_mobile_mode(&login_webview_window(&app)?, false)?;
             load_youtube_status(&app)
         }
     }
