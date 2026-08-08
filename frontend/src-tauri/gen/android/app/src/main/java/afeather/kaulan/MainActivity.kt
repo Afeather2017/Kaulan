@@ -17,11 +17,12 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.json.JSONObject
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class MainActivity : TauriActivity() {
   private companion object {
-    private const val HIDDEN_SOLVER_USER_AGENT =
+    private const val DESKTOP_USER_AGENT =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     private const val HIDDEN_SOLVER_HTML = """
@@ -47,6 +48,8 @@ class MainActivity : TauriActivity() {
   private val mainHandler = Handler(Looper.getMainLooper())
   private val hiddenSolverLock = Object()
   private var hiddenSolverWebView: WebView? = null
+  private var mainWebView: WebView? = null
+  private var mobileUserAgent: String? = null
   private var hiddenSolverReady = false
   private var hiddenSolverLoading = false
 
@@ -164,7 +167,9 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
-    webView.settings.userAgentString = HIDDEN_SOLVER_USER_AGENT
+    mainWebView = webView
+    mobileUserAgent = WebSettings.getDefaultUserAgent(this)
+    webView.settings.userAgentString = DESKTOP_USER_AGENT
     webView.settings.setSupportZoom(true)
     webView.settings.builtInZoomControls = true
     webView.settings.displayZoomControls = false
@@ -173,9 +178,36 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    mainWebView = null
+    mobileUserAgent = null
     destroyHiddenSolverWebView()
     nativeReleaseAndroidContext()
     super.onDestroy()
+  }
+
+  /**
+   * Use the regular phone identity for YouTube login only. Other provider
+   * pages keep Kaulan's desktop identity. See docs/online-search-download.md.
+   */
+  fun setLoginMobileMode(enabled: Boolean): Boolean {
+    val updateUserAgent = Runnable {
+      mainWebView?.settings?.userAgentString =
+        if (enabled) mobileUserAgent else DESKTOP_USER_AGENT
+    }
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      updateUserAgent.run()
+      return mainWebView != null
+    }
+
+    val completed = CountDownLatch(1)
+    mainHandler.post {
+      try {
+        updateUserAgent.run()
+      } finally {
+        completed.countDown()
+      }
+    }
+    return completed.await(5, TimeUnit.SECONDS) && mainWebView != null
   }
 
   private fun awaitHiddenSolverReady(timeoutMs: Long): Boolean {
@@ -234,7 +266,7 @@ class MainActivity : TauriActivity() {
     settings.domStorageEnabled = false
     settings.databaseEnabled = false
     settings.cacheMode = WebSettings.LOAD_DEFAULT
-    settings.userAgentString = HIDDEN_SOLVER_USER_AGENT
+    settings.userAgentString = DESKTOP_USER_AGENT
     settings.blockNetworkLoads = true
     webView.setWillNotDraw(true)
     webView.webViewClient = object : WebViewClient() {
