@@ -44,13 +44,13 @@ Song sharing is id-based only. There is no filename fallback contract.
 
 ## Creating a Link
 
-Open the "当前播放列表" panel from the player controls. The queue header shows a
-share button whenever the current song can produce a share URL, so the same entry
+Open the player panel (the cover-art view). The cover header shows a share
+button whenever the current song can produce a share URL, so the same entry
 point is available in both narrow and wide layouts.
 
 ```text
 +--------------------------------------------------+
-| [Back]                       当前播放列表 [Link] |
+| [Back]                                 [Link]    |  ← cover header
 +--------------------------------------------------+
 |              [ Cover ]                           |
 |              [ Cover ]                           |
@@ -61,6 +61,9 @@ point is available in both narrow and wide layouts.
 | [Shuffle] [Prev] [Play/Pause] [Next] [Queue]     |
 +--------------------------------------------------+
 ```
+
+In wide (desktop) layout the `[Back]` button is hidden because the list and
+player panels are visible side by side.
 
 Clicking the button opens a compact share dialog:
 

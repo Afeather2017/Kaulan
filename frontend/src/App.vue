@@ -100,6 +100,7 @@
           :duration="duration"
           :is-playing="isPlaying"
           :play-mode="playMode"
+          :can-share="Boolean(currentSongShareUrl)"
           @lyric-line-click="handleLyricLineClick"
           @open-online-lyric-search="openOnlineLyricSearch"
           @show-cover-panel="showCoverPanel"
@@ -115,6 +116,7 @@
           @show-active-queue="handleShowActiveQueue"
           @toggle-panel-mode="togglePlayerPanelMode"
           @lyrics-saved="handleLyricApplied"
+          @share="openShareModal"
         />
       </div>
     </div>
@@ -264,10 +266,8 @@
       v-if="showActiveQueueModal"
       :songs="activeQueue"
       :current-song-name="currentSong?.name"
-      :show-share-button="Boolean(currentSongShareUrl)"
       @close="showActiveQueueModal = false"
       @play="handlePlayQueueSong"
-      @share="openShareModal"
     />
 
     <AppActionSheets
