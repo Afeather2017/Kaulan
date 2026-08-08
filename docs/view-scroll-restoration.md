@@ -13,6 +13,7 @@ This document describes how Kaulan preserves in-session scroll position when use
 - The collections tab keeps its own scroll offset.
 - Each playlist detail view keeps its own scroll offset, keyed by playlist title.
 - Search results keep their own scroll offset.
+- The list header (back button, title, action button) stays pinned to the top of `.song-list`/`.playlist-list` while scrolling so users can navigate back or open the action menu without scrolling all the way up.
 
 When the user opens a playlist and then returns to the previous list, the UI restores the last position instead of jumping back to the top.
 
