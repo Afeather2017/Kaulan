@@ -8,16 +8,23 @@
           @click.self="handlePanelBackdropClick"
         >
           <div class="lyric-toolbar">
-            <button
-              v-if="!isWideLayout"
-              type="button"
-              class="lyric-toolbar-btn"
-              @click="handleBackAction"
-            >
-              返回
-            </button>
-            <div v-else class="lyric-toolbar-title">
-              {{ isLyricEditMode ? "编辑歌词" : "歌词" }}
+            <div class="lyric-toolbar-left">
+              <button
+                v-if="!isWideLayout"
+                type="button"
+                class="lyric-toolbar-btn"
+                @click="handleBackAction"
+              >
+                返回
+              </button>
+              <button
+                v-if="!isLyricEditMode"
+                type="button"
+                class="lyric-toolbar-btn"
+                @click="$emit('showCoverPanel')"
+              >
+                封面
+              </button>
             </div>
             <div class="lyric-toolbar-actions">
               <template v-if="isLyricEditMode">
@@ -137,14 +144,38 @@
           </div>
         </div>
         <div v-else class="cover-panel">
-          <div v-if="!isWideLayout" class="cover-toolbar">
-            <button
-              type="button"
-              class="cover-toolbar-btn"
-              @click.stop="handleBackAction"
-            >
-              返回
-            </button>
+          <div class="cover-toolbar">
+            <div class="cover-toolbar-left">
+              <button
+                v-if="!isWideLayout"
+                type="button"
+                class="cover-toolbar-btn"
+                @click.stop="handleBackAction"
+              >
+                返回
+              </button>
+              <button
+                type="button"
+                class="cover-toolbar-btn"
+                title="查看歌词"
+                aria-label="查看歌词"
+                @click.stop="$emit('showLyricsPanel')"
+              >
+                歌词
+              </button>
+            </div>
+            <div class="cover-toolbar-actions">
+              <button
+                v-if="canShare"
+                type="button"
+                class="cover-toolbar-btn"
+                title="分享链接"
+                aria-label="分享链接"
+                @click.stop="$emit('share')"
+              >
+                分享
+              </button>
+            </div>
           </div>
           <div class="cover-body" @click="$emit('showLyricsPanel')">
             <div class="cover-panel-placeholder">
@@ -235,6 +266,7 @@ const props = defineProps<{
   duration: number;
   isPlaying: boolean;
   playMode: "sequential" | "shuffle" | "loop";
+  canShare?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -253,6 +285,7 @@ const emit = defineEmits<{
   (e: "showActiveQueue"): void;
   (e: "togglePanelMode"): void;
   (e: "lyricsSaved"): void;
+  (e: "share"): void;
 }>();
 
 const lyricContainerRef = ref<HTMLElement | null>(null);
@@ -545,17 +578,18 @@ watch(
   flex-shrink: 0;
 }
 
-.lyric-toolbar-title {
-  color: #31414f;
-  font-size: 14px;
-  font-weight: 700;
-}
-
 .lyric-toolbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+.lyric-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .lyric-toolbar-btn {
@@ -786,6 +820,20 @@ watch(
   border-bottom: 1px solid #eee;
   background: rgba(250, 250, 250, 0.96);
   flex-shrink: 0;
+}
+
+.cover-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cover-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .cover-toolbar-btn {
