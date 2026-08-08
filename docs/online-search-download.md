@@ -89,6 +89,7 @@ For YouTube, "saved cookies exist" is only a coarse gate. A provider can still f
 
 - The modal only exposes `登录`, `同步登录`, and `退出` when the selected search source is the local `http://localhost:2080/api` backend running inside the Tauri shell.
 - Remote sources still report provider availability through `/api/download/providers`, but their account state must be managed on the remote device itself.
+- On Android, the YouTube login page uses the device WebView's regular phone user-agent so Google sign-in follows its supported mobile flow. Synchronizing the YouTube cookies restores desktop mode. Netease and Bilibili login pages, the application webview at startup, and the hidden YouTube download solver keep the existing desktop user-agent. Related sources: `frontend/src-tauri/src/lib.rs`, `frontend/src-tauri/gen/android/app/src/main/java/afeather/kaulan/MainActivity.kt`.
 
 ### Search behavior
 

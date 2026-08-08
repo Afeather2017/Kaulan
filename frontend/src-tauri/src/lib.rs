@@ -972,6 +972,50 @@ fn provider_login_url(provider: OnlineProvider) -> &'static str {
     }
 }
 
+#[cfg(any(target_os = "android", test))]
+fn uses_mobile_login_mode(provider: OnlineProvider) -> bool {
+    matches!(provider, OnlineProvider::Youtube)
+}
+
+/// Switch the Android login webview identity before navigation. YouTube's
+/// Google sign-in rejects the desktop identity in an Android WebView, while
+/// the other provider pages intentionally retain desktop mode.
+/// See `docs/online-search-download.md`.
+#[cfg(target_os = "android")]
+fn set_android_login_mobile_mode(enabled: bool) -> Result<(), String> {
+    let vm_guard = ANDROID_ACTIVITY_VM
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "android vm mutex poisoned".to_string())?;
+    let vm = vm_guard
+        .as_ref()
+        .ok_or_else(|| "android vm not initialized".to_string())?;
+    let activity_guard = ANDROID_ACTIVITY_GLOBAL
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "android activity mutex poisoned".to_string())?;
+    let activity = activity_guard
+        .as_ref()
+        .ok_or_else(|| "android activity not initialized".to_string())?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|e| format!("failed to attach Android thread: {e}"))?;
+    let updated = env
+        .call_method(
+            activity.as_obj(),
+            "setLoginMobileMode",
+            "(Z)Z",
+            &[JValue::Bool(if enabled { 1 } else { 0 })],
+        )
+        .and_then(|value| value.z())
+        .map_err(|e| format!("failed to set Android login display mode: {e}"))?;
+    if updated {
+        Ok(())
+    } else {
+        Err("Android login webview was unavailable".to_string())
+    }
+}
+
 fn resolve_online_config_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let base = if cfg!(target_os = "android") {
         app.path()
@@ -1304,6 +1348,8 @@ fn build_system_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 #[tauri::command]
 fn online_open_login(app: tauri::AppHandle, provider: OnlineProvider) -> Result<(), String> {
     let url = provider_login_url(provider);
+    #[cfg(target_os = "android")]
+    set_android_login_mobile_mode(uses_mobile_login_mode(provider))?;
     let window = login_webview_window(&app)?;
     window
         .navigate(Url::parse(url).map_err(|e| e.to_string())?)
@@ -1387,6 +1433,8 @@ fn online_capture_login(
         }
         OnlineProvider::Youtube => {
             export_youtube_cookie_jar(&app, &youtube_cookie_jar_path(&app)?)?;
+            #[cfg(target_os = "android")]
+            set_android_login_mobile_mode(false)?;
             load_youtube_status(&app)
         }
     }
@@ -1944,5 +1992,18 @@ fn launch_file_from_arg(arg: &str) -> Option<String> {
     match ext {
         Some(e) if SUPPORTED_AUDIO_EXT.contains(&e.as_str()) => Some(path_str),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod login_mode_tests {
+    // Provider login behavior is documented in docs/online-search-download.md.
+    use super::{uses_mobile_login_mode, OnlineProvider};
+
+    #[test]
+    fn only_youtube_login_uses_mobile_mode() {
+        assert!(uses_mobile_login_mode(OnlineProvider::Youtube));
+        assert!(!uses_mobile_login_mode(OnlineProvider::Netease));
+        assert!(!uses_mobile_login_mode(OnlineProvider::Bilibili));
     }
 }
