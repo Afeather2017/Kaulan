@@ -2,6 +2,7 @@
 //!
 //! Related documentation:
 //! - `docs/lyric-sync-timing.md`
+//! - `docs/android/playback-session.md`
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -163,17 +164,17 @@ describe("useAudioPlayer - Android correction guard", () => {
     const latestQueue = (latestCall?.[0] ?? undefined) as
       | {
           songs?: Array<{
-            path?: string | null;
-            url?: string | null;
+            localUri?: string | null;
+            tempSongUrl?: string | null;
             sourceKind?: string | null;
           }>;
         }
       | undefined;
-    expect(latestQueue?.songs?.[0]?.path).toBe(
+    expect(latestQueue?.songs?.[0]?.localUri).toBe(
       "content://media/external/audio/media/1",
     );
     expect(latestQueue?.songs?.[0]?.sourceKind).toBe("local_raw");
-    expect(latestQueue?.songs?.[0]?.url).toBeUndefined();
+    expect(latestQueue?.songs?.[0]?.tempSongUrl).toBeNull();
   });
 
   it("should resolve HTTP paths by identity despite a localhost source key", async () => {
@@ -207,9 +208,92 @@ describe("useAudioPlayer - Android correction guard", () => {
       Array<unknown>
     >;
     const latestQueue = queueCalls[queueCalls.length - 1]?.[0] as {
-      songs?: Array<{ sourceKind?: string; url?: string }>;
+      songs?: Array<{
+        sourceKind?: string;
+        deviceId?: string | null;
+        localUri?: string | null;
+        tempSongUrl?: string | null;
+      }>;
     };
     expect(latestQueue.songs?.[0]?.sourceKind).toBe("kaulan");
-    expect(latestQueue.songs?.[0]?.url).toBeUndefined();
+    expect(latestQueue.songs?.[0]?.deviceId).toBe("remote-device");
+    expect(latestQueue.songs?.[0]?.localUri).toBeNull();
+    expect(latestQueue.songs?.[0]?.tempSongUrl).toBeNull();
+  });
+
+  it("uses a dedicated URL only for temporary Android tracks", async () => {
+    const songs = [
+      {
+        id: -1,
+        name: "Preview",
+        lufs: null,
+        path: "https://media.example/preview.mp3",
+        stream_url: "https://media.example/preview.mp3",
+        is_temporary: true,
+      },
+    ];
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [], currentIndex: null },
+      currentSongId: null,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 0 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex } = useAudioPlayer({
+      songs: () => songs,
+    });
+    await initAudio();
+    await playSongAtIndex(songs[0], 0, songs);
+
+    const queueCalls = plugin.setPlayingQueue.mock.calls as Array<
+      Array<unknown>
+    >;
+    const latestQueue = queueCalls[queueCalls.length - 1]?.[0] as {
+      songs?: Array<Record<string, unknown>>;
+    };
+    expect(latestQueue.songs?.[0]).toMatchObject({
+      sourceKind: "temporary",
+      deviceId: null,
+      localUri: null,
+      tempSongUrl: "https://media.example/preview.mp3",
+    });
+    expect(latestQueue.songs?.[0]).not.toHaveProperty("path");
+    expect(latestQueue.songs?.[0]).not.toHaveProperty("url");
+  });
+
+  it("keeps explicit temporary tracks ephemeral even with a raw local path", async () => {
+    const songs = [
+      {
+        id: -1,
+        name: "Opened file",
+        lufs: null,
+        path: "/storage/emulated/0/Music/opened.mp3",
+        is_temporary: true,
+      },
+    ];
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [], currentIndex: null },
+      currentSongId: null,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 0 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex } = useAudioPlayer({
+      songs: () => songs,
+    });
+    await initAudio();
+    await playSongAtIndex(songs[0], 0, songs);
+
+    const queueCalls = plugin.setPlayingQueue.mock.calls as Array<
+      Array<unknown>
+    >;
+    const latestQueue = queueCalls[queueCalls.length - 1]?.[0] as {
+      songs?: Array<Record<string, unknown>>;
+    };
+    expect(latestQueue.songs?.[0]).toMatchObject({
+      sourceKind: "temporary",
+      localUri: null,
+      tempSongUrl: "/storage/emulated/0/Music/opened.mp3",
+    });
   });
 });

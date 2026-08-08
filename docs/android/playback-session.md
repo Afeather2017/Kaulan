@@ -30,7 +30,8 @@ To avoid that, the plugin persists a playback session and the frontend reloads i
 
 The Android plugin stores:
 
-- `queue.songs` as stable `deviceId + songId` identities for Kaulan tracks
+- `queue.songs` as stable `deviceId + songId` identities for Kaulan tracks,
+  `localUri` locators for local tracks, or ephemeral `tempSongUrl` locators
 - `queue.currentIndex`
 - `runtime.isPlaying`
 - `runtime.positionMs`
@@ -85,17 +86,22 @@ Instead:
 
 This is intentionally simple. Queue sizes are small enough that correctness is more important than avoiding one extra queue copy.
 
-Normal Kaulan queue entries do not persist stream or cover URLs. Immediately
-before playback, `MusicPlayerService` calls
+Normal Kaulan queue entries do not contain stream or cover URLs. Immediately
+before creating each new Android media data source, `MusicPlayerService` calls
 `GET http://localhost:2080/api/discovery/resolutions/{deviceId}` and builds the
-music and cover endpoints from the returned API base. A missing resolution is
-skipped, and native traversal checks at most one complete queue before stopping.
-Local `content://` entries remain direct `local_raw` paths; temporary preview
-URLs are not durable queue entries.
-HTTP(S) paths are never classified as `local_raw`, even when restored metadata
-has a localhost source key. They are resolved by stable device identity before
-playback. The Android service applies the same check defensively for queues
-persisted by older frontend builds.
+runtime music and cover targets from the returned API base. A missing resolution
+is skipped, and native traversal checks at most one complete queue before
+stopping. Local filesystem and `content://` entries use `localUri`. Temporary
+preview and direct `play({url})` entries use `tempSongUrl` only while the service
+is alive and are removed from process-restart persistence.
+
+`currentUrl` belongs to the active `MediaPlayer`, not the queue. Only the code
+that installs a resolved playback target may set it, and stopping playback
+clears it. In particular, `setPlayingQueue()` and session restoration never copy
+a queue locator into `currentUrl`. Prepared, error, and completion callbacks
+compare against the captured runtime URL, so a metadata-only queue refresh
+cannot make a valid completion callback look stale. Resuming an already
+prepared paused player reuses that data source without another discovery query.
 
 ## LUFS Behavior
 
@@ -125,8 +131,9 @@ sequenceDiagram
     Player->>Player: Compute target index
     Player->>Plugin: stop()
     Player->>Plugin: setPlayingQueue(queue, playMode)
-    Player->>Plugin: play(url, title)
-    Plugin->>Service: update queue and start track
+    Player->>Plugin: seekAndPlay(0)
+    Plugin->>Service: resolve queue identity
+    Service->>Service: install runtime audio + cover target
     loop every 1 second
         Player->>Plugin: getPlaybackSession()
         Plugin->>Service: read current session
@@ -192,6 +199,12 @@ That prevents:
 
 - stale `onCompletion` advancing the queue a second time
 - stale `onError` interfering with the current track
+
+Invalid source-specific queue entries are rejected at the plugin boundary.
+Unresolved Kaulan identities are skipped during playback without being deleted
+from the live queue. Persisted sessions retain only valid `kaulan` and
+`local_raw` entries; when temporary entries are removed, the durable current
+index is remapped to the same retained song.
 
 ## Related Documents
 

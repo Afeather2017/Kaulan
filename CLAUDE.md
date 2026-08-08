@@ -159,7 +159,7 @@ backend/src/
   - Backends live in a per-server `ScanRegistry` owned by `AppState` (not a global) — each `start_server` invocation and each test gets its own
   - `scanner::initialize_database(db, &registry)` and `scanner::update_database(db, &registry)` iterate the registry via `ScanRegistry::scan_all`
 - **Bidirectional device discovery** - each enabled backend periodically sends an identified UDP request, and permanent listeners learn both requesters and responders. The Settings toggle persists `periodic_discovery_enabled`; disabling it leaves manual scans and the listener active. See [`docs/device-discovery.md`](docs/device-discovery.md).
-- **Session device resolution** - startup probes and UDP observations populate an in-memory `device_id -> api_url` map in `DiscoveryState`. Web and Android playback persist song/device identities, resolve through localhost at play time, and skip unresolved songs without deleting them.
+- **Session device resolution** - startup probes and UDP observations populate an in-memory `device_id -> api_url` map in `DiscoveryState`. Web and Android playback persist song/device identities and resolve through localhost immediately before installing a new playback data source. Android queue refreshes never overwrite the active player's resolved runtime URL; unresolved songs are skipped without being deleted.
 
 ### Frontend Structure
 ```
