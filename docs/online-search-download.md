@@ -25,6 +25,12 @@ Kaulan now uses two different YouTube solver paths depending on how the backend 
   - the vendored `ytdl-audio` crate falls back to its Node.js solver helper in `vendor/ytdl-audio/js/solver.mjs`
   - standalone deployments still need Node.js plus the vendored solver dependencies available on disk
 
+Kaulan currently vendors `ytdl-audio` 0.2.1. Its player extraction flow tries the
+VISIONOS client before the existing authenticated client fallbacks, rejects player
+responses that do not contain a usable audio URL or signature cipher, and normalizes
+player JavaScript URLs to the upstream `player_ias` variant. Pre-content ad metadata
+is also honored before media download begins.
+
 ## Standalone Server Auth Import
 
 Standalone backend mode can import provider auth from one file per source at process startup.
