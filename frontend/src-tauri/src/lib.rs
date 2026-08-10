@@ -1434,7 +1434,7 @@ fn run_hidden_android_solver(input: &str) -> Result<String, ytdl_audio::Error> {
 }
 
 #[tauri::command]
-fn online_capture_login(
+async fn online_capture_login(
     app: tauri::AppHandle,
     provider: OnlineProvider,
 ) -> Result<ProviderStatus, String> {
