@@ -1,7 +1,7 @@
 [package]
 name = "kaulan-desktop"
 version = "0.1.4"
-description = "A Tauri App"
+description = "A music player that shares your library over LAN and levels volume for comfortable listening"
 authors = ["you"]
 license = ""
 repository = ""
