@@ -36,7 +36,7 @@ fn main() {
 }
 
 /// Copy FFmpeg runtime DLLs from vcpkg's `installed/<triplet>/bin` into the
-/// cargo target directory (next to `app.exe`). Tauri's bundler scans the
+/// cargo target directory (next to `kaulan.exe`). Tauri's bundler scans the
 /// binary's directory for sibling DLLs and includes them in the MSI/NSIS
 /// installer.
 #[cfg(target_os = "windows")]
