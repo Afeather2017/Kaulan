@@ -150,6 +150,13 @@ export function useAppShell() {
     },
   );
 
+  // Detect layout synchronously during setup so the first paint already uses
+  // the correct mode. This must run after the watcher above is registered so
+  // that the false→wide transition still fires normalizeForLayout. Doing it
+  // here (rather than at the end of onMounted, after the async init chain)
+  // avoids the brief narrow→wide flash on wide screens at startup.
+  shellLayout.updateLayoutMode();
+
   const clearLibrarySelection = () => {
     library.selectedLibrarySourceKey.value = null;
     library.selectedLibraryPlaylistName.value = null;
@@ -1176,7 +1183,6 @@ export function useAppShell() {
       void openLaunchFilePlayer();
     });
     await androidBackNavigation.registerAndroidBackHandler();
-    shellLayout.updateLayoutMode();
     window.addEventListener("resize", shellLayout.updateLayoutMode);
   });
 
