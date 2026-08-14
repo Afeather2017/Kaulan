@@ -107,7 +107,10 @@ the native `MediaPlayer` an unopenable basename.
 `kaulan` entries need a non-blank `deviceId` that the local backend can resolve
 through `/api/discovery/resolutions/{id}`. Restored local songs store
 `device_id: ""`, so the frontend backfills the owning source group's device id
-(from `/discovery/self`) when building the native queue.
+(from `/discovery/self`) when building the native queue. When the group is
+still loading (blank `device_id` before `/discovery/self` answers), the entry
+keeps a `null` `deviceId` and the native side skips it until the source
+resolves — a blank id is never sent.
 
 `currentUrl` belongs to the active `MediaPlayer`, not the queue. Only the code
 that installs a resolved playback target may set it, and stopping playback

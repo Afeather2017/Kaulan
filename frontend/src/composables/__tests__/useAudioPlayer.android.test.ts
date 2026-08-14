@@ -52,6 +52,30 @@ vi.mock("@/utils/platform", () => ({
 
 vi.mock("music-notification-api", () => plugin);
 
+const buildLocalGroup = (
+  overrides: Partial<LibrarySourceGroup> = {},
+): LibrarySourceGroup => ({
+  apiBase: "http://localhost:2080/api",
+  sourceKey: "http://localhost:2080/api",
+  device_id: "local-device",
+  name: "Local",
+  isLoading: false,
+  isOnline: true,
+  playlists: [],
+  onlineProviderStatuses: [],
+  capabilities: {
+    canRefresh: true,
+    canUpload: true,
+    canChangeDirectory: true,
+    canUseForOnlineSearch: false,
+    isCurrentOnlineSearchSource: false,
+    canRetryConnection: true,
+    canShowSourceDetails: true,
+    canDeleteSource: false,
+  },
+  ...overrides,
+});
+
 describe("useAudioPlayer - Android correction guard", () => {
   let useAudioPlayer: typeof import("../useAudioPlayer").useAudioPlayer;
 
@@ -178,6 +202,50 @@ describe("useAudioPlayer - Android correction guard", () => {
     expect(latestQueue?.songs?.[0]?.tempSongUrl).toBeNull();
   });
 
+  it("keeps absolute filesystem paths as local_raw for localhost queues", async () => {
+    // App-private files (e.g. library-import downloads under download_root)
+    // are absolute filesystem paths the native MediaPlayer can open directly,
+    // unlike the basename-only paths of restored songs.
+    const songs = [
+      {
+        id: 2,
+        name: "Downloaded Song",
+        lufs: -11,
+        path: "/data/user/0/com.kaulan.app/files/downloads/song.mp3",
+        stream_url: "http://localhost:2080/api/music/id/2",
+        source_key: "http://localhost:2080/api",
+      },
+    ];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [], currentIndex: null },
+      currentSongId: null,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 0 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex } = useAudioPlayer({
+      songs: () => songs,
+    });
+
+    await initAudio();
+    await playSongAtIndex(songs[0], 0, songs);
+
+    const queueCalls = plugin.setPlayingQueue.mock.calls as Array<
+      Array<unknown>
+    >;
+    const latestQueue = queueCalls[queueCalls.length - 1]?.[0] as {
+      songs?: Array<{
+        sourceKind?: string;
+        deviceId?: string | null;
+        localUri?: string | null;
+      }>;
+    };
+    expect(latestQueue.songs?.[0]?.sourceKind).toBe("local_raw");
+    expect(latestQueue.songs?.[0]?.localUri).toBe(songs[0].path);
+    expect(latestQueue.songs?.[0]?.deviceId).toBeNull();
+  });
+
   it("falls back to kaulan streaming for restored songs with basename-only paths", async () => {
     // Restored collection/queue songs keep only the basename in `path`
     // (songRestore.buildRestoredSong) and may store device_id "" for the
@@ -195,27 +263,7 @@ describe("useAudioPlayer - Android correction guard", () => {
         device_id: "",
       },
     ];
-    const localGroup: LibrarySourceGroup = {
-      apiBase: "http://localhost:2080/api",
-      sourceKey: "http://localhost:2080/api",
-      device_id: "local-device",
-      name: "Local",
-      isLoading: false,
-      isOnline: true,
-      playlists: [],
-      onlineProviderStatuses: [],
-      capabilities: {
-        canRefresh: true,
-        canUpload: true,
-        canChangeDirectory: true,
-        canUseForOnlineSearch: false,
-        isCurrentOnlineSearchSource: false,
-        canRetryConnection: true,
-        canShowSourceDetails: true,
-        canDeleteSource: false,
-      },
-    };
-    const sourceGroups = [localGroup];
+    const sourceGroups = [buildLocalGroup()];
 
     plugin.getPlaybackSession.mockResolvedValue({
       queue: { songs: [], currentIndex: null },
@@ -244,6 +292,55 @@ describe("useAudioPlayer - Android correction guard", () => {
     };
     expect(latestQueue.songs?.[0]?.sourceKind).toBe("kaulan");
     expect(latestQueue.songs?.[0]?.deviceId).toBe("local-device");
+    expect(latestQueue.songs?.[0]?.localUri).toBeNull();
+  });
+
+  it("maps a still-loading source group to a null device id, not blank", async () => {
+    // buildLoadingSourceGroup stamps device_id "" until /discovery/self
+    // resolves. The native queue must receive null (skippable entry) instead
+    // of an unresolvable "" deviceId.
+    const restoredSongs = [
+      {
+        id: 3,
+        name: "One day of Pokke village",
+        lufs: -13.7,
+        path: "1000013114",
+        stream_url: "http://localhost:2080/api/music/id/3",
+        source_key: "http://localhost:2080/api",
+        device_id: "",
+      },
+    ];
+    const sourceGroups = [
+      buildLocalGroup({ device_id: "", isLoading: true, isOnline: false }),
+    ];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [], currentIndex: null },
+      currentSongId: null,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 0 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex } = useAudioPlayer({
+      songs: () => restoredSongs,
+      sourceGroups: () => sourceGroups,
+    });
+
+    await initAudio();
+    await playSongAtIndex(restoredSongs[0], 0, restoredSongs);
+
+    const queueCalls = plugin.setPlayingQueue.mock.calls as Array<
+      Array<unknown>
+    >;
+    const latestQueue = queueCalls[queueCalls.length - 1]?.[0] as {
+      songs?: Array<{
+        sourceKind?: string;
+        deviceId?: string | null;
+        localUri?: string | null;
+      }>;
+    };
+    expect(latestQueue.songs?.[0]?.sourceKind).toBe("kaulan");
+    expect(latestQueue.songs?.[0]?.deviceId).toBeNull();
     expect(latestQueue.songs?.[0]?.localUri).toBeNull();
   });
 
