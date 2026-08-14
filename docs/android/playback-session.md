@@ -95,6 +95,20 @@ stopping. Local filesystem and `content://` entries use `localUri`. Temporary
 preview and direct `play({url})` entries use `tempSongUrl` only while the service
 is alive and are removed from process-restart persistence.
 
+### Choosing `local_raw` vs `kaulan` for a queue entry
+
+`useAudioPlayer.ts` marks a song `local_raw` only when its `path` is a directly
+openable locator — a `content://` URI or an absolute filesystem path — on a
+localhost source. Songs restored from localStorage (collections, persisted
+playback queue; see `frontend/src/utils/songRestore.ts`) keep only the file
+basename in `path`, so they must stream as `kaulan` entries instead of handing
+the native `MediaPlayer` an unopenable basename.
+
+`kaulan` entries need a non-blank `deviceId` that the local backend can resolve
+through `/api/discovery/resolutions/{id}`. Restored local songs store
+`device_id: ""`, so the frontend backfills the owning source group's device id
+(from `/discovery/self`) when building the native queue.
+
 `currentUrl` belongs to the active `MediaPlayer`, not the queue. Only the code
 that installs a resolved playback target may set it, and stopping playback
 clears it. In particular, `setPlayingQueue()` and session restoration never copy

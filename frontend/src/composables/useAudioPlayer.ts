@@ -235,6 +235,21 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     return getSongIdentity(left) === getSongIdentity(right);
   };
 
+  // Native "kaulan" tracks resolve playback through the device-id map
+  // (/api/discovery/resolutions/{id}), which requires a non-blank id. Songs
+  // restored from localStorage (collections, persisted queue) store "" for the
+  // local device, so backfill the owning source group's id at queue-build time.
+  const resolveQueueDeviceId = (song: MusicInfo): string | null => {
+    if (song.device_id) {
+      return song.device_id;
+    }
+    const apiBase = resolveSourceApiBase(song.source_key);
+    return (
+      getSourceGroups().find((group) => group.apiBase === apiBase)?.device_id ??
+      null
+    );
+  };
+
   const toQueueSong = (song: MusicInfo) => {
     const localRaw = shouldUseRawPlaybackPath(song);
     const temporary = !!song.source || (!!song.is_temporary && song.id <= 0);
@@ -246,7 +261,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     return {
       id: song.id,
       name: song.name,
-      deviceId: sourceKind === "kaulan" ? (song.device_id ?? null) : null,
+      deviceId: sourceKind === "kaulan" ? resolveQueueDeviceId(song) : null,
       sourceKind,
       localUri: sourceKind === "local_raw" ? song.path : null,
       tempSongUrl:
@@ -1410,10 +1425,13 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     cleanup: () => {},
     usesRawPlaybackPath: (song) => {
       const sourceApiBase = resolveSourceApiBase(song.source_key);
-      const isHttpPath = /^https?:\/\//i.test(song.path);
-      return (
-        isLocalhostApiBase(sourceApiBase) && song.path.length > 0 && !isHttpPath
-      );
+      // Only a content URI or an absolute path is directly openable by the
+      // native MediaPlayer. Songs restored from storage carry just a basename
+      // (see songRestore.buildRestoredSong), which must fall back to the
+      // "kaulan" HTTP stream instead of failing with ENOENT.
+      const isRawLocator =
+        /^content:\/\//i.test(song.path) || song.path.startsWith("/");
+      return isLocalhostApiBase(sourceApiBase) && isRawLocator;
     },
     playSong: async (song, seekTime, queueOverride, selectedIndex) => {
       const { queue, index } = buildQueueForMode(

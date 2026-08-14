@@ -5,6 +5,7 @@
 //! - `docs/android/playback-session.md`
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LibrarySourceGroup } from "@/types/library";
 
 const plugin = {
   getPlaybackSession: vi.fn(),
@@ -175,6 +176,75 @@ describe("useAudioPlayer - Android correction guard", () => {
     );
     expect(latestQueue?.songs?.[0]?.sourceKind).toBe("local_raw");
     expect(latestQueue?.songs?.[0]?.tempSongUrl).toBeNull();
+  });
+
+  it("falls back to kaulan streaming for restored songs with basename-only paths", async () => {
+    // Restored collection/queue songs keep only the basename in `path`
+    // (songRestore.buildRestoredSong) and may store device_id "" for the
+    // local device. The queue must stream via the localhost backend with the
+    // source group's device id instead of handing the native player an
+    // unopenable basename as a raw local URI.
+    const restoredSongs = [
+      {
+        id: 3,
+        name: "One day of Pokke village",
+        lufs: -13.7,
+        path: "1000013114",
+        stream_url: "http://localhost:2080/api/music/id/3",
+        source_key: "http://localhost:2080/api",
+        device_id: "",
+      },
+    ];
+    const localGroup: LibrarySourceGroup = {
+      apiBase: "http://localhost:2080/api",
+      sourceKey: "http://localhost:2080/api",
+      device_id: "local-device",
+      name: "Local",
+      isLoading: false,
+      isOnline: true,
+      playlists: [],
+      onlineProviderStatuses: [],
+      capabilities: {
+        canRefresh: true,
+        canUpload: true,
+        canChangeDirectory: true,
+        canUseForOnlineSearch: false,
+        isCurrentOnlineSearchSource: false,
+        canRetryConnection: true,
+        canShowSourceDetails: true,
+        canDeleteSource: false,
+      },
+    };
+    const sourceGroups = [localGroup];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [], currentIndex: null },
+      currentSongId: null,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 0 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex } = useAudioPlayer({
+      songs: () => restoredSongs,
+      sourceGroups: () => sourceGroups,
+    });
+
+    await initAudio();
+    await playSongAtIndex(restoredSongs[0], 0, restoredSongs);
+
+    const queueCalls = plugin.setPlayingQueue.mock.calls as Array<
+      Array<unknown>
+    >;
+    const latestQueue = queueCalls[queueCalls.length - 1]?.[0] as {
+      songs?: Array<{
+        sourceKind?: string;
+        deviceId?: string | null;
+        localUri?: string | null;
+      }>;
+    };
+    expect(latestQueue.songs?.[0]?.sourceKind).toBe("kaulan");
+    expect(latestQueue.songs?.[0]?.deviceId).toBe("local-device");
+    expect(latestQueue.songs?.[0]?.localUri).toBeNull();
   });
 
   it("should resolve HTTP paths by identity despite a localhost source key", async () => {
