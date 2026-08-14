@@ -244,10 +244,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       return song.device_id;
     }
     const apiBase = resolveSourceApiBase(song.source_key);
-    return (
-      getSourceGroups().find((group) => group.apiBase === apiBase)?.device_id ??
-      null
-    );
+    // `|| null` (not `?? null`) so a still-loading group's blank device_id
+    // becomes null instead of an unresolvable "" in the native queue.
+    const groupDeviceId = getSourceGroups().find(
+      (group) => group.apiBase === apiBase,
+    )?.device_id;
+    return groupDeviceId || null;
   };
 
   const toQueueSong = (song: MusicInfo) => {
