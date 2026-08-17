@@ -14,6 +14,7 @@ pair is the durable import key.
 
 Related source files:
 - Frontend utility: `frontend/src/utils/collectionTransfer.ts` (`buildCollectionsExport`, `parseCollectionsExport`, `mergeCollectionsFromImport`)
+- Playback-path adoption on restore: `frontend/src/utils/songRestore.ts` (stored songs re-adopt live library entries — raw `content://` paths on Android — with basename/HTTP as fallback)
 - Frontend tests: `frontend/src/utils/__tests__/collectionTransfer.test.ts`
 - UI entry point: `frontend/src/components/modals/SettingsModal.vue` (备份收藏夹 section in 个人, runtime-branched handlers)
 - Runtime detection: `frontend/src/utils/api.ts` (`isTauriWebview`)
