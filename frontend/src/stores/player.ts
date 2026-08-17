@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useAudioPlayer, type MusicInfo } from "@/composables/useAudioPlayer";
 import { useLibraryStore } from "@/stores/library";
+import { createSongAdopter } from "@/utils/songRestore";
 import { useTimer } from "@/composables/useTimer";
 import { useVolume } from "@/composables/useVolume";
 import {
@@ -150,17 +151,36 @@ export const usePlayerStore = defineStore("player", () => {
     resetPlaylist();
   };
 
+  // A tap can race the initial library load: the entry it captured may still
+  // be a pre-load fallback shape (basename path → loopback HTTP on Android).
+  // Wait for the first source-group settle, then re-adopt both the tapped song
+  // and its queue against the live library so raw content:// paths win when
+  // the group is loaded. No-op for online/temporary songs and unloaded
+  // devices.
+  const gateAndAdopt = async (
+    song: MusicInfo,
+    queue: MusicInfo[],
+  ): Promise<{ song: MusicInfo; queue: MusicInfo[] }> => {
+    await libraryStore.waitForInitialSourceGroups();
+    const adopt = createSongAdopter(libraryStore.sourceGroups);
+    return {
+      song: adopt(song),
+      queue: queue.map(adopt),
+    };
+  };
+
   const playVisibleSong = async (
     song: MusicInfo,
     visibleQueue: MusicInfo[],
     index?: number,
   ) => {
+    const adopted = await gateAndAdopt(song, visibleQueue);
     if (index !== undefined) {
-      await playSongAtIndex(song, index, visibleQueue);
+      await playSongAtIndex(adopted.song, index, adopted.queue);
       return;
     }
 
-    await playSong(song, undefined, visibleQueue);
+    await playSong(adopted.song, undefined, adopted.queue);
   };
 
   const playSongFromPlaylist = async (
@@ -184,7 +204,8 @@ export const usePlayerStore = defineStore("player", () => {
   };
 
   const playQueueSong = async (song: MusicInfo, index: number) => {
-    await playSongAtIndex(song, index, activeQueue.value);
+    const adopted = await gateAndAdopt(song, activeQueue.value);
+    await playSongAtIndex(adopted.song, index, adopted.queue);
   };
 
   const playPreviewTrack = async (song: MusicInfo) => {

@@ -7,11 +7,18 @@
  * rebuilt here so a device IP change does not rot stored collections or queue
  * entries.
  *
+ * When the owning source group is already loaded, the stored song is matched
+ * against the live library (same device group, same `song_id`) and the live
+ * MusicInfo is adopted wholesale: for localhost sources it carries the raw
+ * `content://` / absolute path, so Android playback classifies it as
+ * `local_raw` and the native MediaPlayer opens the URI directly instead of
+ * streaming over loopback HTTP. The basename + HTTP rebuild below is the
+ * fallback for groups that are still loading or songs that no longer exist.
+ *
  * When `device_id` is not yet in the source list (cold start before sources
  * fetch, or the device is offline), the helper returns a *skeleton* MusicInfo
- * with `stream_url: null`. The caller keeps skeleton entries in place; a
- * `watch(sourceGroups)` in `useAppShell.ts` rehydrates them via
- * `rehydrateSongUrls` once the device appears.
+ * with `stream_url: null`. The caller keeps skeleton entries in place; they
+ * re-materialize reactively once the library answers.
  *
  * @module utils/songRestore
  */
@@ -60,6 +67,70 @@ export const rehydrateSongUrls = (
     source_key: apiBase,
     stream_url: `${apiBase}/music/id/${song.id}`,
     cover_url: `${apiBase}/music/id/${song.id}/cover`,
+  };
+};
+
+/**
+ * Find the live library entry for a stored song. Lookup is scoped to the
+ * device's own source group: resolve the group by apiBase, then flatten its
+ * playlists and match by `song_id` (first match wins — same convention as the
+ * collection import matcher in `collectionTransfer.ts`). Returns null when the
+ * group is not loaded or the song is no longer in the library.
+ */
+const findLiveLibrarySong = (
+  apiBase: string,
+  songId: number,
+  sourceGroups: LibrarySourceGroup[],
+): MusicInfo | null => {
+  const group = sourceGroups.find((item) => item.apiBase === apiBase);
+  if (!group) {
+    return null;
+  }
+  for (const playlist of group.playlists) {
+    const match = playlist.songs.find((song) => song.id === songId);
+    if (match) {
+      return { ...match };
+    }
+  }
+  return null;
+};
+
+/**
+ * Build an O(1) adopter over the live library for a batch of songs whose
+ * references may predate the initial library load (e.g. collection entries
+ * captured before the first `/playlists` fetch settled, still carrying their
+ * basename/HTTP fallback shape). Indexes live songs by `apiBase + song_id`
+ * once, so adopting a whole queue stays linear. The returned function keys
+ * each song by `(device_id, song_id)` — blank `device_id` resolves to the
+ * local group, same rule as the restore helpers. Online (`source`) and
+ * temporary songs pass through unchanged; so do songs whose device group is
+ * not loaded or no longer lists them.
+ */
+export const createSongAdopter = (
+  sourceGroups: LibrarySourceGroup[],
+): ((song: MusicInfo) => MusicInfo) => {
+  const index = new Map<string, MusicInfo>();
+  for (const group of sourceGroups) {
+    for (const playlist of group.playlists) {
+      for (const song of playlist.songs) {
+        const key = `${group.apiBase}\n${song.id}`;
+        if (!index.has(key)) {
+          index.set(key, song);
+        }
+      }
+    }
+  }
+
+  return (song: MusicInfo): MusicInfo => {
+    if (song.source || (song.is_temporary && song.id <= 0)) {
+      return song;
+    }
+    const apiBase = resolveDeviceApiBase(song.device_id ?? "", sourceGroups);
+    if (!apiBase) {
+      return song;
+    }
+    const live = index.get(`${apiBase}\n${song.id}`);
+    return live ? { ...live } : song;
   };
 };
 
@@ -118,6 +189,10 @@ export const storedQueueSongToMusicInfo = (
   if (!apiBase) {
     return buildSkeletonSong(stored);
   }
+  const liveSong = findLiveLibrarySong(apiBase, stored.song_id, sourceGroups);
+  if (liveSong) {
+    return liveSong;
+  }
   return buildRestoredSong(stored, apiBase);
 };
 
@@ -134,6 +209,10 @@ export const storedCollectionSongToMusicInfo = (
   const apiBase = resolveDeviceApiBase(stored.device_id, sourceGroups);
   if (!apiBase) {
     return buildSkeletonSong(stored);
+  }
+  const liveSong = findLiveLibrarySong(apiBase, stored.song_id, sourceGroups);
+  if (liveSong) {
+    return liveSong;
   }
   return buildRestoredSong(stored, apiBase);
 };

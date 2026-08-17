@@ -104,6 +104,18 @@ playback queue; see `frontend/src/utils/songRestore.ts`) keep only the file
 basename in `path`, so they must stream as `kaulan` entries instead of handing
 the native `MediaPlayer` an unopenable basename.
 
+To let restored songs take the `local_raw` path, restore helpers first try to
+adopt the song's live library entry (same source group, same `song_id`) — the
+`/playlists?stream=content` response already carries each song's raw
+`content://` URI. Adoption happens both when collections re-materialize
+(`stores/collections.ts`, reactive over the source groups) and when a tap races
+the initial load: playback entry points in `stores/player.ts` await the first
+source-group settle (`libraryStore.waitForInitialSourceGroups`) and then
+re-adopt the tapped song and queue via `createSongAdopter`. The basename →
+`kaulan` HTTP flow remains the fallback for songs whose group is not loaded or
+that no longer exist in the library, so playback never regresses to a worse
+state than before adoption existed.
+
 `kaulan` entries need a non-blank `deviceId` that the local backend can resolve
 through `/api/discovery/resolutions/{id}`. Restored local songs store
 `device_id: ""`, so the frontend backfills the owning source group's device id
