@@ -282,3 +282,56 @@ describe("createSongAdopter", () => {
     expect(adopt(online)).toBe(online);
   });
 });
+
+describe("live-library index", () => {
+  it("scopes adoption by device so colliding song ids across devices do not cross-adopt", () => {
+    // device ids are per-device SQLite row ids: both devices legitimately
+    // own a song with id 42. The composite (apiBase, id) key must keep them
+    // apart.
+    const collidingGroups = [
+      buildGroup(LOCAL, LOCAL_DEVICE, [
+        buildLiveSong(
+          42,
+          "local-42.mp3",
+          LOCAL,
+          LOCAL_DEVICE,
+          "content://media/external/audio/media/42",
+        ),
+      ]),
+      buildGroup(REMOTE, REMOTE_DEVICE, [
+        buildLiveSong(42, "remote-42.flac", REMOTE, REMOTE_DEVICE, ""),
+      ]),
+    ];
+
+    const restoredLocal = storedCollectionSongToMusicInfo(
+      { device_id: LOCAL_DEVICE, song_id: 42, filename: "local-42.mp3" },
+      collidingGroups,
+    );
+    const restoredRemote = storedCollectionSongToMusicInfo(
+      { device_id: REMOTE_DEVICE, song_id: 42, filename: "remote-42.flac" },
+      collidingGroups,
+    );
+
+    expect(restoredLocal.name).toBe("local-42.mp3");
+    expect(restoredLocal.path).toBe("content://media/external/audio/media/42");
+    expect(restoredRemote.name).toBe("remote-42.flac");
+    expect(restoredRemote.path).toBe("");
+  });
+
+  it("returns consistent results across repeated calls on the same snapshot (memoized index)", () => {
+    const stored: StoredCollectionSong = {
+      device_id: LOCAL_DEVICE,
+      song_id: 42,
+      filename: "song.mp3",
+    };
+
+    const first = storedCollectionSongToMusicInfo(stored, SOURCE_GROUPS);
+    // Second call hits the cached index for the same array instance.
+    const second = storedCollectionSongToMusicInfo(stored, SOURCE_GROUPS);
+    const adopt = createSongAdopter(SOURCE_GROUPS);
+    const adopted = adopt(first);
+
+    expect(second.path).toBe(first.path);
+    expect(adopted.path).toBe(first.path);
+  });
+});

@@ -1,6 +1,11 @@
 /**
- * Pure helpers that turn persisted song entries back into playable MusicInfo by
+ * Helpers that turn persisted song entries back into playable MusicInfo by
  * resolving the device's current apiBase from the live source list.
+ *
+ * Lookups run through an index memoized per source-groups snapshot (WeakMap
+ * keyed on array identity — see `indexCache` below), so restoring a whole
+ * collection or queue costs one O(library) index build per snapshot plus O(1)
+ * per stored song.
  *
  * Songs are persisted as `{ device_id, song_id, filename }` (see
  * `utils/storage.ts`). Stream and cover URLs are never stored — they are
@@ -32,6 +37,57 @@ import type {
 } from "@/utils/storage";
 
 /**
+ * Index over one source-groups snapshot so restore lookups stay O(1) per
+ * song. Songs are keyed by the composite `apiBase + song_id`: ids are
+ * per-device SQLite row ids and collide across devices, so a bare-id map
+ * would mix libraries.
+ */
+type LibraryIndex = {
+  apiBaseByDeviceId: Map<string, string>;
+  songByCompositeKey: Map<string, MusicInfo>;
+};
+
+const songKey = (apiBase: string, songId: number): string =>
+  `${apiBase}\n${songId}`;
+
+const buildLibraryIndex = (
+  sourceGroups: LibrarySourceGroup[],
+): LibraryIndex => {
+  const apiBaseByDeviceId = new Map<string, string>();
+  const songByCompositeKey = new Map<string, MusicInfo>();
+  for (const group of sourceGroups) {
+    if (group.device_id && !apiBaseByDeviceId.has(group.device_id)) {
+      apiBaseByDeviceId.set(group.device_id, group.apiBase);
+    }
+    for (const playlist of group.playlists) {
+      for (const song of playlist.songs) {
+        const key = songKey(group.apiBase, song.id);
+        if (!songByCompositeKey.has(key)) {
+          songByCompositeKey.set(key, song);
+        }
+      }
+    }
+  }
+  return { apiBaseByDeviceId, songByCompositeKey };
+};
+
+// Safe only because source-groups arrays are replaced wholesale on every
+// update (see `upsertSortedItem` / `loadItemsIncrementally`) and never
+// mutated in place — array identity is therefore a valid cache key. If that
+// discipline ever breaks, this cache serves stale entries and restores
+// silently fall back to basename/HTTP playback.
+const indexCache = new WeakMap<LibrarySourceGroup[], LibraryIndex>();
+
+const getLibraryIndex = (sourceGroups: LibrarySourceGroup[]): LibraryIndex => {
+  let index = indexCache.get(sourceGroups);
+  if (!index) {
+    index = buildLibraryIndex(sourceGroups);
+    indexCache.set(sourceGroups, index);
+  }
+  return index;
+};
+
+/**
  * Look up the current apiBase for a device by its stable id.
  *
  * Empty `device_id` resolves to the local source (the device running this
@@ -44,8 +100,7 @@ export const resolveDeviceApiBase = (
   if (!deviceId) {
     return getLocalApiBase();
   }
-  const match = sourceGroups.find((group) => group.device_id === deviceId);
-  return match?.apiBase ?? null;
+  return getLibraryIndex(sourceGroups).apiBaseByDeviceId.get(deviceId) ?? null;
 };
 
 /**
@@ -71,65 +126,50 @@ export const rehydrateSongUrls = (
 };
 
 /**
- * Find the live library entry for a stored song. Lookup is scoped to the
- * device's own source group: resolve the group by apiBase, then flatten its
- * playlists and match by `song_id` (first match wins — same convention as the
- * collection import matcher in `collectionTransfer.ts`). Returns null when the
- * group is not loaded or the song is no longer in the library.
+ * Find the live library entry for a stored song via the shared snapshot
+ * index: composite `apiBase + song_id` lookup, first match wins (same
+ * convention as the collection import matcher in `collectionTransfer.ts`).
+ * Returns null when the group is not loaded or the song is no longer in the
+ * library.
  */
 const findLiveLibrarySong = (
   apiBase: string,
   songId: number,
   sourceGroups: LibrarySourceGroup[],
 ): MusicInfo | null => {
-  const group = sourceGroups.find((item) => item.apiBase === apiBase);
-  if (!group) {
-    return null;
-  }
-  for (const playlist of group.playlists) {
-    const match = playlist.songs.find((song) => song.id === songId);
-    if (match) {
-      return { ...match };
-    }
-  }
-  return null;
+  const live = getLibraryIndex(sourceGroups).songByCompositeKey.get(
+    songKey(apiBase, songId),
+  );
+  return live ? { ...live } : null;
 };
 
 /**
  * Build an O(1) adopter over the live library for a batch of songs whose
  * references may predate the initial library load (e.g. collection entries
  * captured before the first `/playlists` fetch settled, still carrying their
- * basename/HTTP fallback shape). Indexes live songs by `apiBase + song_id`
- * once, so adopting a whole queue stays linear. The returned function keys
- * each song by `(device_id, song_id)` — blank `device_id` resolves to the
- * local group, same rule as the restore helpers. Online (`source`) and
- * temporary songs pass through unchanged; so do songs whose device group is
- * not loaded or no longer lists them.
+ * basename/HTTP fallback shape). Backed by the shared per-snapshot index, so
+ * adopting a whole queue stays linear. The returned function keys each song
+ * by `(device_id, song_id)` — blank `device_id` resolves to the local group,
+ * same rule as the restore helpers. Online (`source`) and temporary songs
+ * pass through unchanged; so do songs whose device group is not loaded or no
+ * longer lists them.
  */
 export const createSongAdopter = (
   sourceGroups: LibrarySourceGroup[],
 ): ((song: MusicInfo) => MusicInfo) => {
-  const index = new Map<string, MusicInfo>();
-  for (const group of sourceGroups) {
-    for (const playlist of group.playlists) {
-      for (const song of playlist.songs) {
-        const key = `${group.apiBase}\n${song.id}`;
-        if (!index.has(key)) {
-          index.set(key, song);
-        }
-      }
-    }
-  }
+  const index = getLibraryIndex(sourceGroups);
 
   return (song: MusicInfo): MusicInfo => {
     if (song.source || (song.is_temporary && song.id <= 0)) {
       return song;
     }
-    const apiBase = resolveDeviceApiBase(song.device_id ?? "", sourceGroups);
+    const apiBase = song.device_id
+      ? (index.apiBaseByDeviceId.get(song.device_id) ?? null)
+      : getLocalApiBase();
     if (!apiBase) {
       return song;
     }
-    const live = index.get(`${apiBase}\n${song.id}`);
+    const live = index.songByCompositeKey.get(songKey(apiBase, song.id));
     return live ? { ...live } : song;
   };
 };
