@@ -30,9 +30,10 @@ export const useLibraryStore = defineStore("library", () => {
   const refreshSourceGroups = async () => {
     const load = library.refreshSourceGroups();
     if (initialSourceGroupsLoaded.value === null) {
-      initialSourceGroupsLoaded.value = load;
-      // The promise stored on the ref settles even if the caller drops it.
-      load.catch(() => {});
+      // Store the swallowed chain, not `load` itself: the gate must settle
+      // (never reject) even when the initial load fails or no caller awaits
+      // it. Attaching .catch also marks `load` handled for the runtime.
+      initialSourceGroupsLoaded.value = load.catch(() => {});
     }
     return load;
   };
