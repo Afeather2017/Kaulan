@@ -456,6 +456,24 @@ jobs:
           cp "$src" "$dest"
           ls -l "$dest"
 
+      # Android refuses in-place upgrades across signing certificates, so a
+      # drifted ANDROID_KEY_BASE64 secret would ship APKs that can only be
+      # installed after an uninstall. Fail the release instead by pinning the
+      # signer SHA-256 of the local release keystore
+      # (~/.local/android/release.keystore, see build-android.sh).
+      - name: Verify APK signing certificate (${{ matrix.abi }})
+        run: |
+          set -euo pipefail
+          apk="frontend/src-tauri/gen/android/app/build/outputs/kaulan-${{ matrix.abi }}.apk"
+          expected="e66977e6b8e9e395042ee286e7158b4a37e6613a822479d63be3257b668df54e"
+          apksigner="$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/apksigner"
+          actual="$("$apksigner" verify --print-certs "$apk" \
+            | sed -n 's/.*SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr 'A-F' 'a-f')"
+          echo "Expected signer SHA-256: $expected"
+          echo "Actual   signer SHA-256: $actual"
+          test -n "$actual"
+          test "$actual" = "$expected"
+
       - name: Upload Android APK (${{ matrix.abi }})
         uses: softprops/action-gh-release@v2
         with:
