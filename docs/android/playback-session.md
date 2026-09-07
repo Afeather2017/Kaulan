@@ -54,6 +54,14 @@ Instead it:
 3. polls the plugin every second
 4. renders queue, song, time, and lyric state from the polled session
 
+When resuming an existing Android song, the frontend sets `isPlaying=true`
+immediately after issuing `seekAndPlay`. The first `getPlaybackSession()` result
+can still contain the old paused state while the native player transitions to
+playing. This optimistic state keeps dependent UI, including the timed lyric
+scheduler, running; subsequent polling remains authoritative and reconciles a
+resume that genuinely failed. The implementation is in
+`frontend/src/composables/useAudioPlayer.ts`.
+
 ## Playback Flow
 
 ### Start playback from a selected song

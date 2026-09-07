@@ -149,4 +149,35 @@ describe("useAudioPlayer - Android click flips isPlaying", () => {
     expect(plugin.pause).toHaveBeenCalled();
     expect(isPlaying.value).toBe(false);
   });
+
+  it("sets isPlaying=true when resuming an existing song despite a lagging session", async () => {
+    const songs = [
+      {
+        id: 1,
+        name: "Test Song",
+        lufs: -12,
+        path: "content://media/external/audio/media/1",
+        stream_url: "content://media/external/audio/media/1",
+        source_key: "http://localhost:2080/api",
+      },
+    ];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs, currentIndex: 0 },
+      currentSongId: 1,
+      runtime: { isPlaying: false, positionMs: 12000, durationMs: 180000 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, playSongAtIndex, play, isPlaying } = useAudioPlayer({
+      songs: () => songs,
+    });
+
+    await initAudio();
+    await playSongAtIndex(songs[0], 0, songs);
+    await play();
+
+    expect(plugin.seekAndPlay).toHaveBeenLastCalledWith(12000);
+    expect(isPlaying.value).toBe(true);
+  });
 });

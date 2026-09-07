@@ -410,6 +410,11 @@ export function useLyrics(
 
   function clearLyricTimer(): void {
     if (lyricTimer !== null) {
+      console.log("[useLyrics] clear lyric timer", {
+        songId: currentSong.value?.id ?? null,
+        currentTime: currentTime.value,
+        currentLyricIndex: currentLyricIndex.value,
+      });
       clearTimeout(lyricTimer);
       lyricTimer = null;
     }
@@ -449,19 +454,44 @@ export function useLyrics(
     updateCurrentLyric(time);
 
     if (!isPlaying.value || lyrics.value.length === 0) {
+      console.log("[useLyrics] timer not scheduled", {
+        songId: currentSong.value?.id ?? null,
+        time,
+        isPlaying: isPlaying.value,
+        lyricCount: lyrics.value.length,
+        currentLyricIndex: currentLyricIndex.value,
+      });
       return;
     }
 
     const nextLine = lyrics.value[currentLyricIndex.value + 1];
     if (!nextLine) {
+      console.log("[useLyrics] no next lyric line", {
+        songId: currentSong.value?.id ?? null,
+        time,
+        currentLyricIndex: currentLyricIndex.value,
+      });
       return;
     }
 
     scheduledPlaybackTime = time;
     scheduledAtMs = Date.now();
     const delayMs = Math.max(0, Math.round((nextLine.time - time) * 1000));
+    console.log("[useLyrics] schedule lyric timer", {
+      songId: currentSong.value?.id ?? null,
+      time,
+      currentLyricIndex: currentLyricIndex.value,
+      nextLyricIndex: currentLyricIndex.value + 1,
+      nextLineTime: nextLine.time,
+      delayMs,
+    });
     lyricTimer = window.setTimeout(() => {
       lyricTimer = null;
+      console.log("[useLyrics] lyric timer fired", {
+        songId: currentSong.value?.id ?? null,
+        nextLineTime: nextLine.time,
+        isPlaying: isPlaying.value,
+      });
       scheduleFromTime(nextLine.time);
     }, delayMs);
   }
@@ -531,6 +561,13 @@ export function useLyrics(
   });
 
   watch(isPlaying, (playing) => {
+    console.log("[useLyrics] isPlaying changed", {
+      songId: currentSong.value?.id ?? null,
+      playing,
+      currentTime: currentTime.value,
+      currentLyricIndex: currentLyricIndex.value,
+      hasLyrics: hasLyrics.value,
+    });
     if (!hasLyrics.value) {
       return;
     }
