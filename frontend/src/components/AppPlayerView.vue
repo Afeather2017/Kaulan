@@ -264,6 +264,7 @@ const props = defineProps<{
   coverUrl?: string | null;
   currentTime: number;
   duration: number;
+  currentLyricIndex: number;
   isPlaying: boolean;
   playMode: "sequential" | "shuffle" | "loop";
   canShare?: boolean;
@@ -337,9 +338,16 @@ const displayedLyrics = computed<LyricLine[]>(() => {
   }));
 });
 
-const displayedCurrentLyricIndex = computed(() =>
-  findLyricIndex(displayedLyrics.value, props.currentTime),
-);
+const displayedCurrentLyricIndex = computed(() => {
+  // During normal playback use the timestamp scheduler's index so lyric
+  // changes can appear between Android's one-second playback polls. While
+  // editing, timestamps are temporarily shifted and must be recalculated
+  // against the displayed lines.
+  if (effectiveLyricShiftMs.value === 0) {
+    return props.currentLyricIndex;
+  }
+  return findLyricIndex(displayedLyrics.value, props.currentTime);
+});
 
 const resetLyricEditState = () => {
   isLyricEditMode.value = false;
