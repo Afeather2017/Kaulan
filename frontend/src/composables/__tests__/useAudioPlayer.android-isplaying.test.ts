@@ -180,4 +180,35 @@ describe("useAudioPlayer - Android click flips isPlaying", () => {
     expect(plugin.seekAndPlay).toHaveBeenLastCalledWith(12000);
     expect(isPlaying.value).toBe(true);
   });
+
+  it("keeps lyric-line seek playing when the Android session snapshot lags", async () => {
+    const songs = [
+      {
+        id: 1,
+        name: "Test Song",
+        lufs: -12,
+        path: "content://media/external/audio/media/1",
+        stream_url: "content://media/external/audio/media/1",
+        source_key: "http://localhost:2080/api",
+      },
+    ];
+
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs, currentIndex: 0 },
+      currentSongId: 1,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 180000 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, seekToTime, isPlaying, duration } = useAudioPlayer({
+      songs: () => songs,
+    });
+
+    await initAudio();
+    duration.value = 180;
+    await seekToTime(42);
+
+    expect(plugin.seekAndPlay).toHaveBeenCalledWith(42000);
+    expect(isPlaying.value).toBe(true);
+  });
 });

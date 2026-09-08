@@ -1533,6 +1533,17 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         await plugin.seekAndPlay(targetPositionMs);
       }
       await fetchAndroidSession("seekToTime");
+      // A seek while paused uses seekAndPlay so the lyric-line click starts
+      // playback immediately. Android's session snapshot can lag that native
+      // transition and still report paused; keep the UI/lyric timer aligned
+      // with the explicit command until polling confirms the actual state.
+      if (!isPlaying.value) {
+        isPlaying.value = true;
+        console.log("[useAudioPlayer] Android lyric seek set isPlaying=true", {
+          currentSongId: currentSong.value?.id ?? null,
+          currentTime: currentTime.value,
+        });
+      }
     },
     syncQueueState: async () => {
       if (activeQueue.value.length === 0) {
