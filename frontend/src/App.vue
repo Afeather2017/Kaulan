@@ -98,6 +98,7 @@
           :cover-url="resolveSongCoverUrl(currentSong)"
           :current-time="currentTime"
           :duration="duration"
+          :current-lyric-index="currentLyricIndex"
           :is-playing="isPlaying"
           :play-mode="playMode"
           :can-share="Boolean(currentSongShareUrl)"
@@ -377,6 +378,7 @@ const {
   hasSelectedNonAllMusicCollection,
   lyrics,
   rawLyricsContent,
+  currentLyricIndex,
   isLyricsLoading,
   hasLyrics,
   selectedSourceMenuGroup,

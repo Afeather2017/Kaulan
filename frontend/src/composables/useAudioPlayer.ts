@@ -1466,6 +1466,15 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         }
       }
       await fetchAndroidSession();
+      // The session snapshot immediately after seekAndPlay can lag behind the
+      // native player transition (especially when resuming after an editor or
+      // modal paused playback). Keep the UI/timer lifecycle aligned with the
+      // explicit play command; polling will reconcile a genuinely failed start.
+      isPlaying.value = true;
+      console.log("[useAudioPlayer] Android resume set isPlaying=true", {
+        currentSongId: currentSong.value?.id ?? null,
+        currentTime: currentTime.value,
+      });
     },
     pause: async () => {
       const plugin = await loadPluginApi();
@@ -1524,6 +1533,17 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         await plugin.seekAndPlay(targetPositionMs);
       }
       await fetchAndroidSession("seekToTime");
+      // A seek while paused uses seekAndPlay so the lyric-line click starts
+      // playback immediately. Android's session snapshot can lag that native
+      // transition and still report paused; keep the UI/lyric timer aligned
+      // with the explicit command until polling confirms the actual state.
+      if (!isPlaying.value) {
+        isPlaying.value = true;
+        console.log("[useAudioPlayer] Android lyric seek set isPlaying=true", {
+          currentSongId: currentSong.value?.id ?? null,
+          currentTime: currentTime.value,
+        });
+      }
     },
     syncQueueState: async () => {
       if (activeQueue.value.length === 0) {

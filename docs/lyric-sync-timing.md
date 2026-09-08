@@ -92,6 +92,14 @@ On seek:
 3. cancel and rebuild lyric timer from the target
 4. store `pendingSeekTargetMs`
 
+When a lyric line is clicked on Android while playback is paused, the player
+uses the native `seekAndPlay` operation. The immediate playback-session read
+can still report the old paused state while the native player is transitioning.
+The frontend therefore keeps `isPlaying` true after this explicit command; the
+next polling update remains authoritative and corrects the state if playback
+did not actually start. This prevents the lyric-line handler from issuing a
+second resume command and keeps the lyric timer running.
+
 On correction:
 
 1. if corrected position is within `0.1s` of the pending seek target, accept it
