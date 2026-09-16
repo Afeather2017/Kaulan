@@ -409,8 +409,12 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Accept Android SDK licenses
+        # android-actions/setup-android (v3 and v4) hard-installs the obsolete
+        # 'tools' package, which Google removed from the SDK repository, so
+        # sdkmanager exits 1 before anything compiles. The runner image already
+        # ships the SDK with sdkmanager on PATH; only licenses are missing.
+        run: yes | sdkmanager --licenses > /dev/null
 
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK_VERSION}"
