@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { useAudioPlayer, type MusicInfo } from "@/composables/useAudioPlayer";
+import { createPlayback } from "@/playback";
+import type { MusicInfo } from "@/types/music";
 import { useLibraryStore } from "@/stores/library";
 import { createSongAdopter } from "@/utils/songRestore";
 import { useTimer } from "@/composables/useTimer";
@@ -36,14 +37,16 @@ export const usePlayerStore = defineStore("player", () => {
   const lufsPrecacheCount = ref(getLufsPrecacheCount());
 
   const {
-    audioElement,
-    activeQueue,
+    status,
     currentSong,
     isPlaying,
     currentTime,
     duration,
     playMode,
     currentIndex,
+    activeQueue,
+    playbackError,
+    isAndroidPlayer,
     play,
     pause,
     playSong,
@@ -53,14 +56,15 @@ export const usePlayerStore = defineStore("player", () => {
     nextSong,
     seekToTime,
     setTimedPause,
+    setVolume,
+    syncNormalizationConfig,
+    replaceQueue,
     resetPlaylist,
     formatTime,
     initAudio,
     refreshAndroidSession,
-    isAndroidPlayer,
     syncAndroidQueueState,
-    syncNormalizationConfig,
-  } = useAudioPlayer({
+  } = createPlayback({
     songs: () => {
       if (playbackSource.value === "search") {
         return searchPlaybackSongs.value;
@@ -71,8 +75,8 @@ export const usePlayerStore = defineStore("player", () => {
     onSongStart: (currentSongInfo, nextSongInfo) => {
       songStartHandler.value?.(currentSongInfo, nextSongInfo);
     },
-    onPlaybackQueueStart: async (queue, currentIndex, mode) => {
-      await queuePrecacheHandler.value?.(queue, currentIndex, mode);
+    onPlaybackQueueStart: async (queue, currentIndexValue, mode) => {
+      await queuePrecacheHandler.value?.(queue, currentIndexValue, mode);
     },
     prepareSong: async (song) => await prepareSongHandler.value(song),
     sourceGroups: () => libraryStore.sourceGroups,
@@ -114,10 +118,8 @@ export const usePlayerStore = defineStore("player", () => {
   } = useTimer(() => {
     if (isAndroidPlayer.value) {
       void handleAndroidTimerComplete();
-    } else if (isPlaying.value) {
+    } else {
       void pause();
-    } else if (audioElement.value) {
-      audioElement.value.pause();
     }
   });
 
@@ -214,13 +216,6 @@ export const usePlayerStore = defineStore("player", () => {
     await playSongAtIndex(song, 0, [song]);
   };
 
-  const replaceQueue = async (nextQueue: MusicInfo[]) => {
-    activeQueue.value = nextQueue;
-    if (isAndroidPlayer.value) {
-      await syncAndroidQueueState();
-    }
-  };
-
   const setShowLufsState = (value: boolean) => {
     showLufs.value = value;
     setShowLufs(value);
@@ -263,7 +258,8 @@ export const usePlayerStore = defineStore("player", () => {
   };
 
   return {
-    audioElement,
+    status,
+    playbackError,
     activeQueue,
     currentSong,
     isPlaying,
@@ -298,11 +294,13 @@ export const usePlayerStore = defineStore("player", () => {
     nextSong,
     seekToTime,
     setTimedPause,
+    setVolume,
     resetPlaylist,
     formatTime,
     initAudio,
     refreshAndroidSession,
     syncAndroidQueueState,
+    replaceQueue,
     syncNormalizationConfig,
     setPrepareSongHandler,
     setQueuePrecacheHandler,
@@ -315,7 +313,6 @@ export const usePlayerStore = defineStore("player", () => {
     playSongFromSearch,
     playQueueSong,
     playPreviewTrack,
-    replaceQueue,
     setShowLufsState,
     setLufsPrecacheCountState,
     handleAndroidTimerComplete,

@@ -1,5 +1,6 @@
 import type { Ref } from "vue";
-import type { MusicInfo, PlayMode } from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
+import type { PlayMode } from "@/playback";
 import { resolveSourceApiBase } from "@/utils/api";
 import type { LibrarySourceGroup } from "@/types/library";
 

@@ -263,6 +263,8 @@ const props = defineProps<{
   currentSongName?: string;
   coverUrl?: string | null;
   currentTime: number;
+  /** Scheduler-driven lyric line index from useLyrics (frame-accurate). */
+  currentLyricIndex?: number;
   duration: number;
   isPlaying: boolean;
   playMode: "sequential" | "shuffle" | "loop";
@@ -337,9 +339,23 @@ const displayedLyrics = computed<LyricLine[]>(() => {
   }));
 });
 
-const displayedCurrentLyricIndex = computed(() =>
-  findLyricIndex(displayedLyrics.value, props.currentTime),
-);
+// Normal playback trusts the lyric scheduler's index (frame-accurate, immune
+// to position-tick quantization). While shift-editing, the displayed
+// timestamps move independently of playback, so recompute from the shifted
+// lines instead.
+const displayedCurrentLyricIndex = computed(() => {
+  if (
+    effectiveLyricShiftMs.value === 0 &&
+    props.currentLyricIndex !== undefined &&
+    props.currentLyricIndex >= -1
+  ) {
+    const schedulerIndex = props.currentLyricIndex;
+    if (schedulerIndex < 0 || schedulerIndex < displayedLyrics.value.length) {
+      return schedulerIndex;
+    }
+  }
+  return findLyricIndex(displayedLyrics.value, props.currentTime);
+});
 
 const resetLyricEditState = () => {
   isLyricEditMode.value = false;

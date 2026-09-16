@@ -97,6 +97,7 @@
           :current-song-name="currentSong?.name"
           :cover-url="resolveSongCoverUrl(currentSong)"
           :current-time="currentTime"
+          :current-lyric-index="currentLyricIndex"
           :duration="duration"
           :is-playing="isPlaying"
           :play-mode="playMode"
@@ -379,6 +380,7 @@ const {
   rawLyricsContent,
   isLyricsLoading,
   hasLyrics,
+  currentLyricIndex,
   selectedSourceMenuGroup,
   selectedSongListMenuTitle,
   startupStatusMessage,
