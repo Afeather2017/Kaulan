@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
 import { getLocalApiBase } from "@/utils/api";
 
 export type MainView = "playlists" | "songs" | "search" | "downloads";

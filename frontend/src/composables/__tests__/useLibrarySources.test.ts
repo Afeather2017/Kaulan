@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterSongsBySearchQuery } from "@/composables/useLibrarySources";
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
 
 const song = (name: string, id: number): MusicInfo => ({
   id,

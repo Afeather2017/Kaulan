@@ -1,5 +1,5 @@
 import { computed, ref, type Ref } from "vue";
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
 import { getLocalApiBase, isSessionLocalApiBase } from "@/utils/api";
 import {
   markDeviceResolved,

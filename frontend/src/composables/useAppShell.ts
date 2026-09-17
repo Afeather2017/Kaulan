@@ -19,11 +19,8 @@ import {
 import { useLyrics } from "@/composables/useLyrics";
 import { useLufs } from "@/composables/useLufs";
 import { useTextSelection } from "@/composables/useTextSelection";
-import {
-  PlaybackStartError,
-  type MusicInfo,
-  type PlayMode,
-} from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
+import { PlaybackStartError, type PlayMode } from "@/playback";
 import type {
   LibrarySourceGroup,
   LibrarySourceGroupSummary,
@@ -492,15 +489,9 @@ export function useAppShell() {
       return;
     }
 
-    if (!player.audioElement.value || player.duration.value === 0) {
-      await playerStore.playSong(player.currentSong.value, time);
-      return;
-    }
-
+    // Single command for both backends: seek auto-resumes per the playback
+    // contract; when metadata hasn't loaded the engine reloads from `time`.
     await playerStore.seekToTime(time);
-    if (!player.isPlaying.value) {
-      await playerStore.play();
-    }
   };
 
   const handlePlaySong = async (song: MusicInfo, index?: number) => {
@@ -1233,7 +1224,6 @@ export function useAppShell() {
     playbackSource: player.playbackSource,
     searchPlaybackSongs: player.searchPlaybackSongs,
     currentSongs,
-    audioElement: player.audioElement,
     activeQueue: player.activeQueue,
     currentSong: player.currentSong,
     currentSongLyricApiBase,
