@@ -192,6 +192,7 @@ describe("useAudioPlayer - Android correction guard", () => {
             localUri?: string | null;
             tempSongUrl?: string | null;
             sourceKind?: string | null;
+            coverUrl?: string | null;
           }>;
         }
       | undefined;
@@ -200,6 +201,9 @@ describe("useAudioPlayer - Android correction guard", () => {
     );
     expect(latestQueue?.songs?.[0]?.sourceKind).toBe("local_raw");
     expect(latestQueue?.songs?.[0]?.tempSongUrl).toBeNull();
+    expect(latestQueue?.songs?.[0]?.coverUrl).toBe(
+      "http://localhost:2080/api/music/id/1/cover",
+    );
   });
 
   it("keeps absolute filesystem paths as local_raw for localhost queues", async () => {
@@ -239,11 +243,15 @@ describe("useAudioPlayer - Android correction guard", () => {
         sourceKind?: string;
         deviceId?: string | null;
         localUri?: string | null;
+        coverUrl?: string | null;
       }>;
     };
     expect(latestQueue.songs?.[0]?.sourceKind).toBe("local_raw");
     expect(latestQueue.songs?.[0]?.localUri).toBe(songs[0].path);
     expect(latestQueue.songs?.[0]?.deviceId).toBeNull();
+    expect(latestQueue.songs?.[0]?.coverUrl).toBe(
+      "http://localhost:2080/api/music/id/2/cover",
+    );
   });
 
   it("falls back to kaulan streaming for restored songs with basename-only paths", async () => {
@@ -386,6 +394,39 @@ describe("useAudioPlayer - Android correction guard", () => {
     expect(latestQueue.songs?.[0]?.deviceId).toBe("remote-device");
     expect(latestQueue.songs?.[0]?.localUri).toBeNull();
     expect(latestQueue.songs?.[0]?.tempSongUrl).toBeNull();
+  });
+
+  it("treats a persisted literal null cover as missing metadata", async () => {
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: {
+        songs: [
+          {
+            id: 51,
+            name: "Restored Song",
+            deviceId: "local-device",
+            sourceKind: "kaulan",
+            localUri: null,
+            tempSongUrl: null,
+            lufs: null,
+            coverUrl: "null",
+          },
+        ],
+        currentIndex: 0,
+      },
+      currentSongId: 51,
+      runtime: { isPlaying: false, positionMs: 0, durationMs: 180000 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, currentSong } = useAudioPlayer({
+      songs: () => [],
+      sourceGroups: () => [buildLocalGroup()],
+    });
+    await initAudio();
+
+    expect(currentSong.value?.cover_url).toBe(
+      "http://localhost:2080/api/music/id/51/cover",
+    );
   });
 
   it("uses a dedicated URL only for temporary Android tracks", async () => {

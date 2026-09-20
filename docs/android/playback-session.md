@@ -95,6 +95,25 @@ stopping. Local filesystem and `content://` entries use `localUri`. Temporary
 preview and direct `play({url})` entries use `tempSongUrl` only while the service
 is alive and are removed from process-restart persistence.
 
+Artwork follows the same source ownership split. The native service derives a
+Kaulan entry's cover endpoint from its resolved device API base. A `local_raw`
+entry still includes the localhost `GET /api/music/id/{id}/cover` URL because
+its raw audio URI contains no embedded-artwork locator for the notification
+service. The native service also derives that localhost URL from any positive
+`local_raw` song ID when an older or incomplete frontend queue omits it.
+Temporary entries carry their provider cover URL when one is available.
+Artwork loading is asynchronous and does not block playback. The webview
+retries a failed cover twice because its image request can race Android's
+localhost server startup; confirmed missing artwork then remains on the music
+placeholder instead of retrying forever.
+
+Persisted queue JSON uses actual JSON `null` values for absent optional
+locators. Session restoration checks `JSONObject.isNull` before reading those
+fields; otherwise Android's `optString` turns JSON null into the literal string
+`"null"`, which is neither a valid artwork URL nor a missing value. The
+frontend also rejects that legacy literal when restoring sessions written by
+affected builds.
+
 ### Choosing `local_raw` vs `kaulan` for a queue entry
 
 `useAudioPlayer.ts` marks a song `local_raw` only when its `path` is a directly

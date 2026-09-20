@@ -107,6 +107,7 @@
           @show-lyrics-panel="showLyricsPanel"
           @request-player-back="requestPlayerBack"
           @cover-load-error="handleCoverLoadError(currentSong)"
+          @cover-load-success="handleCoverLoadSuccess(currentSong)"
           @seek="seekToTime"
           @toggle-play-mode="togglePlayMode"
           @previous="previousSong"
@@ -389,6 +390,7 @@ const {
   isPlayerPanelVisible,
   isLyricPanelVisible,
   resolveSongCoverUrl,
+  handleCoverLoadSuccess,
   handleSearch,
   handleSetActiveTab,
   openDownloads,

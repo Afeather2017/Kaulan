@@ -270,8 +270,8 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         sourceKind === "temporary" ? buildSongPlaybackUrl(song) : null,
       lufs: song.lufs,
       coverUrl:
-        sourceKind === "temporary"
-          ? (song.cover_url ?? buildCoverUrl(song.id, getSongSourceKey(song)))
+        sourceKind !== "kaulan"
+          ? song.cover_url || buildCoverUrl(song.id, getSongSourceKey(song))
           : null,
     };
   };
@@ -287,6 +287,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     lufs: number | null;
     coverUrl?: string | null;
   }): MusicInfo => {
+    const nativeCoverUrl =
+      song.coverUrl && song.coverUrl.trim().toLowerCase() !== "null"
+        ? song.coverUrl
+        : null;
     const deviceId = song.deviceId ?? "";
     const sourceKey =
       song.sourceKind === "kaulan"
@@ -314,7 +318,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
             ? (song.tempSongUrl ?? null)
             : kaulanUrl,
       cover_url:
-        song.coverUrl ??
+        nativeCoverUrl ??
         (sourceKey === null ? null : buildCoverUrl(song.id, sourceKey)),
       source_key: sourceKey,
       is_temporary: song.sourceKind === "temporary",

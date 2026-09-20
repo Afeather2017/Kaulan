@@ -187,7 +187,10 @@
               :key="coverUrl || currentSongId"
               class="cover-image"
               @error="$emit('coverLoadError')"
-              @load="($event.target as HTMLImageElement).style.display = ''"
+              @load="
+                ($event.target as HTMLImageElement).style.display = '';
+                $emit('coverLoadSuccess');
+              "
               alt=""
             />
           </div>
@@ -276,6 +279,7 @@ const emit = defineEmits<{
   (e: "showLyricsPanel"): void;
   (e: "requestPlayerBack"): void;
   (e: "coverLoadError"): void;
+  (e: "coverLoadSuccess"): void;
   (e: "seek", time: number): void;
   (e: "togglePlayMode"): void;
   (e: "previous"): void;

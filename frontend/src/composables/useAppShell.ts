@@ -1286,6 +1286,7 @@ export function useAppShell() {
     isPlayerPanelVisible: shellLayout.isPlayerPanelVisible,
     isLyricPanelVisible: shellLayout.isLyricPanelVisible,
     resolveSongCoverUrl: shellLayout.resolveSongCoverUrl,
+    handleCoverLoadSuccess: shellLayout.handleCoverLoadSuccess,
     handleSearch,
     handleSetActiveTab,
     openDownloads,
