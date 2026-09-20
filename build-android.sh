@@ -17,6 +17,7 @@ INSTALL_ON_DEVICE="${INSTALL_ON_DEVICE:-true}"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+MUSIC_NOTIFICATION_PLUGIN_DIR="$PROJECT_ROOT/vendor/tauri-plugin-music-notification"
 ANDROID_DIR="$FRONTEND_DIR/src-tauri/gen/android"
 KEYSTORE_PROPERTIES="$ANDROID_DIR/keystore.properties"
 APK_GLOB="$ANDROID_DIR/app/build/outputs/apk"
@@ -195,7 +196,7 @@ if [ "$CI_MODE" = "true" ] && [ -z "${ANDROID_KEY_BASE64:-}" ]; then
 fi
 
 if [ -n "${ANDROID_KEY_BASE64:-}" ]; then
-    echo "[1/4] Restoring CI keystore..."
+    echo "[1/5] Restoring CI keystore..."
     KEYSTORE="${RUNNER_TEMP:-/tmp}/kaulan-upload-keystore.jks"
     printf '%s' "$ANDROID_KEY_BASE64" | base64 --decode > "$KEYSTORE"
     KEY_ALIAS="${ANDROID_KEY_ALIAS:?ANDROID_KEY_ALIAS is required when ANDROID_KEY_BASE64 is set}"
@@ -203,10 +204,10 @@ if [ -n "${ANDROID_KEY_BASE64:-}" ]; then
     KEY_KEYPASS="${ANDROID_KEY_PASSWORD}"
     write_keystore_properties
 elif [ -f "$KEYSTORE" ]; then
-    echo "[1/4] Using existing keystore: $KEYSTORE"
+    echo "[1/5] Using existing keystore: $KEYSTORE"
     write_keystore_properties
 else
-    echo "[1/4] Generating local keystore..."
+    echo "[1/5] Generating local keystore..."
     keytool -genkey -v -keystore "$KEYSTORE" -alias "$KEY_ALIAS" \
         -keyalg RSA -keysize 2048 -validity 10000 \
         -storepass "$KEY_STOREPASS" -keypass "$KEY_KEYPASS" \
@@ -236,19 +237,26 @@ if [ -n "$RELEASE_VERSION" ]; then
 fi
 
 echo
+echo "[2/5] Building Android playback plugin JavaScript bridge..."
+if [ ! -x "$MUSIC_NOTIFICATION_PLUGIN_DIR/node_modules/.bin/rollup" ]; then
+    npm --prefix "$MUSIC_NOTIFICATION_PLUGIN_DIR" ci
+fi
+npm --prefix "$MUSIC_NOTIFICATION_PLUGIN_DIR" run build
+
+echo
 cd "$FRONTEND_DIR"
 # ${TAURI_ARGS[@]+"${TAURI_ARGS[@]}"} expands safely to nothing when the array
 # is empty, even under `set -u` on older bash (e.g. macOS 3.2).
 if [ "$BUILD_AAB" = "true" ]; then
-    echo "[2/4] Building signed Android packages (APK + AAB)..."
+    echo "[3/5] Building signed Android packages (APK + AAB)..."
     npx tauri android build --ci --apk --aab ${TAURI_ARGS[@]+"${TAURI_ARGS[@]}"}
 else
-    echo "[2/4] Building signed Android packages (APK only)..."
+    echo "[3/5] Building signed Android packages (APK only)..."
     npx tauri android build --ci --apk ${TAURI_ARGS[@]+"${TAURI_ARGS[@]}"}
 fi
 
 echo
-echo "[3/4] Collecting build outputs..."
+echo "[4/5] Collecting build outputs..."
 find "$APK_GLOB" -type f \( -name '*.apk' -o -name '*mapping.txt' \) | sort || true
 if [ "$BUILD_AAB" = "true" ]; then
     find "$AAB_GLOB" -type f -name '*.aab' | sort || true
@@ -261,7 +269,7 @@ if [ -n "$SIGNED_APK" ]; then
 fi
 
 echo
-echo "[4/4] Finishing..."
+echo "[5/5] Finishing..."
 if [ "$CI_MODE" = "true" ] || [ "$INSTALL_ON_DEVICE" != "true" ]; then
     echo "Skipping device install."
     exit 0

@@ -43,7 +43,7 @@ names for the generated image destination.
 
 The Android release job runs as a per-ABI matrix. Each leg builds and caches only its own FFmpeg subtree (see [`ffmpeg-audio-pipeline.md`](ffmpeg-audio-pipeline.md)) before running the Android packaging script. Manual recovery publishes can be started with `workflow_dispatch` by passing the existing GitHub release tag, such as `v0.1.4`.
 
-The root [`build-android.sh`](../build-android.sh) script performs the same staged-bundle preflight locally. Targeted builds such as `./build-android.sh --target aarch64` only require the matching target subtree plus `binding.rs`; the default multi-ABI build requires all four Android target subtrees. Pass `--no-aab` to emit APKs only (the per-ABI CI legs use this).
+The root [`build-android.sh`](../build-android.sh) script performs the same staged-bundle preflight locally. It also builds the vendored music-notification JavaScript bridge before Tauri starts, because the plugin's ignored `dist-js` declarations must match its current source. Targeted builds such as `./build-android.sh --target aarch64` only require the matching target subtree plus `binding.rs`; the default multi-ABI build requires all four Android target subtrees. Pass `--no-aab` to emit APKs only (the per-ABI CI legs use this). The Windows [`build-android.bat`](../build-android.bat) script performs the same plugin build step.
 
 ## FFmpeg build dependencies
 

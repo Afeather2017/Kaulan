@@ -28,6 +28,7 @@ set "KEYTOOL=C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe"
 REM Project paths
 set "PROJECT_ROOT=%~dp0"
 set "FRONTEND_DIR=%PROJECT_ROOT%frontend"
+set "MUSIC_NOTIFICATION_PLUGIN_DIR=%PROJECT_ROOT%vendor\tauri-plugin-music-notification"
 set "SRC_TAURI=%FRONTEND_DIR%\src-tauri"
 set "APK_DIR=%SRC_TAURI%\gen\android\app\build\outputs\apk"
 set "ALIGNED_APK=%TEMP%\app-aligned.apk"
@@ -94,10 +95,20 @@ if not defined LATEST_TAG (
     )
 )
 
-REM Step 1: Build unsigned APK. Pass --config inline when a release version was
+REM Build the local plugin package before Vue type-checking. dist-js is a
+REM generated artifact and is not stored in git.
+echo [1/6] Building Android playback plugin JavaScript bridge...
+if not exist "%MUSIC_NOTIFICATION_PLUGIN_DIR%\node_modules\.bin\rollup.cmd" (
+    call npm --prefix "%MUSIC_NOTIFICATION_PLUGIN_DIR%" ci
+    if errorlevel 1 exit /b 1
+)
+call npm --prefix "%MUSIC_NOTIFICATION_PLUGIN_DIR%" run build
+if errorlevel 1 exit /b 1
+
+REM Step 2: Build unsigned APK. Pass --config inline when a release version was
 REM resolved; cmd.exe's `\"` escapes the inner quotes so the C runtime that
 REM parses argv in npx/tauri sees valid JSON: {"version":"X.Y.Z"}.
-echo [1/5] Building APK with Tauri...
+echo [2/6] Building APK with Tauri...
 cd /d "%FRONTEND_DIR%"
 if "%~1"=="" (
     echo   No target specified, building aarch64 APK to match staged FFmpeg...
@@ -118,7 +129,7 @@ if errorlevel 1 exit /b 1
 
 REM Detect the unsigned APK
 echo.
-echo [2/5] Locating built APK...
+echo [3/6] Locating built APK...
 set "UNSIGNED_APK="
 for /r "%APK_DIR%" %%F in (*-release-unsigned.apk) do (
     set "UNSIGNED_APK=%%F"
@@ -131,9 +142,9 @@ if "%UNSIGNED_APK%"=="" (
 )
 echo   Found: %UNSIGNED_APK%
 
-REM Step 3: Generate keystore if needed
+REM Step 4: Generate keystore if needed
 echo.
-echo [3/5] Checking keystore...
+echo [4/6] Checking keystore...
 if not exist "%KEYSTORE%" (
     echo   Generating new keystore...
     "%KEYTOOL%" -genkey -v -keystore "%KEYSTORE%" -alias "%KEY_ALIAS%" ^
@@ -148,15 +159,15 @@ if not exist "%KEYSTORE%" (
 if exist "%ALIGNED_APK%" del "%ALIGNED_APK%"
 if exist "%SIGNED_APK%" del "%SIGNED_APK%"
 
-REM Step 4: Zipalign
+REM Step 5: Zipalign
 echo.
-echo [4/5] Zipaligning APK...
+echo [5/6] Zipaligning APK...
 "%BUILD_TOOLS%\zipalign" -v -p 4 "%UNSIGNED_APK%" "%ALIGNED_APK%"
 if errorlevel 1 exit /b 1
 
-REM Step 5: Sign APK
+REM Step 6: Sign APK
 echo.
-echo [5/5] Signing APK...
+echo [6/6] Signing APK...
 "%BUILD_TOOLS%\apksigner" sign ^
     --ks "%KEYSTORE%" ^
     --ks-pass "pass:%KEY_STOREPASS%" ^
@@ -172,7 +183,7 @@ echo Signed APK: %SIGNED_APK%
 echo.
 
 REM Install to device
-echo [6/6] Installing to device...
+echo Installing to device...
 adb install -r "%SIGNED_APK%"
 if errorlevel 1 (
     echo Installation failed!

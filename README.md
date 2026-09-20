@@ -771,14 +771,22 @@ Kaulan can be built as a native Android app using Tauri's mobile support. The An
 ### Building for Android
 
 ```bash
-cd frontend
+# Recommended release build; builds the local playback plugin bridge first.
+./build-android.sh --target aarch64
 
-# Build Android APK
+# Direct Tauri development commands require the plugin bridge to be built.
+npm --prefix vendor/tauri-plugin-music-notification ci
+npm --prefix vendor/tauri-plugin-music-notification run build
+cd frontend
 npm run tauri android build
 
 # For development with live reload
 npm run tauri android dev
 ```
+
+On Windows, use `build-android.bat --target aarch64`. Both root build scripts
+generate the ignored `vendor/tauri-plugin-music-notification/dist-js` package
+before Vue type-checking, so stale local declarations cannot break the build.
 
 ### Android-Specific Features
 
