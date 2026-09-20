@@ -6,7 +6,7 @@ import {
   watch,
   type Ref,
 } from "vue";
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
 import type { MainView, PlayerPanelMode } from "@/stores/ui";
 import { resolveSourceApiBase } from "@/utils/api";
 

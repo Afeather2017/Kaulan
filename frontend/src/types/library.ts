@@ -1,4 +1,4 @@
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
 
 export interface LibrarySourcePlaylistSummary {
   name: string;

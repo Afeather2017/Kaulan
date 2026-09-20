@@ -5,7 +5,7 @@ import type { Ref } from "vue";
 import type { MusicInfo } from "@/types/music";
 import type { LibrarySourceGroup } from "@/types/library";
 import * as librarySourcesModule from "@/composables/useLibrarySources";
-import * as audioPlayerModule from "@/composables/useAudioPlayer";
+import * as playbackModule from "@/playback";
 import { usePlayerStore } from "@/stores/player";
 import { useLibraryStore } from "@/stores/library";
 
@@ -49,7 +49,7 @@ vi.mock("@/composables/useLibrarySources", async () => {
   };
 });
 
-vi.mock("@/composables/useAudioPlayer", async () => {
+vi.mock("@/playback", async () => {
   const { ref } = await import("vue");
   const state: PlayerMockState = {
     playSongAtIndex: vi.fn(async () => {}),
@@ -57,8 +57,8 @@ vi.mock("@/composables/useAudioPlayer", async () => {
   };
   return {
     __mockState: state,
-    useAudioPlayer: () => ({
-      audioElement: ref(null),
+    createPlayback: () => ({
+      status: ref("idle"),
       activeQueue: ref([]),
       currentSong: ref(null),
       isPlaying: ref(false),
@@ -66,22 +66,26 @@ vi.mock("@/composables/useAudioPlayer", async () => {
       duration: ref(0),
       playMode: ref("sequential"),
       currentIndex: ref(-1),
+      playbackError: ref(null),
+      playedSongIndexes: ref(new Set<number>()),
+      isAndroidPlayer: ref(false),
       play: vi.fn(async () => {}),
       pause: vi.fn(async () => {}),
       playSong: state.playSong,
       playSongAtIndex: state.playSongAtIndex,
-      togglePlayMode: vi.fn(),
+      togglePlayMode: vi.fn(async () => {}),
       previousSong: vi.fn(async () => {}),
       nextSong: vi.fn(async () => {}),
       seekToTime: vi.fn(async () => {}),
       setTimedPause: vi.fn(async () => {}),
+      setVolume: vi.fn(async () => {}),
+      syncNormalizationConfig: vi.fn(async () => {}),
+      replaceQueue: vi.fn(async () => {}),
       resetPlaylist: vi.fn(),
       formatTime: vi.fn(() => "0:00"),
       initAudio: vi.fn(async () => {}),
       refreshAndroidSession: vi.fn(async () => {}),
-      isAndroidPlayer: ref(false),
       syncAndroidQueueState: vi.fn(async () => {}),
-      syncNormalizationConfig: vi.fn(async () => {}),
     }),
   };
 });
@@ -92,7 +96,7 @@ const libraryMock = (
   }
 ).__mockState;
 const playerMock = (
-  audioPlayerModule as unknown as {
+  playbackModule as unknown as {
     __mockState: PlayerMockState;
   }
 ).__mockState;

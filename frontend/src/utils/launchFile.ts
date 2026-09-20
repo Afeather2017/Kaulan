@@ -56,7 +56,7 @@ export function buildLaunchSong(
     name: nameFromFilename(filename),
     path: absolutePath,
     lufs: null,
-    // Bypasses the DB-id playback URL — useAudioPlayer prefers stream_url when
+    // Bypasses the DB-id playback URL — the playback engine prefers stream_url when
     // present. The backend's /api/music/path handler streams via StdFs without
     // a DB lookup.
     stream_url: `${apiBase}/music/path?p=${encodedPath}`,

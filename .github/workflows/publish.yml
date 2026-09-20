@@ -409,8 +409,19 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Put Android cmdline-tools on PATH
+        # The runner image ships cmdline-tools only under versioned
+        # directories (e.g. cmdline-tools/20.0) with no 'latest' link and
+        # nothing on PATH; android-actions/setup-android used to do that
+        # wiring but now fails installing the obsolete 'tools' package that
+        # Google removed from the SDK repository.
+        run: |
+          LATEST="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/ | sort -V | tail -1)"
+          echo "Using cmdline-tools: $LATEST"
+          echo "${LATEST}bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null
 
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK_VERSION}"

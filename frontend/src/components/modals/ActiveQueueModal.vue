@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import type { MusicInfo } from "@/types/music";
 
 defineProps<{
   songs: MusicInfo[];
