@@ -551,7 +551,8 @@ watch(
 
 <style scoped>
 .right-panel {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   background-color: #fafafa;
   border-left: 1px solid #eee;
@@ -560,6 +561,7 @@ watch(
 .right-panel-content {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   height: 100%;
 }
 

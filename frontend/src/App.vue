@@ -729,10 +729,15 @@ const copyShareUrl = async () => {
 
 .list-panel {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   background-color: #fff;
   display: flex;
   flex-direction: column;
+}
+
+.main-area.wide-layout .list-panel {
+  flex: 1 1 0;
 }
 
 .list-panel-content {

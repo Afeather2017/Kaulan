@@ -12,6 +12,7 @@ import { storedQueueSongToMusicInfo } from "@/utils/songRestore";
 import type { LibrarySourceGroup } from "@/types/library";
 import type { MusicInfo } from "@/types/music";
 import type {
+  PlaybackEvent,
   PlaybackSession,
   PlayMode as AndroidPlayMode,
   PlayingQueue,
@@ -122,11 +123,18 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   // only device_id + song_id; URLs are derived from the source list at runtime.
   const getSourceGroups = (): LibrarySourceGroup[] => sourceGroups?.() ?? [];
 
-  const POLL_INTERVAL_MS = 1000;
+  const ANDROID_POSITION_TICK_MS = 250;
   const SEEK_CONFIRMATION_THRESHOLD_SECONDS = 0.1;
 
   let isPlayingInternal = false;
-  let pollingTimer: ReturnType<typeof setInterval> | null = null;
+  let androidPositionTimer: ReturnType<typeof setInterval> | null = null;
+  let androidEventUnsubscribe: (() => Promise<void>) | null = null;
+  let androidPositionAnchorMs = 0;
+  let androidPositionAnchorAtMs = 0;
+  let androidEventGeneration: string | null = null;
+  let androidEventSequence = 0;
+  let androidEventRevision = 0;
+  let androidGapRecovery: Promise<void> | null = null;
   let pluginApiPromise: Promise<MusicNotificationApi> | null = null;
   let lastStartedSongIdentity: string | null = null;
   let pendingSeekTargetMs: number | null = null;
@@ -137,6 +145,9 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   // Each switch records its generation and bails (after every await) once a
   // newer one starts. See docs/web-playback-isplaying.md.
   let playbackGeneration = 0;
+
+  const monotonicNow = () =>
+    typeof performance !== "undefined" ? performance.now() : Date.now();
 
   const loadPluginApi = async (): Promise<MusicNotificationApi> => {
     if (pluginApiPromise === null) {
@@ -635,24 +646,24 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     isPlaying.value = session.runtime.isPlaying;
     duration.value = session.runtime.durationMs / 1000;
     playMode.value = session.playMode as PlayMode;
-    const correctedTimeSeconds = session.runtime.positionMs / 1000;
-
+    let displayedPositionMs = session.runtime.positionMs;
     if (pendingSeekTargetMs !== null) {
       const driftMs = Math.abs(
         session.runtime.positionMs - pendingSeekTargetMs,
       );
       if (driftMs <= SEEK_CONFIRMATION_THRESHOLD_SECONDS * 1000) {
         pendingSeekTargetMs = null;
-        currentTime.value = correctedTimeSeconds;
       } else {
-        currentTime.value = pendingSeekTargetMs / 1000;
+        displayedPositionMs = pendingSeekTargetMs;
       }
-    } else {
-      currentTime.value = correctedTimeSeconds;
     }
+    currentTime.value = displayedPositionMs / 1000;
+    androidPositionAnchorMs = displayedPositionMs;
+    androidPositionAnchorAtMs = monotonicNow();
+    updateAndroidPositionClock();
 
     persistPlaybackSession(activeQueue.value, resolved.currentSong);
-    console.log("[useAudioPlayer] applyAndroidSession", {
+    console.debug("[useAudioPlayer] Android playback session applied", {
       source,
       currentIndex: currentIndex.value,
       currentSongId: currentSong.value?.id ?? null,
@@ -675,26 +686,109 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   ): Promise<PlaybackSession> => {
     const plugin = await loadPluginApi();
     const session = await plugin.getPlaybackSession();
+    if (session.serviceGeneration) {
+      if (
+        androidEventGeneration === session.serviceGeneration &&
+        session.revision !== null &&
+        session.revision !== undefined &&
+        session.revision < androidEventRevision
+      ) {
+        return session;
+      }
+      if (androidEventGeneration !== session.serviceGeneration) {
+        androidEventSequence = 0;
+        androidEventRevision = 0;
+      }
+      androidEventGeneration = session.serviceGeneration;
+      androidEventSequence = Math.max(
+        androidEventSequence,
+        session.sequence ?? 0,
+      );
+      androidEventRevision = Math.max(
+        androidEventRevision,
+        session.revision ?? 0,
+      );
+    }
     applyAndroidSession(session, source);
     return session;
   };
 
-  const startAndroidPolling = () => {
-    if (pollingTimer) return;
-    pollingTimer = setInterval(() => {
-      void fetchAndroidSession("poll").catch((error) => {
+  function stopAndroidPositionClock() {
+    if (androidPositionTimer === null) return;
+    clearInterval(androidPositionTimer);
+    androidPositionTimer = null;
+  }
+
+  function updateAndroidPositionClock() {
+    if (!isPlaying.value) {
+      stopAndroidPositionClock();
+      return;
+    }
+    if (androidPositionTimer !== null) return;
+    androidPositionTimer = setInterval(() => {
+      const elapsedMs = Math.max(0, monotonicNow() - androidPositionAnchorAtMs);
+      const durationMs = Math.max(0, duration.value * 1000);
+      const estimatedPositionMs = androidPositionAnchorMs + elapsedMs;
+      currentTime.value =
+        Math.min(estimatedPositionMs, durationMs || estimatedPositionMs) / 1000;
+    }, ANDROID_POSITION_TICK_MS);
+  }
+
+  const recoverAndroidEventGap = () => {
+    if (androidGapRecovery !== null) return;
+    androidGapRecovery = fetchAndroidSession("event-gap")
+      .then(() => undefined)
+      .catch((error) => {
         console.warn(
-          "[useAudioPlayer] Failed to poll Android playback session:",
+          "[useAudioPlayer] Failed to recover Android playback event gap:",
           error,
         );
+      })
+      .finally(() => {
+        androidGapRecovery = null;
       });
-    }, POLL_INTERVAL_MS);
   };
 
-  const stopAndroidPolling = () => {
-    if (!pollingTimer) return;
-    clearInterval(pollingTimer);
-    pollingTimer = null;
+  const applyAndroidPlaybackEvent = (event: PlaybackEvent) => {
+    if (event.protocolVersion !== 1) {
+      console.warn(
+        "[useAudioPlayer] Unsupported Android playback event protocol:",
+        event.protocolVersion,
+      );
+      recoverAndroidEventGap();
+      return;
+    }
+
+    if (androidEventGeneration !== event.serviceGeneration) {
+      androidEventGeneration = event.serviceGeneration;
+      androidEventSequence = 0;
+      androidEventRevision = 0;
+    }
+
+    if (
+      event.sequence <= androidEventSequence ||
+      event.revision < androidEventRevision
+    ) {
+      return;
+    }
+
+    if (androidEventSequence > 0 && event.sequence > androidEventSequence + 1) {
+      recoverAndroidEventGap();
+    }
+
+    androidEventSequence = event.sequence;
+    androidEventRevision = event.revision;
+    applyAndroidSession(event.session, `event:${event.reason}`);
+  };
+
+  const handleAndroidVisibilityChange = () => {
+    if (document.visibilityState !== "visible") return;
+    void fetchAndroidSession("visibility-resume").catch((error) => {
+      console.warn(
+        "[useAudioPlayer] Failed to refresh Android playback after resume:",
+        error,
+      );
+    });
   };
 
   let webBackend: PlaybackBackend;
@@ -761,17 +855,16 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       await plugin.seekAndPlay(Math.max(0, Math.floor(seekTime * 1000)));
     } else {
       pendingSeekTargetMs = null;
+      currentTime.value = 0;
       await plugin.seekAndPlay(0);
     }
 
-    await fetchAndroidSession(source);
-
-    // The plugin was just asked to play. The polled session can briefly lag the
-    // native player (it may report isPlaying=false immediately after play()),
-    // so mirror the explicit play command right away; the next poll reconciles
-    // against the real session. Without this the UI can read "paused" for a
-    // moment after a tap (or indefinitely in the lagging-session unit test).
+    // Mirror the command immediately while the native prepared/playing events
+    // travel back through the plugin channel.
     isPlaying.value = true;
+    androidPositionAnchorMs = currentTime.value * 1000;
+    androidPositionAnchorAtMs = monotonicNow();
+    updateAndroidPositionClock();
     console.log("[useAudioPlayer] restartAndroidPlayback set isPlaying=true", {
       source,
       targetSongId: targetSong.id,
@@ -815,7 +908,6 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
       return;
     }
     await plugin.setPlayMode(playMode.value as AndroidPlayMode);
-    await fetchAndroidSession();
   };
 
   const playSongAtIndex = async (
@@ -1425,10 +1517,33 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   androidBackend = {
     kind: "android",
     init: async () => {
-      startAndroidPolling();
+      const plugin = await loadPluginApi();
+      androidEventUnsubscribe = await plugin.onPlaybackEvent(
+        applyAndroidPlaybackEvent,
+      );
+      document.addEventListener(
+        "visibilitychange",
+        handleAndroidVisibilityChange,
+      );
       await fetchAndroidSession("initAudio");
     },
-    cleanup: () => {},
+    cleanup: () => {
+      stopAndroidPositionClock();
+      document.removeEventListener(
+        "visibilitychange",
+        handleAndroidVisibilityChange,
+      );
+      const unsubscribe = androidEventUnsubscribe;
+      androidEventUnsubscribe = null;
+      if (unsubscribe) {
+        void unsubscribe().catch((error) => {
+          console.warn(
+            "[useAudioPlayer] Failed to remove Android playback listener:",
+            error,
+          );
+        });
+      }
+    },
     usesRawPlaybackPath: (song) => {
       const sourceApiBase = resolveSourceApiBase(song.source_key);
       // Only a content URI or an absolute path is directly openable by the
@@ -1469,42 +1584,24 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
           return;
         }
       }
-      await fetchAndroidSession();
+      isPlaying.value = true;
+      androidPositionAnchorMs = currentTime.value * 1000;
+      androidPositionAnchorAtMs = monotonicNow();
+      updateAndroidPositionClock();
     },
     pause: async () => {
       const plugin = await loadPluginApi();
       await plugin.pause();
-      await fetchAndroidSession();
+      isPlaying.value = false;
+      stopAndroidPositionClock();
     },
     previousSong: async () => {
-      const session = await fetchAndroidSession("previousSong:before");
-      const queue = session.queue.songs.map(androidSongToMusicInfo);
-      if (queue.length === 0) return;
-
-      const sessionIndex = session.queue.currentIndex ?? 0;
-      const newIndex =
-        playMode.value === "loop"
-          ? sessionIndex
-          : sessionIndex <= 0
-            ? queue.length - 1
-            : sessionIndex - 1;
-
-      await restartAndroidPlayback(queue, newIndex, "previousSong");
+      const plugin = await loadPluginApi();
+      await plugin.previous();
     },
     nextSong: async () => {
-      const session = await fetchAndroidSession("nextSong:before");
-      const queue = session.queue.songs.map(androidSongToMusicInfo);
-      if (queue.length === 0) return;
-
-      const sessionIndex = session.queue.currentIndex ?? 0;
-      const newIndex =
-        playMode.value === "loop"
-          ? sessionIndex
-          : sessionIndex >= queue.length - 1
-            ? 0
-            : sessionIndex + 1;
-
-      await restartAndroidPlayback(queue, newIndex, "nextSong");
+      const plugin = await loadPluginApi();
+      await plugin.next();
     },
     seekToTime: async (time) => {
       if (duration.value === 0) return;
@@ -1526,8 +1623,11 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
         await plugin.seek(targetPositionMs);
       } else {
         await plugin.seekAndPlay(targetPositionMs);
+        isPlaying.value = true;
       }
-      await fetchAndroidSession("seekToTime");
+      androidPositionAnchorMs = targetPositionMs;
+      androidPositionAnchorAtMs = monotonicNow();
+      updateAndroidPositionClock();
     },
     syncQueueState: async () => {
       if (activeQueue.value.length === 0) {
@@ -1615,7 +1715,6 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   });
 
   const cleanup = () => {
-    stopAndroidPolling();
     getPlaybackBackend().cleanup();
   };
 

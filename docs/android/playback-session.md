@@ -8,10 +8,10 @@ This document covers the Android playback/session flow implemented by:
 
 - [`frontend/src/composables/useAudioPlayer.ts`](../../frontend/src/composables/useAudioPlayer.ts)
 - [`frontend/src/App.vue`](../../frontend/src/App.vue)
-- [`tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt`](../../tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt)
-- [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
-- [`tauri-plugin-music-notification/src/models.rs`](../../tauri-plugin-music-notification/src/models.rs)
-- [`tauri-plugin-music-notification/guest-js/index.ts`](../../tauri-plugin-music-notification/guest-js/index.ts)
+- [`vendor/tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt`](../../vendor/tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt)
+- [`vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../../vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
+- [`vendor/tauri-plugin-music-notification/src/models.rs`](../../vendor/tauri-plugin-music-notification/src/models.rs)
+- [`vendor/tauri-plugin-music-notification/guest-js/index.ts`](../../vendor/tauri-plugin-music-notification/guest-js/index.ts)
 
 ## Why This Exists
 
@@ -24,7 +24,10 @@ If the frontend owns the playback queue, the UI loses:
 3. the current playback position
 4. the current play mode
 
-To avoid that, the plugin persists a playback session and the frontend reloads it by polling.
+To avoid that, the plugin persists a playback session and publishes semantic
+playback events through Tauri's native plugin channel. The frontend reads one
+snapshot during initialization or recovery; it does not query playback state on
+a timer.
 
 ## Session Model
 
@@ -38,7 +41,18 @@ The Android plugin stores:
 - `runtime.durationMs`
 - `playMode`
 
-The frontend reads that state through `getPlaybackSession()`.
+The frontend receives changes through an explicit Tauri `Channel` registered by
+`subscribe_playback_events`.
+`getPlaybackSession()` remains available for initialization, activity resume,
+and event-gap recovery.
+
+Each event contains the complete session plus:
+
+- `protocolVersion` for compatibility
+- `serviceGeneration`, which changes when `MusicPlayerService` is recreated
+- `sequence`, which detects a missed event within one service process
+- `revision`, which prevents an older snapshot from overwriting newer state
+- `reason`, such as `playing`, `paused`, `seeked`, or `track_changed`
 
 The frontend app shell now consumes playback state through `frontend/src/stores/player.ts`, but that store only mirrors the runtime state. It does not replace plugin authority on Android.
 
@@ -51,8 +65,9 @@ Instead it:
 
 1. copies a queue into the plugin
 2. asks the plugin to play a specific queue identity
-3. polls the plugin every second
-4. renders queue, song, time, and lyric state from the polled session
+3. subscribes to native playback events
+4. renders queue, song, duration, and play state from event snapshots
+5. advances visible position locally from the latest native position anchor
 
 ## Playback Flow
 
@@ -65,26 +80,18 @@ When the user taps a song in the Android webview:
 3. frontend calls `stop()`
 4. frontend calls `setPlayingQueue(queue, playMode)`
 5. frontend calls `seekAndPlay(0)`; the service resolves `deviceId` through localhost
-6. frontend polls `getPlaybackSession()`
-7. UI updates from the returned session
+6. service emits `track_changed`, `prepared`, and `playing` events
+7. UI updates from those events
 
 If the tap comes from the "当前播放列表" dialog, the frontend must reuse the current active queue instead of rebuilding from the playlist currently open on screen. Otherwise browsing into a different playlist can overwrite the service queue with the wrong source while the user is trying to jump within the existing playback session.
 
 ### Next and previous from the webview
 
-The webview does not rely on plugin-side `next()` or `previous()` for queue mutation.
-
-Instead:
-
-1. frontend reads `getPlaybackSession()`
-2. frontend gets the current queue and index from the service
-3. frontend computes the target index
-4. frontend calls `stop()`
-5. frontend calls `setPlayingQueue(queue, playMode)` with the new index
-6. frontend asks the service to play the target queue identity
-7. frontend refreshes the session
-
-This is intentionally simple. Queue sizes are small enough that correctness is more important than avoiding one extra queue copy.
+The webview calls plugin-side `next()` or `previous()`. `MusicPlayerService`
+owns the current index, loop behavior, queue traversal, and unreachable-device
+skipping. The service emits the resulting track/session events after selecting
+the target. This avoids a frontend read-modify-write race with notification,
+headset, timed-pause, or native completion actions.
 
 Normal Kaulan queue entries do not contain stream or cover URLs. Immediately
 before creating each new Android media data source, `MusicPlayerService` calls
@@ -151,6 +158,36 @@ compare against the captured runtime URL, so a metadata-only queue refresh
 cannot make a valid completion callback look stale. Resuming an already
 prepared paused player reuses that data source without another discovery query.
 
+## Event Transport and Recovery
+
+The Android service is the playback authority and must keep working while the
+webview is frozen or destroyed. For that reason, events are sent directly from
+the Kotlin plugin to the local webview with an explicit Tauri `Channel`. A localhost
+WebSocket is not used for this internal path: it would make playback-state
+synchronization depend on the Rust HTTP server and require an additional socket
+reconnection layer.
+
+The event channel is intentionally ephemeral. Recovery works as follows:
+
+1. register the event channel before requesting the initial snapshot
+2. accept events in increasing `sequence` and `revision` order
+3. request one snapshot when a sequence gap is detected
+4. request one snapshot when the webview becomes visible after suspension
+5. accept a new `serviceGeneration` as a fresh native service session
+
+Events include the complete session, so applying an event is atomic: queue,
+selected track, play mode, and runtime cannot be observed from different native
+revisions.
+
+## Playback Position Clock
+
+Native events are not emitted every second. Each event supplies an authoritative
+`positionMs` and `isPlaying` anchor. While playing, the frontend advances the
+visible position with a local 250 ms rendering clock based on
+`performance.now()`. Pause, seek, track, prepared, completion, and error events
+replace that anchor. The rendering clock performs no plugin, HTTP, or database
+query.
+
 ## LUFS Behavior
 
 Android playback also follows the shared LUFS playback rules documented in [`docs/lufs-playback-flow.md`](../lufs-playback-flow.md).
@@ -159,7 +196,7 @@ Important note:
 
 1. webview-initiated playback resolves current-song LUFS before playback through the frontend player
 2. native auto-next inside `MusicPlayerService` also resolves current-song LUFS before playback
-3. the webview polls `getPlaybackSession()` every second and updates visible metadata if the backend playback queue has newer LUFS values
+3. native queue/session events update visible metadata when the backend playback queue has newer LUFS values
 4. volume mode and slider changes are sent once through `setNormalizationConfig()` and applied inside `MusicPlayerService`
 
 ## Sequence Diagram when tap next/prev in webview
@@ -171,23 +208,20 @@ sequenceDiagram
     participant Plugin as music-notification-api
     participant Service as MusicPlayerService
 
-    UI->>Player: Tap next / previous / song
+    UI->>Player: Initialize Android playback
+    Player->>Plugin: onPlaybackEvent(listener)
     Player->>Plugin: getPlaybackSession()
-    Plugin->>Service: getPlaybackSession()
-    Service-->>Plugin: queue + currentIndex + runtime + playMode
-    Plugin-->>Player: PlaybackSession
-    Player->>Player: Compute target index
-    Player->>Plugin: stop()
-    Player->>Plugin: setPlayingQueue(queue, playMode)
-    Player->>Plugin: seekAndPlay(0)
-    Plugin->>Service: resolve queue identity
-    Service->>Service: install runtime audio + cover target
-    loop every 1 second
-        Player->>Plugin: getPlaybackSession()
-        Plugin->>Service: read current session
-        Service-->>Plugin: session snapshot
-        Plugin-->>Player: PlaybackSession
-    end
+    Plugin->>Service: read current snapshot
+    Service-->>Player: initial PlaybackSession
+    UI->>Player: Tap next / previous
+    Player->>Plugin: next() / previous()
+    Plugin->>Service: ACTION_NEXT / ACTION_PREVIOUS
+    Service->>Service: resolve and install target
+    Service-->>Plugin: track_changed event
+    Plugin-->>Player: versioned full session
+    Service-->>Plugin: prepared + playing events
+    Plugin-->>Player: versioned full sessions
+    Player->>Player: advance position locally
     Player-->>UI: Render current queue/song/time
 ```
 
@@ -197,8 +231,8 @@ No Android-specific lyric transport is needed.
 
 Lyrics stay in the frontend:
 
-1. polling updates the current song
-2. polling updates the playback position
+1. native events update the current song and position anchor
+2. the local frontend clock advances the playback position between events
 3. the lyric composable reacts to those values
 
 When the current song changes, the lyric request changes as well, so the lyric panel follows playback.

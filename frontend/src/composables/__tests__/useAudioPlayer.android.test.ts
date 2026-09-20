@@ -6,15 +6,26 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibrarySourceGroup } from "@/types/library";
+import type { PlaybackEvent } from "music-notification-api";
+
+let playbackEventListener: ((event: PlaybackEvent) => void) | null = null;
 
 const plugin = {
   getPlaybackSession: vi.fn(),
+  onPlaybackEvent: vi.fn(async (listener: (event: PlaybackEvent) => void) => {
+    playbackEventListener = listener;
+    return async () => {
+      playbackEventListener = null;
+    };
+  }),
   seek: vi.fn(() => Promise.resolve()),
   seekAndPlay: vi.fn(() => Promise.resolve()),
   setPlayingQueue: vi.fn(() => Promise.resolve()),
   stop: vi.fn(() => Promise.resolve()),
   play: vi.fn(() => Promise.resolve()),
   pause: vi.fn(() => Promise.resolve()),
+  next: vi.fn(() => Promise.resolve()),
+  previous: vi.fn(() => Promise.resolve()),
   setPlayMode: vi.fn(() => Promise.resolve()),
   setNormalizationConfig: vi.fn(() => Promise.resolve()),
 };
@@ -81,12 +92,16 @@ describe("useAudioPlayer - Android correction guard", () => {
 
   beforeEach(async () => {
     plugin.getPlaybackSession.mockReset();
+    plugin.onPlaybackEvent.mockClear();
+    playbackEventListener = null;
     plugin.seek.mockClear();
     plugin.seekAndPlay.mockClear();
     plugin.setPlayingQueue.mockClear();
     plugin.stop.mockClear();
     plugin.play.mockClear();
     plugin.pause.mockClear();
+    plugin.next.mockClear();
+    plugin.previous.mockClear();
     plugin.setPlayMode.mockClear();
     plugin.setNormalizationConfig.mockClear();
 
@@ -166,7 +181,6 @@ describe("useAudioPlayer - Android correction guard", () => {
         source_key: "http://localhost:2080/api",
       },
     ];
-
     plugin.getPlaybackSession.mockResolvedValue({
       queue: { songs: [], currentIndex: null },
       currentSongId: null,
@@ -204,6 +218,166 @@ describe("useAudioPlayer - Android correction guard", () => {
     expect(latestQueue?.songs?.[0]?.coverUrl).toBe(
       "http://localhost:2080/api/music/id/1/cover",
     );
+  });
+
+  it("updates Android playback from events without polling the plugin", async () => {
+    vi.useFakeTimers();
+    let nowMs = 0;
+    const performanceNow = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => nowMs);
+    const songs = [
+      {
+        id: 9,
+        name: "Event Song",
+        lufs: -12,
+        path: "content://media/external/audio/media/9",
+      },
+    ];
+    const eventSongs = [
+      {
+        id: 9,
+        name: "Event Song",
+        deviceId: null,
+        sourceKind: "local_raw" as const,
+        localUri: "content://media/external/audio/media/9",
+        tempSongUrl: null,
+        lufs: -12,
+        coverUrl: null,
+      },
+    ];
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs, currentIndex: 0 },
+      currentSongId: 9,
+      runtime: { isPlaying: false, positionMs: 1000, durationMs: 180000 },
+      playMode: "sequential",
+      serviceGeneration: "service-a",
+      sequence: 0,
+      revision: 0,
+    });
+
+    const { initAudio, currentTime, isPlaying } = useAudioPlayer({
+      songs: () => songs,
+    });
+    await initAudio();
+
+    expect(plugin.getPlaybackSession).toHaveBeenCalledTimes(1);
+    expect(plugin.onPlaybackEvent).toHaveBeenCalledTimes(1);
+
+    playbackEventListener?.({
+      protocolVersion: 1,
+      serviceGeneration: "service-a",
+      sequence: 1,
+      revision: 1,
+      reason: "playing",
+      session: {
+        queue: { songs: eventSongs, currentIndex: 0 },
+        currentSongId: 9,
+        runtime: {
+          isPlaying: true,
+          positionMs: 5000,
+          durationMs: 180000,
+        },
+        playMode: "sequential",
+      },
+    });
+
+    expect(isPlaying.value).toBe(true);
+    expect(currentTime.value).toBe(5);
+    nowMs = 1000;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(currentTime.value).toBeGreaterThanOrEqual(6);
+    expect(plugin.getPlaybackSession).toHaveBeenCalledTimes(1);
+    performanceNow.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("applies native track changes and the prepared duration in order", async () => {
+    const firstSong = {
+      id: 20,
+      name: "First Song",
+      lufs: -12,
+      path: "content://media/external/audio/media/20",
+    };
+    const secondQueueSong = {
+      id: 21,
+      name: "Second Song",
+      deviceId: null,
+      sourceKind: "local_raw" as const,
+      localUri: "content://media/external/audio/media/21",
+      tempSongUrl: null,
+      lufs: -11,
+      coverUrl: null,
+    };
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs: [firstSong], currentIndex: 0 },
+      currentSongId: 20,
+      runtime: { isPlaying: true, positionMs: 1000, durationMs: 180000 },
+      playMode: "sequential",
+      serviceGeneration: "service-track-change",
+      sequence: 4,
+      revision: 4,
+    });
+
+    const { initAudio, currentSong, duration } = useAudioPlayer({
+      songs: () => [firstSong],
+    });
+    await initAudio();
+
+    const buildEvent = (
+      sequence: number,
+      reason: PlaybackEvent["reason"],
+      durationMs: number,
+    ): PlaybackEvent => ({
+      protocolVersion: 1,
+      serviceGeneration: "service-track-change",
+      sequence,
+      revision: sequence,
+      reason,
+      session: {
+        queue: { songs: [secondQueueSong], currentIndex: 0 },
+        currentSongId: 21,
+        runtime: { isPlaying: false, positionMs: 0, durationMs },
+        playMode: "sequential",
+      },
+    });
+
+    playbackEventListener?.(buildEvent(5, "track_changed", 0));
+    expect(currentSong.value?.id).toBe(21);
+    expect(duration.value).toBe(0);
+
+    playbackEventListener?.(buildEvent(6, "prepared", 240000));
+    expect(currentSong.value?.id).toBe(21);
+    expect(duration.value).toBe(240);
+    expect(plugin.getPlaybackSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("delegates Android next and previous without reading the session", async () => {
+    const songs = [
+      {
+        id: 10,
+        name: "Native Queue Song",
+        lufs: -12,
+        path: "content://media/external/audio/media/10",
+      },
+    ];
+    plugin.getPlaybackSession.mockResolvedValue({
+      queue: { songs, currentIndex: 0 },
+      currentSongId: 10,
+      runtime: { isPlaying: true, positionMs: 1000, durationMs: 180000 },
+      playMode: "sequential",
+    });
+
+    const { initAudio, nextSong, previousSong } = useAudioPlayer({
+      songs: () => songs,
+    });
+    await initAudio();
+    await nextSong();
+    await previousSong();
+
+    expect(plugin.next).toHaveBeenCalledTimes(1);
+    expect(plugin.previous).toHaveBeenCalledTimes(1);
+    expect(plugin.getPlaybackSession).toHaveBeenCalledTimes(1);
   });
 
   it("keeps absolute filesystem paths as local_raw for localhost queues", async () => {

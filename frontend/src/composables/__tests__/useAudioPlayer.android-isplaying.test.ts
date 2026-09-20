@@ -1,20 +1,26 @@
 /**
  * Repro tests: Android click-to-play should flip isPlaying to true even when
- * the immediately-polled session snapshot lags behind plugin.play().
+ * the native prepared/playing event has not arrived after plugin.play().
  *
  * @module composables/__tests__/useAudioPlayer.android-isplaying-repro
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PlaybackEvent } from "music-notification-api";
 
 const plugin = {
   getPlaybackSession: vi.fn(),
+  onPlaybackEvent: vi.fn(
+    async (_listener: (event: PlaybackEvent) => void) => async () => {},
+  ),
   seek: vi.fn(() => Promise.resolve()),
   seekAndPlay: vi.fn(() => Promise.resolve()),
   setPlayingQueue: vi.fn(() => Promise.resolve()),
   stop: vi.fn(() => Promise.resolve()),
   play: vi.fn(() => Promise.resolve()),
   pause: vi.fn(() => Promise.resolve()),
+  next: vi.fn(() => Promise.resolve()),
+  previous: vi.fn(() => Promise.resolve()),
   setPlayMode: vi.fn(() => Promise.resolve()),
   setNormalizationConfig: vi.fn(() => Promise.resolve()),
 };
@@ -57,12 +63,15 @@ describe("useAudioPlayer - Android click flips isPlaying", () => {
 
   beforeEach(async () => {
     plugin.getPlaybackSession.mockReset();
+    plugin.onPlaybackEvent.mockClear();
     plugin.seek.mockClear();
     plugin.seekAndPlay.mockClear();
     plugin.setPlayingQueue.mockClear();
     plugin.stop.mockClear();
     plugin.play.mockClear();
     plugin.pause.mockClear();
+    plugin.next.mockClear();
+    plugin.previous.mockClear();
     plugin.setPlayMode.mockClear();
     plugin.setNormalizationConfig.mockClear();
 
@@ -96,8 +105,7 @@ describe("useAudioPlayer - Android click flips isPlaying", () => {
       },
     ];
 
-    // Simulate the race: right after plugin.play() the media session still
-    // reports isPlaying=false (ExoPlayer not yet transitioned to playing).
+    // Simulate startup before the native prepared/playing event arrives.
     plugin.getPlaybackSession.mockResolvedValue({
       queue: { songs, currentIndex: 0 },
       currentSongId: 1,
