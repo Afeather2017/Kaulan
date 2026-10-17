@@ -14,6 +14,7 @@ A modern music player built with Rust (Actix Web) backend and Vue.js (TypeScript
 - **Collection Management** - User-defined playlists/collections stored locally in the browser
 - **Volume Normalization** - LUFS support for consistent audio levels
 - **Lyric Display & Timing Edits** - Show synchronized LRC/WEBVTT lyrics and shift writable sidecar timing from the player
+- **Range Playback** - Repeat a chosen lyric span or time interval for listening practice
 - **Real-time Search** - Search across all songs instantly
 - **Device Discovery** - Startup probing and bidirectional UDP discovery build a session address map; device-keyed queues resolve the current URL immediately before a new playback data source starts
 - **Online Search & Download** - Search YouTube, Netease, and Bilibili from the app, preview tracks, and download them with optional Netease lyrics

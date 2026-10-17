@@ -27,6 +27,17 @@
               </button>
             </div>
             <div class="lyric-toolbar-actions">
+              <button
+                v-if="!isLyricEditMode && currentSongId !== null"
+                type="button"
+                class="lyric-toolbar-btn"
+                :class="{ primary: activeRange !== null }"
+                aria-haspopup="menu"
+                :aria-expanded="showRangeMenu"
+                @click="showRangeMenu = !showRangeMenu"
+              >
+                范围播放
+              </button>
               <template v-if="isLyricEditMode">
                 <button
                   type="button"
@@ -62,6 +73,103 @@
                 </button>
               </template>
             </div>
+          </div>
+          <div
+            v-if="showRangeMenu && !isLyricEditMode"
+            class="range-menu"
+            role="menu"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="!hasLyrics"
+              @click="chooseRangeMode('lyric')"
+            >
+              歌词范围
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              @click="chooseRangeMode('time')"
+            >
+              时间范围
+            </button>
+          </div>
+          <div v-if="rangeMode && !isLyricEditMode" class="range-settings">
+            <template v-if="rangeMode === 'lyric'">
+              <label
+                >起点
+                <select v-model.number="startLyricIndex" aria-label="起始歌词">
+                  <option
+                    v-for="(line, index) in lyrics"
+                    :key="index"
+                    :value="index"
+                  >
+                    {{ formatRangeTime(line.time) }}
+                    {{ line.texts.join(" / ") }}
+                  </option>
+                </select>
+              </label>
+              <label
+                >终点
+                <select v-model.number="endLyricIndex" aria-label="结束歌词">
+                  <option
+                    v-for="(line, index) in lyrics"
+                    :key="index"
+                    :value="index"
+                  >
+                    {{ formatRangeTime(line.time) }}
+                    {{ line.texts.join(" / ") }}
+                  </option>
+                </select>
+              </label>
+            </template>
+            <template v-else>
+              <label
+                >起点
+                <input
+                  v-model="startTimeInput"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="0:00.0"
+                  aria-label="起始时间"
+                />
+              </label>
+              <label
+                >终点
+                <input
+                  v-model="endTimeInput"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="0:00.0"
+                  aria-label="结束时间"
+                />
+              </label>
+            </template>
+            <button
+              type="button"
+              class="range-action"
+              :disabled="!draftRange"
+              @click="startRangePlayback"
+            >
+              {{ activeRange ? "更新范围" : "开始循环" }}
+            </button>
+            <button
+              v-if="activeRange"
+              type="button"
+              class="range-action secondary"
+              @click="stopRangePlayback"
+            >
+              停止循环
+            </button>
+            <button
+              v-else
+              type="button"
+              class="range-action secondary"
+              @click="rangeMode = null"
+            >
+              退出范围
+            </button>
           </div>
           <div v-if="isLyricsLoading" class="lyric-empty">歌词加载中...</div>
           <div v-else-if="!hasLyrics" class="lyric-empty">
@@ -246,7 +354,7 @@
 </template>
 
 <script setup lang="ts">
-// Related documentation: `docs/lyric-editing.md`
+// Related documentation: `docs/lyric-editing.md`, `docs/range-playback.md`
 import { computed, ref, watch } from "vue";
 import PlayerControls from "@/components/PlayerControls.vue";
 import EditRawLyricsModal from "@/components/modals/EditRawLyricsModal.vue";
@@ -262,6 +370,7 @@ const props = defineProps<{
   lyrics: LyricLine[];
   rawLyricsContent: string | null;
   currentSongId: number | null;
+  currentSongKey: string;
   lyricApiBase: string;
   currentSongName?: string;
   coverUrl?: string | null;
@@ -303,6 +412,122 @@ const lyricContentBase = ref<string | null>(null);
 const isSavingLyric = ref(false);
 const lyricSaveError = ref<string | null>(null);
 const isRawLyricEditOpen = ref(false);
+type RangeMode = "lyric" | "time";
+type PlaybackRange = { start: number; end: number };
+const showRangeMenu = ref(false);
+const rangeMode = ref<RangeMode | null>(null);
+const startLyricIndex = ref(0);
+const endLyricIndex = ref(1);
+const startTimeInput = ref("0:00.0");
+const endTimeInput = ref("0:10.0");
+const activeRange = ref<PlaybackRange | null>(null);
+let isLoopSeeking = false;
+
+const formatRangeTime = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = (seconds % 60).toFixed(1).padStart(4, "0");
+  return `${minutes}:${remainder}`;
+};
+
+const parseRangeTime = (value: string): number | null => {
+  const match = /^(?:(\d+):)?(\d{1,2})(?:\.(\d{1,3}))?$/.exec(value.trim());
+  if (!match || (match[1] && Number(match[2]) >= 60)) return null;
+  const seconds =
+    Number(match[1] || 0) * 60 +
+    Number(match[2]) +
+    Number(`0.${match[3] || "0"}`);
+  return Number.isFinite(seconds) ? seconds : null;
+};
+
+const draftRange = computed<PlaybackRange | null>(() => {
+  let start: number;
+  let end: number;
+  if (rangeMode.value === "lyric") {
+    if (
+      startLyricIndex.value < 0 ||
+      endLyricIndex.value < startLyricIndex.value ||
+      endLyricIndex.value >= props.lyrics.length
+    )
+      return null;
+    start = props.lyrics[startLyricIndex.value].time;
+    end = props.lyrics[endLyricIndex.value + 1]?.time ?? props.duration;
+  } else if (rangeMode.value === "time") {
+    start = parseRangeTime(startTimeInput.value) ?? NaN;
+    end = parseRangeTime(endTimeInput.value) ?? NaN;
+  } else return null;
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end <= start ||
+    props.duration <= 0 ||
+    end > props.duration
+  )
+    return null;
+  return { start, end };
+});
+
+const chooseRangeMode = (mode: RangeMode) => {
+  rangeMode.value = mode;
+  showRangeMenu.value = false;
+  if (mode === "lyric") {
+    startLyricIndex.value = Math.max(
+      0,
+      Math.min(props.currentLyricIndex ?? 0, props.lyrics.length - 1),
+    );
+    endLyricIndex.value = Math.min(
+      startLyricIndex.value + 1,
+      props.lyrics.length - 1,
+    );
+  } else {
+    startTimeInput.value = formatRangeTime(
+      Math.min(props.currentTime, props.duration),
+    );
+    endTimeInput.value = formatRangeTime(
+      Math.min(props.duration, props.currentTime + 10),
+    );
+  }
+};
+
+const startRangePlayback = () => {
+  if (!draftRange.value) return;
+  activeRange.value = { ...draftRange.value };
+  emit("seek", activeRange.value.start);
+};
+
+const stopRangePlayback = () => {
+  activeRange.value = null;
+  rangeMode.value = null;
+};
+
+watch(
+  () => props.currentTime,
+  (time) => {
+    if (
+      !activeRange.value ||
+      !props.isPlaying ||
+      isLoopSeeking ||
+      time < activeRange.value.end
+    )
+      return;
+    isLoopSeeking = true;
+    emit("seek", activeRange.value.start);
+    // The seek handler updates the displayed position synchronously. Allow its
+    // confirmation to arrive before checking the boundary again.
+    window.setTimeout(() => {
+      isLoopSeeking = false;
+    }, 500);
+  },
+);
+
+watch(
+  () => props.currentSongKey,
+  () => {
+    activeRange.value = null;
+    rangeMode.value = null;
+    showRangeMenu.value = false;
+  },
+);
 
 const maxLyricShiftMs = computed(() =>
   Math.max(0, Math.round(props.duration * 1000)),
@@ -371,6 +596,7 @@ const resetLyricEditState = () => {
 };
 
 const scrollToCurrentLyric = () => {
+  if (rangeMode.value || activeRange.value) return;
   const scrollContainer = lyricScrollRef.value;
   const lyricContainer = lyricContainerRef.value;
   if (
@@ -416,6 +642,8 @@ const enterLyricEditMode = () => {
     emit("pause");
   }
 
+  stopRangePlayback();
+  rangeMode.value = null;
   isLyricEditMode.value = true;
   draftLyricShiftMs.value = 0;
   lyricSaveError.value = null;
@@ -527,6 +755,8 @@ const openRawLyricEditor = () => {
     emit("pause");
   }
 
+  stopRangePlayback();
+  rangeMode.value = null;
   isRawLyricEditOpen.value = true;
 };
 
@@ -598,6 +828,7 @@ watch(
   border-bottom: 1px solid #eee;
   background: rgba(250, 250, 250, 0.96);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .lyric-toolbar-actions {
@@ -605,6 +836,73 @@ watch(
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.range-menu {
+  display: flex;
+  gap: 8px;
+  padding: 8px 18px;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+}
+
+.range-menu button,
+.range-action {
+  border: 1px solid #176b3a;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: #176b3a;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.range-menu button:disabled,
+.range-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.range-action.secondary {
+  color: #31414f;
+  background: #fff;
+  border-color: #d7dee6;
+}
+
+.range-settings {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 18px;
+  background: #f3f7f4;
+  border-bottom: 1px solid #d7e4db;
+}
+
+.range-settings label {
+  display: flex;
+  flex: 1 1 140px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: #31414f;
+  font-size: 12px;
+}
+
+.range-settings select,
+.range-settings input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #cfd8df;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: #fff;
+  color: #1b1f24;
+  font-size: 13px;
 }
 
 .lyric-toolbar-left {

@@ -93,6 +93,7 @@
           :lyrics="lyrics"
           :raw-lyrics-content="rawLyricsContent"
           :current-song-id="currentSong?.id ?? null"
+          :current-song-key="`${currentSong?.source_key ?? ''}:${currentSong?.id ?? ''}:${currentSong?.stream_url ?? ''}`"
           :lyric-api-base="currentSongLyricApiBase"
           :current-song-name="currentSong?.name"
           :cover-url="resolveSongCoverUrl(currentSong)"
