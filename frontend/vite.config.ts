@@ -17,7 +17,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:2080',
+        target: process.env.KAULAN_DEV_API_TARGET || 'http://localhost:2080',
         changeOrigin: true
       }
     }

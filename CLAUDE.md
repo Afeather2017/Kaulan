@@ -168,7 +168,7 @@ frontend/src/
 ├── App.vue                 # Thin root shell that renders layout and binds the app-shell composable
 ├── components/
 │   ├── AppContentView.vue     # Library / collection / search content area
-│   ├── AppPlayerView.vue      # Cover, lyrics, and desktop player panel
+│   ├── AppPlayerView.vue      # Cover, lyrics, range playback, and desktop player panel
 │   ├── AppActionSheets.vue    # Source, collection, and song action sheets
 │   ├── LibrarySourceListView.vue # Source-aware playlist list
 │   ├── PlaylistListView.vue   # Collection playlist list
