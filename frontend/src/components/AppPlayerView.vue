@@ -97,54 +97,29 @@
           </div>
           <div v-if="rangeMode && !isLyricEditMode" class="range-settings">
             <template v-if="rangeMode === 'lyric'">
-              <label
-                >起点
-                <select v-model.number="startLyricIndex" aria-label="起始歌词">
-                  <option
-                    v-for="(line, index) in lyrics"
-                    :key="index"
-                    :value="index"
-                  >
-                    {{ formatRangeTime(line.time) }}
-                    {{ line.texts.join(" / ") }}
-                  </option>
-                </select>
-              </label>
-              <label
-                >终点
-                <select v-model.number="endLyricIndex" aria-label="结束歌词">
-                  <option
-                    v-for="(line, index) in lyrics"
-                    :key="index"
-                    :value="index"
-                  >
-                    {{ formatRangeTime(line.time) }}
-                    {{ line.texts.join(" / ") }}
-                  </option>
-                </select>
-              </label>
+              <span class="range-status">{{ lyricRangeStatus }}</span>
             </template>
             <template v-else>
-              <label
-                >起点
-                <input
-                  v-model="startTimeInput"
-                  type="text"
-                  inputmode="decimal"
-                  placeholder="0:00.0"
-                  aria-label="起始时间"
-                />
-              </label>
-              <label
-                >终点
-                <input
-                  v-model="endTimeInput"
-                  type="text"
-                  inputmode="decimal"
-                  placeholder="0:00.0"
-                  aria-label="结束时间"
-                />
-              </label>
+              <button
+                type="button"
+                class="range-capture"
+                @click="captureRangeTime('start')"
+              >
+                起点
+                <strong>{{
+                  startTime === null ? "--:--" : formatRangeTime(startTime)
+                }}</strong>
+              </button>
+              <button
+                type="button"
+                class="range-capture"
+                @click="captureRangeTime('end')"
+              >
+                终点
+                <strong>{{
+                  endTime === null ? "--:--" : formatRangeTime(endTime)
+                }}</strong>
+              </button>
             </template>
             <button
               type="button"
@@ -232,12 +207,16 @@
                 :class="[
                   'lyric-line',
                   { active: index === displayedCurrentLyricIndex },
+                  { 'range-selected': isLyricInRange(index) },
                 ]"
                 role="button"
                 tabindex="0"
-                @click="$emit('lyricLineClick', line.time)"
-                @keydown.enter.prevent="$emit('lyricLineClick', line.time)"
-                @keydown.space.prevent="$emit('lyricLineClick', line.time)"
+                :aria-pressed="
+                  rangeMode === 'lyric' ? isLyricInRange(index) : undefined
+                "
+                @click="handleLyricLineClick(index, line.time)"
+                @keydown.enter.prevent="handleLyricLineClick(index, line.time)"
+                @keydown.space.prevent="handleLyricLineClick(index, line.time)"
               >
                 <template
                   v-for="(text, textIndex) in line.texts"
@@ -416,10 +395,10 @@ type RangeMode = "lyric" | "time";
 type PlaybackRange = { start: number; end: number };
 const showRangeMenu = ref(false);
 const rangeMode = ref<RangeMode | null>(null);
-const startLyricIndex = ref(0);
-const endLyricIndex = ref(1);
-const startTimeInput = ref("0:00.0");
-const endTimeInput = ref("0:10.0");
+const startLyricIndex = ref<number | null>(null);
+const endLyricIndex = ref<number | null>(null);
+const startTime = ref<number | null>(null);
+const endTime = ref<number | null>(null);
 const activeRange = ref<PlaybackRange | null>(null);
 let isLoopSeeking = false;
 
@@ -429,14 +408,37 @@ const formatRangeTime = (seconds: number) => {
   return `${minutes}:${remainder}`;
 };
 
-const parseRangeTime = (value: string): number | null => {
-  const match = /^(?:(\d+):)?(\d{1,2})(?:\.(\d{1,3}))?$/.exec(value.trim());
-  if (!match || (match[1] && Number(match[2]) >= 60)) return null;
-  const seconds =
-    Number(match[1] || 0) * 60 +
-    Number(match[2]) +
-    Number(`0.${match[3] || "0"}`);
-  return Number.isFinite(seconds) ? seconds : null;
+const lyricRangeStatus = computed(() => {
+  if (startLyricIndex.value === null) return "点击歌词选择起点";
+  if (endLyricIndex.value === null) return "点击歌词选择终点";
+  return `已选第 ${startLyricIndex.value + 1} 至 ${endLyricIndex.value + 1} 行`;
+});
+
+const isLyricInRange = (index: number) =>
+  rangeMode.value === "lyric" &&
+  startLyricIndex.value !== null &&
+  index >= startLyricIndex.value &&
+  index <= (endLyricIndex.value ?? startLyricIndex.value);
+
+const handleLyricLineClick = (index: number, time: number) => {
+  if (rangeMode.value !== "lyric") {
+    emit("lyricLineClick", time);
+    return;
+  }
+  if (startLyricIndex.value === null || endLyricIndex.value !== null) {
+    startLyricIndex.value = index;
+    endLyricIndex.value = null;
+    return;
+  }
+  endLyricIndex.value = Math.max(startLyricIndex.value, index);
+  startLyricIndex.value = Math.min(startLyricIndex.value, index);
+};
+
+const captureRangeTime = (boundary: "start" | "end") => {
+  const time = Math.max(0, Math.min(props.currentTime, props.duration));
+  if (!Number.isFinite(time)) return;
+  if (boundary === "start") startTime.value = time;
+  else endTime.value = time;
 };
 
 const draftRange = computed<PlaybackRange | null>(() => {
@@ -444,6 +446,8 @@ const draftRange = computed<PlaybackRange | null>(() => {
   let end: number;
   if (rangeMode.value === "lyric") {
     if (
+      startLyricIndex.value === null ||
+      endLyricIndex.value === null ||
       startLyricIndex.value < 0 ||
       endLyricIndex.value < startLyricIndex.value ||
       endLyricIndex.value >= props.lyrics.length
@@ -452,8 +456,8 @@ const draftRange = computed<PlaybackRange | null>(() => {
     start = props.lyrics[startLyricIndex.value].time;
     end = props.lyrics[endLyricIndex.value + 1]?.time ?? props.duration;
   } else if (rangeMode.value === "time") {
-    start = parseRangeTime(startTimeInput.value) ?? NaN;
-    end = parseRangeTime(endTimeInput.value) ?? NaN;
+    start = startTime.value ?? NaN;
+    end = endTime.value ?? NaN;
   } else return null;
   if (
     !Number.isFinite(start) ||
@@ -471,21 +475,11 @@ const chooseRangeMode = (mode: RangeMode) => {
   rangeMode.value = mode;
   showRangeMenu.value = false;
   if (mode === "lyric") {
-    startLyricIndex.value = Math.max(
-      0,
-      Math.min(props.currentLyricIndex ?? 0, props.lyrics.length - 1),
-    );
-    endLyricIndex.value = Math.min(
-      startLyricIndex.value + 1,
-      props.lyrics.length - 1,
-    );
+    startLyricIndex.value = null;
+    endLyricIndex.value = null;
   } else {
-    startTimeInput.value = formatRangeTime(
-      Math.min(props.currentTime, props.duration),
-    );
-    endTimeInput.value = formatRangeTime(
-      Math.min(props.duration, props.currentTime + 10),
-    );
+    startTime.value = null;
+    endTime.value = null;
   }
 };
 
@@ -859,6 +853,32 @@ watch(
   cursor: pointer;
 }
 
+.range-capture {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 116px;
+  border: 1px solid #cfd8df;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: #fff;
+  color: #31414f;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.range-capture strong {
+  color: #176b3a;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-status {
+  flex: 1 1 100%;
+  color: #31414f;
+  font-size: 13px;
+}
+
 .range-menu button:disabled,
 .range-action:disabled {
   opacity: 0.5;
@@ -873,36 +893,12 @@ watch(
 
 .range-settings {
   display: flex;
-  align-items: end;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 18px;
   background: #f3f7f4;
   border-bottom: 1px solid #d7e4db;
-}
-
-.range-settings label {
-  display: flex;
-  flex: 1 1 140px;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-  color: #31414f;
-  font-size: 12px;
-}
-
-.range-settings select,
-.range-settings input {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  border: 1px solid #cfd8df;
-  border-radius: 6px;
-  padding: 5px 8px;
-  background: #fff;
-  color: #1b1f24;
-  font-size: 13px;
 }
 
 .lyric-toolbar-left {
@@ -1064,7 +1060,7 @@ watch(
   min-height: 100%;
   padding: 32px 18px;
   box-sizing: border-box;
-  gap: 12px;
+  gap: 0;
 }
 
 .lyric-container.is-editing {
@@ -1076,11 +1072,24 @@ watch(
 .lyric-line {
   text-align: center;
   cursor: pointer;
+  border-radius: 6px;
+  padding: 10px 8px;
   transition:
+    background-color 0.2s,
     color 0.2s,
     opacity 0.2s;
   opacity: 0.64;
   outline: none;
+}
+
+.lyric-line.range-selected {
+  background-color: #d9f2df;
+  border-radius: 0;
+  opacity: 1;
+}
+
+.lyric-line.range-selected .lyric-text {
+  color: #5b6670;
 }
 
 .lyric-container.is-editing .lyric-line {
@@ -1118,6 +1127,11 @@ watch(
 
 .lyric-line.active .lyric-lang-1 {
   color: #31414f;
+}
+
+.lyric-line.range-selected.active .lyric-text {
+  color: #176b3a;
+  font-weight: 700;
 }
 
 .cover-panel {

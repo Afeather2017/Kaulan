@@ -7,13 +7,19 @@ when the song changes. No backend API or database table is required.
 ## Using the UI
 
 1. Open the lyric panel and choose **范围播放**.
-2. Choose **歌词范围** to pick the first and last lyric lines, or **时间范围** to
-   enter start and end times as `m:ss.s` (seconds alone also work). Time range
-   remains available when the song has no lyrics.
-3. Choose **开始循环**. The player seeks to the start and repeats the range.
+2. Choose **歌词范围**, then click the first and second lyric lines of the range.
+   The inclusive selection turns light green; the playing line uses bold dark
+   green text. A further click starts a new selection; lines may be clicked in
+   either order. Or choose **时间范围** and
+   click **起点** and **终点** as playback reaches the desired positions. Either
+   button can be clicked again to replace its captured time. Time range remains
+   available when the song has no lyrics.
+3. Choose **开始循环** once both boundaries are valid. The player seeks to the
+   start and repeats the range.
    **更新范围** applies changed boundaries; **停止循环** resumes ordinary playback.
    **退出范围** closes range selection before playback starts.
 
+Lyric clicks select lines rather than seeking while lyric range mode is active.
 The lyric panel does not auto-scroll while range selection or looping is active,
 so the selected passage stays in view. Auto-scroll resumes after leaving range
 mode.
@@ -30,7 +36,7 @@ sequenceDiagram
     actor Listener
     participant View as AppPlayerView.vue
     participant Player as Playback engine
-    Listener->>View: Select range and start
+    Listener->>View: Click lyric lines or capture playback times, then start
     View->>Player: seek(start)
     loop While current song is playing
         Player-->>View: currentTime
