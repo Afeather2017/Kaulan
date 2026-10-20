@@ -66,6 +66,13 @@ describe("range playback", () => {
     const view = mountPlayer();
     await view.click("范围播放");
     await view.click("歌词范围");
+    const lines = view.container.querySelectorAll<HTMLElement>(".lyric-line");
+    lines[0].click();
+    lines[1].click();
+    await nextTick();
+    expect(
+      Array.from(lines, (line) => line.classList.contains("range-selected")),
+    ).toEqual([true, true, false]);
     await view.click("开始循环");
     expect(view.seeks).toEqual([2]);
 
@@ -82,6 +89,13 @@ describe("range playback", () => {
     const view = mountPlayer(false);
     await view.click("范围播放");
     await view.click("时间范围");
+    await view.click("起点 --:--");
+    view.props.currentTime = 12;
+    await nextTick();
+    await view.click("终点 --:--");
+    expect(
+      view.container.querySelector(".range-settings")?.textContent,
+    ).toContain("0:12.0");
     await view.click("开始循环");
     expect(view.seeks).toEqual([3]);
 
@@ -92,37 +106,38 @@ describe("range playback", () => {
     expect(view.seeks).toEqual([3]);
   });
 
-  it("uses selected lyric boundaries and rejects a reversed time range", async () => {
+  it("selects lyric endpoints in either order and rejects a reversed time range", async () => {
     const view = mountPlayer();
     await view.click("范围播放");
     await view.click("歌词范围");
-    const startSelect = view.container.querySelector<HTMLSelectElement>(
-      'select[aria-label="起始歌词"]',
-    )!;
-    const endSelect = view.container.querySelector<HTMLSelectElement>(
-      'select[aria-label="结束歌词"]',
-    )!;
-    startSelect.value = "1";
-    startSelect.dispatchEvent(new Event("change"));
-    endSelect.value = "2";
-    endSelect.dispatchEvent(new Event("change"));
+    const lines = view.container.querySelectorAll<HTMLElement>(".lyric-line");
+    lines[2].click();
+    lines[1].click();
     await nextTick();
+    expect(
+      Array.from(lines, (line) => line.classList.contains("range-selected")),
+    ).toEqual([false, true, true]);
     await view.click("开始循环");
     expect(view.seeks).toEqual([5]);
 
+    lines[0].click();
+    await nextTick();
+    expect(
+      Array.from(lines, (line) => line.classList.contains("range-selected")),
+    ).toEqual([true, false, false]);
+    expect(
+      view.container.querySelector<HTMLButtonElement>(".range-action")
+        ?.disabled,
+    ).toBe(true);
+
     await view.click("范围播放");
     await view.click("时间范围");
-    const startInput = view.container.querySelector<HTMLInputElement>(
-      'input[aria-label="起始时间"]',
-    )!;
-    const endInput = view.container.querySelector<HTMLInputElement>(
-      'input[aria-label="结束时间"]',
-    )!;
-    startInput.value = "0:12";
-    startInput.dispatchEvent(new Event("input"));
-    endInput.value = "0:10";
-    endInput.dispatchEvent(new Event("input"));
+    view.props.currentTime = 12;
     await nextTick();
+    await view.click("起点 --:--");
+    view.props.currentTime = 10;
+    await nextTick();
+    await view.click("终点 --:--");
     expect(
       Array.from(view.container.querySelectorAll("button")).find(
         (button) => button.textContent?.trim() === "更新范围",
@@ -138,6 +153,9 @@ describe("range playback", () => {
 
     await view.click("范围播放");
     await view.click("歌词范围");
+    const lines = view.container.querySelectorAll<HTMLElement>(".lyric-line");
+    lines[0].click();
+    lines[1].click();
     view.props.currentLyricIndex = 1;
     await nextTick();
     expect(scrollTo).not.toHaveBeenCalled();
