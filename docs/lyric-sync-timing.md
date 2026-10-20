@@ -1,3 +1,9 @@
+> **Status: superseded.** The playback layer was refactored onto the unified
+> event-driven interface described in [docs/playback-interface.md](./playback-interface.md).
+> This document is kept for historical context; the watcher command channel,
+> optimistic `isPlaying` writes, drift guards, and 1 s polling it describes no
+> longer exist.
+
 # Lyric Sync Timing Design
 
 ## Overview

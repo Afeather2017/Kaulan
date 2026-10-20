@@ -1,5 +1,12 @@
-import { computed, ref, type Ref } from "vue";
-import type { MusicInfo } from "@/composables/useAudioPlayer";
+import {
+  computed,
+  getCurrentScope,
+  onScopeDispose,
+  ref,
+  watch,
+  type Ref,
+} from "vue";
+import type { MusicInfo } from "@/types/music";
 import type { MainView, PlayerPanelMode } from "@/stores/ui";
 import { resolveSourceApiBase } from "@/utils/api";
 
@@ -16,6 +23,19 @@ export function useAppShellLayout(options: UseAppShellLayoutOptions) {
   const isWideLayout = ref(false);
   const hasUserToggledLyric = ref(false);
   const failedCoverUrls = ref<Set<string>>(new Set());
+  const failedCoverAttempts = new Map<string, number>();
+  let coverRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const getSongCoverUrl = (song: MusicInfo | null): string | null => {
+    if (!song || song.id <= 0) {
+      return song?.cover_url || null;
+    }
+
+    return (
+      song.cover_url ||
+      `${resolveSourceApiBase(song.source_key)}/music/id/${song.id}/cover`
+    );
+  };
 
   const showBackButton = computed(() => {
     if (!canGoBack.value) {
@@ -34,15 +54,28 @@ export function useAppShellLayout(options: UseAppShellLayoutOptions) {
   );
 
   const resolveSongCoverUrl = (song: MusicInfo | null): string | null => {
-    if (!song) {
-      return null;
-    }
-
-    const coverUrl =
-      song.cover_url ||
-      `${resolveSourceApiBase(song.source_key)}/music/id/${song.id}/cover`;
+    const coverUrl = getSongCoverUrl(song);
+    if (!coverUrl) return null;
     return failedCoverUrls.value.has(coverUrl) ? null : coverUrl;
   };
+
+  watch(
+    () => getSongCoverUrl(currentSong.value),
+    (coverUrl, previousCoverUrl) => {
+      if (coverRetryTimer !== null) {
+        clearTimeout(coverRetryTimer);
+        coverRetryTimer = null;
+      }
+      if (!coverUrl || coverUrl === previousCoverUrl) return;
+
+      failedCoverAttempts.delete(coverUrl);
+      if (failedCoverUrls.value.has(coverUrl)) {
+        const nextFailedUrls = new Set(failedCoverUrls.value);
+        nextFailedUrls.delete(coverUrl);
+        failedCoverUrls.value = nextFailedUrls;
+      }
+    },
+  );
 
   const updateLayoutMode = () => {
     if (typeof window === "undefined") return;
@@ -91,13 +124,41 @@ export function useAppShellLayout(options: UseAppShellLayoutOptions) {
   };
 
   const handleCoverLoadError = (song: MusicInfo | null) => {
-    const coverUrl = resolveSongCoverUrl(song);
+    const coverUrl = getSongCoverUrl(song);
     if (!coverUrl) {
       return;
     }
 
+    const attempt = (failedCoverAttempts.get(coverUrl) ?? 0) + 1;
+    failedCoverAttempts.set(coverUrl, attempt);
     failedCoverUrls.value = new Set(failedCoverUrls.value).add(coverUrl);
+
+    // The localhost server and restored playback session start independently
+    // on Android. Retry a failed cover twice so an early connection failure
+    // cannot suppress otherwise-valid artwork for the whole app session.
+    if (attempt <= 2) {
+      coverRetryTimer = setTimeout(() => {
+        coverRetryTimer = null;
+        const nextFailedUrls = new Set(failedCoverUrls.value);
+        nextFailedUrls.delete(coverUrl);
+        failedCoverUrls.value = nextFailedUrls;
+      }, attempt * 1_000);
+    }
   };
+
+  const handleCoverLoadSuccess = (song: MusicInfo | null) => {
+    const coverUrl = getSongCoverUrl(song);
+    if (!coverUrl) return;
+    failedCoverAttempts.delete(coverUrl);
+  };
+
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      if (coverRetryTimer !== null) {
+        clearTimeout(coverRetryTimer);
+      }
+    });
+  }
 
   return {
     isWideLayout,
@@ -112,5 +173,6 @@ export function useAppShellLayout(options: UseAppShellLayoutOptions) {
     showCoverPanel,
     showLyricsPanel,
     handleCoverLoadError,
+    handleCoverLoadSuccess,
   };
 }

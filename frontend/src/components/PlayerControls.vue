@@ -140,6 +140,8 @@ const formatTime = (seconds: number) => {
 
 <style scoped>
 .player-controls {
+  min-width: 0;
+  box-sizing: border-box;
   background-color: #fff;
   border-top: 1px solid #eee;
   padding: 15px;
@@ -151,6 +153,7 @@ const formatTime = (seconds: number) => {
 .player-top {
   display: flex;
   align-items: center;
+  min-width: 0;
   margin-bottom: 10px;
 }
 

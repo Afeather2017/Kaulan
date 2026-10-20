@@ -1,242 +1,135 @@
 # Android Playback Session
 
-## Overview
+Android playback uses the unified interface documented in
+[`docs/playback-interface.md`](../playback-interface.md). The native
+`MusicPlayerService` remains the transport authority while the Vue playback
+engine owns queue order and user intent.
 
-Kaulan uses the Android notification plugin as the playback source of truth on Android.
+Related source files:
 
-This document covers the Android playback/session flow implemented by:
-
-- [`frontend/src/composables/useAudioPlayer.ts`](../../frontend/src/composables/useAudioPlayer.ts)
-- [`frontend/src/App.vue`](../../frontend/src/App.vue)
-- [`tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt`](../../tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt)
-- [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
-- [`tauri-plugin-music-notification/src/models.rs`](../../tauri-plugin-music-notification/src/models.rs)
-- [`tauri-plugin-music-notification/guest-js/index.ts`](../../tauri-plugin-music-notification/guest-js/index.ts)
-
-## Why This Exists
-
-On Android, the webview is frozen, or killed by os, so it can be recreated while the foreground playback service keeps running.
-
-If the frontend owns the playback queue, the UI loses:
-
-1. the current queue
-2. the current playing song
-3. the current playback position
-4. the current play mode
-
-To avoid that, the plugin persists a playback session and the frontend reloads it by polling.
+- `frontend/src/playback/engine.ts`
+- `frontend/src/playback/android.ts`
+- `frontend/src/playback/types.ts`
+- `vendor/tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt`
+- `vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`
+- `vendor/tauri-plugin-music-notification/guest-js/index.ts`
 
 ## Session Model
 
-The Android plugin stores:
+The plugin persists:
 
-- `queue.songs` as stable `deviceId + songId` identities for Kaulan tracks,
-  `localUri` locators for local tracks, or ephemeral `tempSongUrl` locators
-- `queue.currentIndex`
-- `runtime.isPlaying`
-- `runtime.positionMs`
-- `runtime.durationMs`
-- `playMode`
+- the queue and current index
+- the current song identity
+- runtime status, position, and duration
+- the native play mode
 
-The frontend reads that state through `getPlaybackSession()`.
+Kaulan songs are stored as stable `deviceId + songId` identities. Local files
+use `localUri`, and temporary previews use `tempSongUrl`. Runtime HTTP URLs are
+resolved immediately before native playback so a device address can change
+without invalidating the persisted queue.
 
-The frontend app shell now consumes playback state through `frontend/src/stores/player.ts`, but that store only mirrors the runtime state. It does not replace plugin authority on Android.
+`getPlaybackSession()` is a one-shot recovery API. The frontend calls it during
+initialization, after the webview becomes visible, or when an event references
+a song missing from the frontend mirror. It is not polled on a timer.
 
-## Frontend Responsibilities
+## Event Flow
 
-The Android frontend keeps a URL-free identity shadow in localStorage for
-compatibility and recovery, while the native service remains runtime authority.
+The service emits `playback:event` snapshots through Tauri on transitions and
+every 250 ms while playing. Each snapshot contains:
 
-Instead it:
+- `reason`: `tick`, `transition`, or `error`
+- native status: `idle`, `loading`, `playing`, `paused`, or `error`
+- queue index and song ID
+- position, duration, and sample time
+- play mode
 
-1. copies a queue into the plugin
-2. asks the plugin to play a specific queue identity
-3. polls the plugin every second
-4. renders queue, song, time, and lyric state from the polled session
-
-## Playback Flow
-
-### Start playback from a selected song
-
-When the user taps a song in the Android webview:
-
-1. frontend builds the queue for the active source
-2. frontend computes the selected index
-3. frontend calls `stop()`
-4. frontend calls `setPlayingQueue(queue, playMode)`
-5. frontend calls `seekAndPlay(0)`; the service resolves `deviceId` through localhost
-6. frontend polls `getPlaybackSession()`
-7. UI updates from the returned session
-
-If the tap comes from the "当前播放列表" dialog, the frontend must reuse the current active queue instead of rebuilding from the playlist currently open on screen. Otherwise browsing into a different playlist can overwrite the service queue with the wrong source while the user is trying to jump within the existing playback session.
-
-### Next and previous from the webview
-
-The webview does not rely on plugin-side `next()` or `previous()` for queue mutation.
-
-Instead:
-
-1. frontend reads `getPlaybackSession()`
-2. frontend gets the current queue and index from the service
-3. frontend computes the target index
-4. frontend calls `stop()`
-5. frontend calls `setPlayingQueue(queue, playMode)` with the new index
-6. frontend asks the service to play the target queue identity
-7. frontend refreshes the session
-
-This is intentionally simple. Queue sizes are small enough that correctness is more important than avoiding one extra queue copy.
-
-Normal Kaulan queue entries do not contain stream or cover URLs. Immediately
-before creating each new Android media data source, `MusicPlayerService` calls
-`GET http://localhost:2080/api/discovery/resolutions/{deviceId}` and builds the
-runtime music and cover targets from the returned API base. A missing resolution
-is skipped, and native traversal checks at most one complete queue before
-stopping. Local filesystem and `content://` entries use `localUri`. Temporary
-preview and direct `play({url})` entries use `tempSongUrl` only while the service
-is alive and are removed from process-restart persistence.
-
-### Choosing `local_raw` vs `kaulan` for a queue entry
-
-`useAudioPlayer.ts` marks a song `local_raw` only when its `path` is a directly
-openable locator — a `content://` URI or an absolute filesystem path — on a
-localhost source. Songs restored from localStorage (collections, persisted
-playback queue; see `frontend/src/utils/songRestore.ts`) keep only the file
-basename in `path`, so they must stream as `kaulan` entries instead of handing
-the native `MediaPlayer` an unopenable basename.
-
-To let restored songs take the `local_raw` path, restore helpers first try to
-adopt the song's live library entry (same source group, same `song_id`) — the
-`/playlists?stream=content` response already carries each song's raw
-`content://` URI. Adoption happens both when collections re-materialize
-(`stores/collections.ts`, reactive over the source groups) and when a tap races
-the initial load: playback entry points in `stores/player.ts` await the first
-source-group settle (`libraryStore.waitForInitialSourceGroups`) and then
-re-adopt the tapped song and queue via `createSongAdopter`. The basename →
-`kaulan` HTTP flow remains the fallback for songs whose group is not loaded or
-that no longer exist in the library, so playback never regresses to a worse
-state than before adoption existed.
-
-`kaulan` entries need a non-blank `deviceId` that the local backend can resolve
-through `/api/discovery/resolutions/{id}`. Restored local songs store
-`device_id: ""`, so the frontend backfills the owning source group's device id
-(from `/discovery/self`) when building the native queue. When the group is
-still loading (blank `device_id` before `/discovery/self` answers), the entry
-keeps a `null` `deviceId` and the native side skips it until the source
-resolves — a blank id is never sent.
-
-`currentUrl` belongs to the active `MediaPlayer`, not the queue. Only the code
-that installs a resolved playback target may set it, and stopping playback
-clears it. In particular, `setPlayingQueue()` and session restoration never copy
-a queue locator into `currentUrl`. Prepared, error, and completion callbacks
-compare against the captured runtime URL, so a metadata-only queue refresh
-cannot make a valid completion callback look stale. Resuming an already
-prepared paused player reuses that data source without another discovery query.
-
-## LUFS Behavior
-
-Android playback also follows the shared LUFS playback rules documented in [`docs/lufs-playback-flow.md`](../lufs-playback-flow.md).
-
-Important note:
-
-1. webview-initiated playback resolves current-song LUFS before playback through the frontend player
-2. native auto-next inside `MusicPlayerService` also resolves current-song LUFS before playback
-3. the webview polls `getPlaybackSession()` every second and updates visible metadata if the backend playback queue has newer LUFS values
-4. volume mode and slider changes are sent once through `setNormalizationConfig()` and applied inside `MusicPlayerService`
-
-## Sequence Diagram when tap next/prev in webview
+The Android backend converts the native snapshot to the shared
+`PlaybackSnapshot` type. The engine applies it through the same path used by
+the web backend. A separate frontend ticker interpolates visible position from
+the latest snapshot timestamp.
 
 ```mermaid
 sequenceDiagram
-    participant UI as Android Webview
-    participant Player as useAudioPlayer.ts
+    participant UI as Vue UI
+    participant Engine as playback/engine.ts
+    participant Backend as playback/android.ts
     participant Plugin as music-notification-api
     participant Service as MusicPlayerService
 
-    UI->>Player: Tap next / previous / song
-    Player->>Plugin: getPlaybackSession()
-    Plugin->>Service: getPlaybackSession()
-    Service-->>Plugin: queue + currentIndex + runtime + playMode
-    Plugin-->>Player: PlaybackSession
-    Player->>Player: Compute target index
-    Player->>Plugin: stop()
-    Player->>Plugin: setPlayingQueue(queue, playMode)
-    Player->>Plugin: seekAndPlay(0)
-    Plugin->>Service: resolve queue identity
-    Service->>Service: install runtime audio + cover target
-    loop every 1 second
-        Player->>Plugin: getPlaybackSession()
-        Plugin->>Service: read current session
-        Service-->>Plugin: session snapshot
-        Plugin-->>Player: PlaybackSession
-    end
-    Player-->>UI: Render current queue/song/time
+    UI->>Engine: playSong(song, queue)
+    Engine->>Backend: load(queue, index)
+    Backend->>Plugin: setPlayingQueue(queue, mode)
+    Backend->>Plugin: playTrackAtIndex(index, true)
+    Plugin->>Service: Select and prepare track
+    Service-->>Plugin: playback:event snapshots
+    Plugin-->>Backend: onPlaybackEvent(snapshot)
+    Backend-->>Engine: BackendEvent(snapshot)
+    Engine-->>UI: Reactive song/status/time update
 ```
 
-## Lyrics on Android
+## Queue and Transport Authority
 
-No Android-specific lyric transport is needed.
+The frontend engine computes next and previous indices according to the active
+play mode. The Android backend calls `playTrackAtIndex` without re-sending an
+unchanged queue. Native completion still advances inside
+`MusicPlayerService`, because playback must continue while the webview is
+backgrounded or destroyed; incoming snapshots reconcile the engine afterward.
 
-Lyrics stay in the frontend:
+Seeking carries an explicit `autoPlay` option. The product default is to resume
+after a seek, including lyric-line and progress-bar seeks. The plugin keeps
+`seekAndPlay` only for compatibility.
 
-1. polling updates the current song
-2. polling updates the playback position
-3. the lyric composable reacts to those values
+## Artwork Restoration
 
-When the current song changes, the lyric request changes as well, so the lyric panel follows playback.
+Artwork follows the playback source type:
 
-## Browser vs Android Seeking
+- `kaulan`: the service derives the cover endpoint from the resolved device API
+  base and song ID.
+- `local_raw`: the frontend supplies the localhost
+  `/api/music/id/{id}/cover` endpoint; the service also derives it when an older
+  queue omits it.
+- `temporary`: the provider cover URL is carried with the queue entry when
+  available.
 
-- Android: seek uses the plugin `seek(positionMs)` command
-- Browser/Desktop: seek uses native `HTMLAudioElement.currentTime`
+Persisted optional strings are decoded carefully. JSON `null`, blank strings,
+and the legacy literal string `"null"` are treated as absent. This prevents an
+invalid artwork URL from blocking the valid fallback.
 
-The browser path intentionally uses the simplest possible behavior to avoid regressions from reload-based seeking optimizations.
+The webview retries a failed cover twice because its first request can race the
+localhost server during Android startup. Confirmed missing artwork then stays
+on the placeholder instead of retrying forever.
 
-## Android Plugin Commands Used
+## Source Resolution
 
-- `play`
-- `pause`
-- `resume`
-- `stop`
-- `seek`
-- `set_playing_queue`
-- `get_playback_session`
-- `clear_playing_queue`
-- `set_play_mode`
-- `set_normalization_config`
+Only a `content://` URI or an absolute filesystem path on localhost is sent as
+`local_raw`. A restored basename is not directly openable by `MediaPlayer`, so
+it remains a `kaulan` identity and streams through the backend.
 
-## Normalization Config Flow
+Before playing a `kaulan` entry, the service requests:
 
-Android playback does not depend on repeated frontend `setVolume()` calls.
+```text
+GET http://localhost:2080/api/discovery/resolutions/{deviceId}
+```
 
-Current behavior:
+It builds the audio and cover URLs from the returned API base. An unresolved
+entry is skipped without being removed from the queue.
 
-1. the settings watcher in [`frontend/src/App.vue`](../../frontend/src/App.vue) reacts to volume mode and slider changes
-2. [`frontend/src/composables/useAudioPlayer.ts`](../../frontend/src/composables/useAudioPlayer.ts) sends `setNormalizationConfig()`
-3. [`tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt`](../../tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt) forwards that command to the service
-4. [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt) saves the config and reapplies current track volume immediately
-5. later native playback operations reuse that stored config without needing the webview to resend a raw volume value every second
+## Plugin API Used by the Frontend
 
-## ACL Requirement
+- `onPlaybackEvent(callback)`
+- `getPlaybackSession()`
+- `setPlayingQueue(queue, playMode)`
+- `playTrackAtIndex(index, autoPlay, startAtMs?)`
+- `play()` / `pause()` / `resume()` / `stop()`
+- `seek(positionMs, { autoPlay })`
+- `setPlayMode(playMode)`
+- `setNormalizationConfig(config)`
+- `pauseAfter(delayMs)`
 
-The plugin command `set_normalization_config` must be present in the plugin ACL manifests and included in the plugin default permission set. Otherwise Android settings changes appear in the UI but do not affect native playback.
+## Testing
 
-## Failure Handling
-
-The Android service guards stale `MediaPlayer` callbacks during track replacement.
-
-That prevents:
-
-- stale `onCompletion` advancing the queue a second time
-- stale `onError` interfering with the current track
-
-Invalid source-specific queue entries are rejected at the plugin boundary.
-Unresolved Kaulan identities are skipped during playback without being deleted
-from the live queue. Persisted sessions retain only valid `kaulan` and
-`local_raw` entries; when temporary entries are removed, the durable current
-index is remapped to the same retained song.
-
-## Related Documents
-
-- [`docs/android/mediastore-integration.md`](./mediastore-integration.md)
-- [`docs/lyrics-display.md`](../lyrics-display.md)
-- [`README.md`](../../README.md)
+`frontend/src/playback/__tests__/conformance.test.ts` runs the same playback
+scenarios against the web and Android backends. Android-specific assertions
+cover native auto-advance, queue reuse, session restoration, and local artwork
+metadata. The plugin session tests cover persisted JSON and artwork fallback
+behavior.

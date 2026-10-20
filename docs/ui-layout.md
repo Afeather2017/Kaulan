@@ -694,6 +694,8 @@ Wide mode can show browsing and playback together, but the library should still 
 
 ### Wide Mode Rules
 
+- the browsing pane and player pane each occupy one half of the available width
+- long song titles stay inside the player half and use an ellipsis instead of resizing either pane
 - `Downloads` replaces the left-side browsing panel in wide mode
 - the player panel stays visible while downloads are active
 - `Downloads` is not a dialog, sheet, or settings subsection

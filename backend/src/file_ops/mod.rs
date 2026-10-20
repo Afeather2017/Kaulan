@@ -5,6 +5,7 @@
 //!
 //! Related documentation:
 //! - `docs/lyric-editing.md`
+//! - `docs/ci-checks.md`
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -56,6 +57,7 @@ pub struct ResolvedPath {
     pub path_kind: PathKind,
 }
 
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Source: Send + Sync {
     fn id(&self) -> &'static str;
@@ -195,6 +197,7 @@ pub fn normalize_path(raw_path: &str) -> String {
 /// backends can be registered (e.g., one StdFs backend per scan root, plus a
 /// MediaStore backend on Android). The scanner iterates backends, not paths.
 /// See `docs/android/mediastore-integration.md` for the source-vs-scan flow.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ScanBackend: Send + Sync {
     /// Stable identifier for logging and deduplication (e.g. `"std-fs"`,
@@ -281,6 +284,7 @@ impl Default for ScanRegistry {
 
 pub struct SourceBackedFileReader;
 
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait FileReader: Send + Sync {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
@@ -353,6 +357,7 @@ impl FileReader for SourceBackedFileReader {
 
 pub struct SourceBackedMusicFileLister;
 
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait MusicFileLister: Send + Sync {
     async fn list_music_files(
@@ -378,6 +383,7 @@ impl MusicFileLister for SourceBackedMusicFileLister {
 
 pub struct SourceBackedLyricReader;
 
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LyricReader: Send + Sync {
     async fn read_lyric(

@@ -97,6 +97,7 @@
           :current-song-name="currentSong?.name"
           :cover-url="resolveSongCoverUrl(currentSong)"
           :current-time="currentTime"
+          :current-lyric-index="currentLyricIndex"
           :duration="duration"
           :is-playing="isPlaying"
           :play-mode="playMode"
@@ -107,6 +108,7 @@
           @show-lyrics-panel="showLyricsPanel"
           @request-player-back="requestPlayerBack"
           @cover-load-error="handleCoverLoadError(currentSong)"
+          @cover-load-success="handleCoverLoadSuccess(currentSong)"
           @seek="seekToTime"
           @toggle-play-mode="togglePlayMode"
           @previous="previousSong"
@@ -379,6 +381,7 @@ const {
   rawLyricsContent,
   isLyricsLoading,
   hasLyrics,
+  currentLyricIndex,
   selectedSourceMenuGroup,
   selectedSongListMenuTitle,
   startupStatusMessage,
@@ -389,6 +392,7 @@ const {
   isPlayerPanelVisible,
   isLyricPanelVisible,
   resolveSongCoverUrl,
+  handleCoverLoadSuccess,
   handleSearch,
   handleSetActiveTab,
   openDownloads,
@@ -727,10 +731,15 @@ const copyShareUrl = async () => {
 
 .list-panel {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   background-color: #fff;
   display: flex;
   flex-direction: column;
+}
+
+.main-area.wide-layout .list-panel {
+  flex: 1 1 0;
 }
 
 .list-panel-content {
