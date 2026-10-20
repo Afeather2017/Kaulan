@@ -1,4 +1,5 @@
 //! Download provider registry and runtime bootstrap.
+//! See `docs/ci-checks.md` for the Clippy allowance on `MusicProvider`.
 
 mod bilibili;
 mod netease;
@@ -214,6 +215,7 @@ fn terminal_phase(phase: &DownloadProgressPhase) -> bool {
 }
 
 // Provider futures must be Send because async download jobs are spawned onto the Tokio runtime.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait MusicProvider: Send + Sync {
     fn source(&self) -> DownloadSource;
