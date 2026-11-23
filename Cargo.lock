@@ -3058,11 +3058,11 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-android-external-storage",
  "tauri-plugin-android-mediastore",
+ "tauri-plugin-android-music-notification",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-log",
  "tauri-plugin-mcp-bridge",
- "tauri-plugin-music-notification-api",
  "tauri-plugin-os",
  "tauri-plugin-single-instance",
  "tokio",
@@ -6353,6 +6353,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-android-music-notification"
+version = "0.3.0"
+dependencies = [
+ "jni",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "tauri-plugin-dialog"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6441,18 +6453,6 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-core 0.61.2",
-]
-
-[[package]]
-name = "tauri-plugin-music-notification-api"
-version = "0.2.4"
-dependencies = [
- "jni",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.18",
 ]
 
 [[package]]
