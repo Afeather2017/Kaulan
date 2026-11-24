@@ -12,7 +12,49 @@ use crate::types::AppState;
 use actix_web::{post, web, HttpResponse, Responder};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::Serialize;
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
 use tracing::{debug, error, info, warn};
+
+/// Source paths with a background LUFS calculation currently running.
+///
+/// Clients poll this endpoint (about once per second per track) until the
+/// value is cached. Without this set every poll started another full decode
+/// of the same file.
+fn in_flight_calculations() -> &'static Mutex<HashSet<String>> {
+    static IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Marks one source path as being calculated; the mark is cleared on drop so
+/// a failed or panicking calculation never blocks later retries.
+struct InFlightGuard {
+    file_path: String,
+}
+
+impl InFlightGuard {
+    /// Returns `None` when a calculation for `file_path` is already running.
+    fn try_acquire(file_path: &str) -> Option<Self> {
+        let mut in_flight = in_flight_calculations()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !in_flight.insert(file_path.to_string()) {
+            return None;
+        }
+        Some(Self {
+            file_path: file_path.to_string(),
+        })
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        in_flight_calculations()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.file_path);
+    }
+}
 
 /// Response for LUFS pre-cache endpoint
 #[derive(Serialize)]
@@ -36,6 +78,8 @@ pub struct PrecacheLufsResponse {
 /// # Behavior
 /// - If LUFS already exists in database, returns immediately with existing value
 /// - If LUFS is null, spawns a background task to calculate it and returns 202 Accepted
+/// - If a calculation for the same file is already running, returns 202 Accepted
+///   without starting another one
 /// - The background task updates the database when calculation completes
 /// - Uses seekable file readers for both regular paths and content URIs
 ///
@@ -82,6 +126,25 @@ pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> i
                 });
             }
 
+            // A previous poll already started this calculation: report it as
+            // still pending instead of decoding the same file again.
+            let in_flight_guard = match InFlightGuard::try_acquire(&music.file_path) {
+                Some(guard) => guard,
+                None => {
+                    debug!("LUFS calculation already in progress for music ID {}", id);
+                    info!(
+                        "[ACCESS] POST /api/music/{}/precache-lufs - Status: 202 (Already Processing)",
+                        id
+                    );
+                    return HttpResponse::Accepted().json(PrecacheLufsResponse {
+                        success: true,
+                        lufs: None,
+                        cached: Some(false),
+                        error: None,
+                    });
+                }
+            };
+
             // LUFS is null, spawn background task and return immediately
             let file_path = music.file_path.clone();
             let file_label = file_path.clone();
@@ -94,6 +157,8 @@ pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> i
 
             // Spawn background task - non-blocking
             tokio::spawn(async move {
+                // Held until the task ends, however it ends.
+                let _in_flight_guard = in_flight_guard;
                 info!(
                     "Background LUFS calculation started for music ID {}: {}",
                     id, file_label
@@ -188,5 +253,28 @@ pub async fn precache_lufs(path: web::Path<i32>, data: web::Data<AppState>) -> i
                 error: Some(format!("Database error: {}", e)),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InFlightGuard;
+
+    #[test]
+    fn in_flight_guard_rejects_duplicates_until_dropped() {
+        let path = "/test/in-flight-guard/duplicate.flac";
+
+        let first = InFlightGuard::try_acquire(path).expect("first acquire succeeds");
+        assert!(InFlightGuard::try_acquire(path).is_none());
+
+        drop(first);
+        assert!(InFlightGuard::try_acquire(path).is_some());
+    }
+
+    #[test]
+    fn in_flight_guard_tracks_paths_independently() {
+        let _first = InFlightGuard::try_acquire("/test/in-flight-guard/a.flac")
+            .expect("first path acquires");
+        assert!(InFlightGuard::try_acquire("/test/in-flight-guard/b.flac").is_some());
     }
 }

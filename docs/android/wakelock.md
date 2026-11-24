@@ -51,6 +51,10 @@ A partial wake lock does not require a notification. Only foreground services re
 
 ## Performance measurement
 
+> Note: the `KaulanPerf` instrumentation described below lived in the pre-refactor
+> `MusicPlayerService.kt`. It is not present in the current plugin sources
+> (`MusicPlayerService.kt` + `core/PlayerCore.kt`), so this section is historical.
+
 Timing instrumentation was added to `MusicPlayerService.kt` using the `KaulanPerf` log tag. Filter with:
 
 ```bash
@@ -65,4 +69,4 @@ This shows three metrics per track switch:
 | `playTrackInternal` | Time from entering `playTrackInternal()` to `onPrepared()` |
 | `LUFS resolution` | Time spent resolving LUFS before playback starts |
 
-Source: `tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`
+Source: `vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`

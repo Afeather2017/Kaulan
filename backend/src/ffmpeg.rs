@@ -96,9 +96,22 @@ pub async fn prepare_input(file_path: &str) -> Result<PreparedInput, String> {
     })
 }
 
+/// Calculate the integrated LUFS of a stored source path.
+///
+/// The FFmpeg pass decodes the whole file synchronously, so it runs on the
+/// blocking thread pool. Running it inline would stall the async worker that
+/// called it — on an Actix worker that means every other request on that
+/// worker (audio streaming, discovery resolution) waits for the decode.
 pub async fn calculate_lufs_for_source(file_path: &str) -> Result<Option<f64>, String> {
     let input = prepare_input(file_path).await?;
-    calculate_lufs(input.path())
+    let local_path = input.path().to_path_buf();
+    let result = tokio::task::spawn_blocking(move || calculate_lufs(&local_path))
+        .await
+        .map_err(|e| format!("LUFS calculation task failed: {}", e))?;
+    // `input` may own a temp copy of the source; keep it alive until the
+    // decode has finished.
+    drop(input);
+    result
 }
 
 enum PreferredAudioOutput {

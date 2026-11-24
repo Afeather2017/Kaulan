@@ -316,6 +316,8 @@ flow.
 - When LUFS value is already cached: returns `200 OK` immediately with the LUFS value
 - When LUFS needs calculation: returns `202 Accepted` immediately and calculates in background via `tokio::spawn`
 - The background task updates the database when calculation completes
+- A repeated request for a file whose calculation is still running returns `202` without starting another one (clients poll this endpoint)
+- The FFmpeg decode runs on the blocking thread pool (`spawn_blocking`), never on the HTTP worker
 - Frontend only refreshes data when receiving a cached LUFS value (not for 202 responses)
 - This prevents browser connection limits from blocking audio playback when switching songs quickly
 
