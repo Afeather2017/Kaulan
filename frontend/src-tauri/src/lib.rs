@@ -34,7 +34,7 @@ mod android_media_adapter;
 mod wakelock;
 
 // Music notification plugin
-use tauri_plugin_music_notification_api::{set_server, Server};
+use tauri_plugin_android_music_notification::{set_server, Server};
 
 const NETEASE_LOGIN_URL: &str = "https://music.163.com/";
 const BILIBILI_LOGIN_URL: &str = "https://www.bilibili.com/";
@@ -467,7 +467,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_android_mediastore::init())
         .plugin(tauri_plugin_android_external_storage::init())
-        .plugin(tauri_plugin_music_notification_api::init());
+        .plugin(tauri_plugin_android_music_notification::init());
 
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
@@ -737,7 +737,7 @@ fn exit_android_app(
 ) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
-        use tauri_plugin_music_notification_api::MusicNotificationExt;
+        use tauri_plugin_android_music_notification::MusicNotificationExt;
 
         log::info!("Android timer requested app exit");
 

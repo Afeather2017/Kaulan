@@ -10,8 +10,10 @@ Related source files:
 - `frontend/src/playback/engine.ts`
 - `frontend/src/playback/android.ts`
 - `frontend/src/playback/types.ts`
-- `vendor/tauri-plugin-music-notification/android/src/main/java/ExamplePlugin.kt`
-- `vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`
+- `vendor/tauri-plugin-music-notification/android/src/main/java/MusicNotificationPlugin.kt` (Tauri commands, bound to the service)
+- `vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt` (foreground service, notification, embedded server lifetime)
+- `vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt` (queue, playback requests, engine ownership)
+- `vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/SessionStore.kt` (session persistence codec)
 - `vendor/tauri-plugin-music-notification/guest-js/index.ts`
 
 ## Session Model

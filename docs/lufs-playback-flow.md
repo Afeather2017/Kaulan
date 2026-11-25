@@ -10,7 +10,9 @@ This document explains the real playback behavior used by:
 - [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts)
 - [`frontend/src/composables/useVolume.ts`](../frontend/src/composables/useVolume.ts)
 - [`backend/src/handlers/lufs.rs`](../backend/src/handlers/lufs.rs)
-- [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
+- [`vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
+- [`vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt)
+- [`vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/Normalization.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/Normalization.kt)
 
 ## Goals
 
@@ -36,6 +38,12 @@ Response meanings:
   LUFS already exists in the database, so the backend returns it immediately.
 - `202 Accepted`
   LUFS does not exist yet. The backend starts background calculation and returns immediately.
+  Clients poll this endpoint until the value is cached, so the backend tracks
+  in-flight calculations per source path: a repeated request for a file that is
+  already being calculated also returns `202` but does not start a second
+  decode. The FFmpeg pass itself runs on the blocking thread pool
+  (`calculate_lufs_for_source` in [`backend/src/ffmpeg.rs`](../backend/src/ffmpeg.rs)),
+  so it never stalls the HTTP worker that serves audio streams.
 
 Example `200` response:
 
@@ -348,7 +356,7 @@ This means:
 Both platforms apply the same cap:
 
 - Frontend: `DEFAULT_MIN_LUFS = -29` in [`frontend/src/composables/useVolume.ts`](../frontend/src/composables/useVolume.ts)
-- Android: `defaultMinLufs = -29.0` in [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
+- Android: `DEFAULT_MIN_LUFS = -29.0` in [`vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/Normalization.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/Normalization.kt)
 
 ## Volume Mode and Slider Behavior
 
@@ -364,7 +372,7 @@ When the user changes volume mode or moves the volume slider in settings, Kaulan
 ### Android playback
 
 - the same watcher sends `setNormalizationConfig({ mode, manualVolume, fixedLufs })` through the plugin
-- [`tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt) stores that config and immediately reapplies the current track volume
+- [`vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt) stores that config and [`vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt) immediately reapplies the current track volume
 - future `play`, `resume`, next, previous, and native auto-next all reuse the stored normalization config inside the service
 
 ### Important note about ACL
@@ -450,5 +458,6 @@ sequenceDiagram
 | `frontend/src/composables/useVolume.ts` | normalization math and null-LUFS fallback |
 | `frontend/src/composables/__tests__/useAudioPlayer.volume.test.ts` | web LUFS volume application and loop replay regression tests |
 | `backend/src/handlers/lufs.rs` | LUFS pre-cache API |
-| `tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt` | Android native pre-play LUFS resolution |
+| `vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt` | Android native LUFS precache polling (runs on its own executor) |
+| `vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/Normalization.kt` | Android normalization math |
 | `tauri-plugin-music-notification/permissions/default.toml` | Android plugin ACL default permission set |

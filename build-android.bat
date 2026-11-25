@@ -55,6 +55,11 @@ set "FFMPEG_LIBS_DIR=%ANDROID_FFMPEG_ROOT%\%RUST_TARGET%\lib"
 set "FFMPEG_INCLUDE_DIR=%ANDROID_FFMPEG_ROOT%\%RUST_TARGET%\prefix\include"
 set "FFMPEG_BINDING_PATH=%ANDROID_FFMPEG_ROOT%\binding.rs"
 set "FFMPEG_LINK_MODE=dynamic"
+set "ANDROID_ABI=arm64-v8a"
+if "%RUST_TARGET%"=="armv7-linux-androideabi" set "ANDROID_ABI=armeabi-v7a"
+if "%RUST_TARGET%"=="i686-linux-android" set "ANDROID_ABI=x86"
+if "%RUST_TARGET%"=="x86_64-linux-android" set "ANDROID_ABI=x86_64"
+set "JNI_LIBS_DIR=%SRC_TAURI%\gen\android\app\src\main\jniLibs\%ANDROID_ABI%"
 
 echo === Kaulan Android Build Script ===
 echo Project root: %PROJECT_ROOT%
@@ -74,6 +79,13 @@ if not exist "%FFMPEG_BINDING_PATH%" (
     echo Run scripts\build-android-ffmpeg.sh --target aarch64 first.
     exit /b 1
 )
+
+REM Stage the same FFmpeg shared libraries that Cargo links into the APK.
+if not exist "%JNI_LIBS_DIR%" mkdir "%JNI_LIBS_DIR%"
+copy /y "%FFMPEG_LIBS_DIR%\libav*.so" "%JNI_LIBS_DIR%\" >nul
+if errorlevel 1 exit /b 1
+copy /y "%FFMPEG_LIBS_DIR%\libsw*.so" "%JNI_LIBS_DIR%\" >nul
+if errorlevel 1 exit /b 1
 
 REM Derive release version from latest git tag (e.g. v1.1.0 -> 1.1.0).
 REM Tauri's --config flag merges this over tauri.conf.json so the bundled
@@ -98,6 +110,8 @@ if not defined LATEST_TAG (
 REM Build the local plugin package before Vue type-checking. dist-js is a
 REM generated artifact and is not stored in git.
 echo [1/6] Building Android playback plugin JavaScript bridge...
+node "%PROJECT_ROOT%scripts\patch-music-notification.mjs"
+if errorlevel 1 exit /b 1
 if not exist "%MUSIC_NOTIFICATION_PLUGIN_DIR%\node_modules\.bin\rollup.cmd" (
     call npm --prefix "%MUSIC_NOTIFICATION_PLUGIN_DIR%" ci
     if errorlevel 1 exit /b 1
@@ -168,7 +182,7 @@ if errorlevel 1 exit /b 1
 REM Step 6: Sign APK
 echo.
 echo [6/6] Signing APK...
-"%BUILD_TOOLS%\apksigner" sign ^
+call "%BUILD_TOOLS%\apksigner.bat" sign ^
     --ks "%KEYSTORE%" ^
     --ks-pass "pass:%KEY_STOREPASS%" ^
     --key-pass "pass:%KEY_KEYPASS%" ^
@@ -183,8 +197,22 @@ echo Signed APK: %SIGNED_APK%
 echo.
 
 REM Install to device
+if /i "%INSTALL_ON_DEVICE%"=="false" exit /b 0
+set "ADB=%ANDROID_HOME%\platform-tools\adb.exe"
+if not exist "%ADB%" (
+    echo adb not found; skipping device install.
+    exit /b 0
+)
+set "ANDROID_DEVICE="
+for /f "tokens=1,2" %%A in ('""%ADB%" devices"') do (
+    if "%%B"=="device" set "ANDROID_DEVICE=%%A"
+)
+if not defined ANDROID_DEVICE (
+    echo No connected Android device; skipping device install.
+    exit /b 0
+)
 echo Installing to device...
-adb install -r "%SIGNED_APK%"
+"%ADB%" install -r "%SIGNED_APK%"
 if errorlevel 1 (
     echo Installation failed!
     exit /b 1

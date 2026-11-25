@@ -514,11 +514,7 @@ pub fn is_video_file(file_path: &str) -> bool {
         return VIDEO_EXTENSIONS.contains(&ext.to_lowercase().as_str());
     }
 
-    if file_path.starts_with("content://") && file_path.contains("/video/") {
-        return true;
-    }
-
-    false
+    file_path.starts_with("content://") && file_path.contains("/video/")
 }
 
 pub struct StdFsSource;

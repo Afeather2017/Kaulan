@@ -1,0 +1,12 @@
+diff --git a/android/src/main/java/MusicPlayerService.kt b/android/src/main/java/MusicPlayerService.kt
+--- a/android/src/main/java/MusicPlayerService.kt
++++ b/android/src/main/java/MusicPlayerService.kt
+@@ -442,7 +442,8 @@
+                     // stopService(), so onCreate will not run again to
+                     // bring the server back.
+                     if (!httpServerRunning) {
+                         startEmbeddedServer()
+                     }
++                    Unit
+                 }
+                 ACTION_STOP_SERVICE -> {

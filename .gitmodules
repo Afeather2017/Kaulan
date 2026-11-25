@@ -1,6 +1,6 @@
 [submodule "tauri-plugin-music-notification"]
 	path = vendor/tauri-plugin-music-notification
-	url = https://github.com/Afeather2017/tauri-plugin-music-notification.git
+	url = https://github.com/Afeather2017/tauri-plugin-android-music-notification.git
 [submodule "vendor/ncmdump-rs"]
 	path = vendor/ncmdump-rs
 	url = https://github.com/Afeather2017/ncmdump-rs
