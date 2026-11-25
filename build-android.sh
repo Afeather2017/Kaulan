@@ -238,6 +238,7 @@ fi
 
 echo
 echo "[2/5] Building Android playback plugin JavaScript bridge..."
+node "$PROJECT_ROOT/scripts/patch-music-notification.mjs"
 if [ ! -x "$MUSIC_NOTIFICATION_PLUGIN_DIR/node_modules/.bin/rollup" ]; then
     npm --prefix "$MUSIC_NOTIFICATION_PLUGIN_DIR" ci
 fi

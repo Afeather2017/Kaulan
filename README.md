@@ -62,6 +62,9 @@ cargo build
 
 The Rust build reuses the vendored `vendor/rusty_ffmpeg/src/binding.rs`, so a
 separate LLVM or `libclang` installation is not required on Windows anymore.
+Tauri installs the FFmpeg DLLs staged in `frontend/src-tauri/generated/windows-ffmpeg/`.
+When running an unbundled executable, keep the vcpkg triplet's `bin` directory
+on `PATH`.
 
 ### Running the Application
 

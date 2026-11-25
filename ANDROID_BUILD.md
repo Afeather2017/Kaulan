@@ -41,7 +41,16 @@ This script:
 
 ### Manual Build
 
+`build-android.sh` and `build-android.bat` apply a Kotlin compatibility patch
+to the pinned music notification submodule. Apply the same patch before
+invoking Tauri directly.
+
+On Windows, `build-android.bat --target aarch64 --apk` copies the staged
+FFmpeg libraries into the APK's native library directory and signs the result.
+Set `INSTALL_ON_DEVICE=false` to build without installing it.
+
 ```bash
+node scripts/patch-music-notification.mjs
 cd frontend
 
 # Build the unsigned APK

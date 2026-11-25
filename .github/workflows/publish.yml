@@ -290,14 +290,7 @@ jobs:
           # Keep the same layout that the backend resolves from its working
           # directory, so the standalone Windows archive is self-contained.
           Copy-Item frontend/dist (Join-Path $stage 'frontend') -Recurse
-          $dlls = Get-ChildItem target/release -File -Filter '*.dll' |
-            Where-Object { $_.Name -match '^(av|sw)[^/]*\.dll$' }
-          if (-not $dlls) {
-            $triplet = if ($arch -eq 'arm64') { 'arm64-windows' } else { 'x64-windows' }
-            $dllDir = Join-Path $env:VCPKG_ROOT "installed/$triplet/bin"
-            $dlls = Get-ChildItem $dllDir -File -Filter '*.dll' |
-              Where-Object { $_.Name -match '^(av|sw)[^/]*\.dll$' }
-          }
+          $dlls = Get-ChildItem frontend/src-tauri/generated/windows-ffmpeg -File -Filter '*.dll'
           if (-not $dlls) { throw 'FFmpeg runtime DLLs were not found' }
           $dlls | Copy-Item -Destination $stage
           Compress-Archive -Path (Join-Path $stage '*') `
