@@ -7,7 +7,7 @@ Kaulan calculates LUFS on demand during playback instead of during database upda
 This document explains the real playback behavior used by:
 
 - [`frontend/src/App.vue`](../frontend/src/App.vue)
-- [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts)
+- [`frontend/src/playback/`](../frontend/src/playback/)
 - [`frontend/src/composables/useVolume.ts`](../frontend/src/composables/useVolume.ts)
 - [`backend/src/handlers/lufs.rs`](../backend/src/handlers/lufs.rs)
 - [`vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt)
@@ -117,6 +117,9 @@ interface PlaybackBackend {
     mode: 'auto' | 'manual' | 'fixed'
     manualVolume: number
     fixedLufs: number
+    lufsPrecacheCount: number
+    leftChannelVolume: number
+    rightChannelVolume: number
   }): Promise<void>
   getPlaybackSession(): Promise<PlaybackSession>
 }
@@ -366,14 +369,39 @@ When the user changes volume mode or moves the volume slider in settings, Kaulan
 
 - the watcher in [`frontend/src/composables/useAppShell.ts`](../frontend/src/composables/useAppShell.ts) recalculates the effective volume immediately when volume settings, current-song LUFS, or queue LUFS metadata changes
 - [`frontend/src/stores/player.ts`](../frontend/src/stores/player.ts) forwards the calculated volume through `syncNormalization()`
-- [`frontend/src/composables/useAudioPlayer.ts`](../frontend/src/composables/useAudioPlayer.ts) applies that calculated current volume directly to `HTMLAudioElement.volume`
+- [`frontend/src/playback/web.ts`](../frontend/src/playback/web.ts) applies that calculated current volume directly to `HTMLAudioElement.volume`, a single gain for both channels
 - if the current song still has `lufs = null`, [`frontend/src/composables/useVolume.ts`](../frontend/src/composables/useVolume.ts) falls back to `manualVolume`
 
 ### Android playback
 
-- the same watcher sends `setNormalizationConfig({ mode, manualVolume, fixedLufs })` through the plugin
+- the same watcher sends the mode, manual volume, target LUFS, pre-cache count, and channel gains through `setNormalizationConfig()`
 - [`vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/MusicPlayerService.kt) stores that config and [`vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt`](../vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt) immediately reapplies the current track volume
 - future `play`, `resume`, next, previous, and native auto-next all reuse the stored normalization config inside the service
+
+### Android channel balance
+
+Open **Settings > Advanced Settings > Playback & Loudness > Channel Balance**.
+Use either the slider or the number field to lower the louder channel while
+leaving the other channel at `1.0`. Each channel accepts a gain from `0.0`
+(muted) to `1.0` (full base volume). The slider and valid number edits apply
+during playback. Both channels default to `1.0`.
+Drag a slider to adjust its value. Swipe elsewhere in the settings drawer to scroll.
+
+The player calculates the base volume using the selected normalization mode,
+then applies the two gains to native playback.
+
+```text
+base  = calculateTrackVolume(config, queue, track)
+left  = clamp(base * leftChannelVolume,  0, 1)
+right = clamp(base * rightChannelVolume, 0, 1)
+```
+
+Kaulan applies these gains to decoded PCM before handing it to Android's
+audio output. This keeps the channel adjustment in the samples even when
+Android routes audio directly to the device. The service restores the
+gains from SharedPreferences on restart. The WebView remembers the same values
+locally so opening the app again preserves them. Browser playback uses a single
+volume for both channels.
 
 ### Important note about ACL
 
@@ -454,10 +482,12 @@ sequenceDiagram
 |------|----------------|
 | `frontend/src/composables/useAppShell.ts` | frontend LUFS request, UI metadata sync, next-song pre-cache, and volume normalization watcher |
 | `frontend/src/stores/player.ts` | player state, volume calculation wiring, and normalization sync forwarding |
-| `frontend/src/composables/useAudioPlayer.ts` | pre-play song preparation, queue/session application, and web audio volume application |
+| `frontend/src/components/modals/SettingsModal.vue` | volume and channel gain controls |
+| `frontend/src/playback/web.ts` | web audio volume |
+| `frontend/src/playback/android.ts` | normalization and channel gain bridge to the native service |
 | `frontend/src/composables/useVolume.ts` | normalization math and null-LUFS fallback |
-| `frontend/src/composables/__tests__/useAudioPlayer.volume.test.ts` | web LUFS volume application and loop replay regression tests |
+| `frontend/src/playback/__tests__/conformance.test.ts` | volume behavior across web and Android |
 | `backend/src/handlers/lufs.rs` | LUFS pre-cache API |
 | `vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/PlayerCore.kt` | Android native LUFS precache polling (runs on its own executor) |
 | `vendor/tauri-plugin-music-notification/android/src/main/java/com/plugin/music_notification/core/Normalization.kt` | Android normalization math |
-| `tauri-plugin-music-notification/permissions/default.toml` | Android plugin ACL default permission set |
+| `vendor/tauri-plugin-music-notification/permissions/default.toml` | Android plugin ACL default permission set |

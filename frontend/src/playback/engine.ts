@@ -2,7 +2,6 @@ import { computed, getCurrentScope, onScopeDispose, ref } from "vue";
 import type { LibrarySourceGroup } from "@/types/library";
 import type { MusicInfo } from "@/types/music";
 import { getRuntimeCapabilities } from "@/utils/platform";
-import type { NormalizationMode } from "music-notification-api";
 import {
   buildQueueForMode,
   persistPlaybackSession,
@@ -456,20 +455,9 @@ export function createPlaybackEngine(
   };
 
   const syncNormalizationConfig = async (
-    mode: NormalizationMode,
-    manualVolume: number,
-    fixedLufs: number,
-    lufsPrecacheCount: number,
-    currentVolume: number,
+    config: NormalizationConfigPayload,
   ) => {
-    const payload: NormalizationConfigPayload = {
-      mode,
-      manualVolume,
-      fixedLufs,
-      lufsPrecacheCount,
-      currentVolume,
-    };
-    await (backend ?? web).syncNormalizationConfig(payload);
+    await (backend ?? web).syncNormalizationConfig(config);
   };
 
   const replaceQueue = async (nextQueue: MusicInfo[]) => {

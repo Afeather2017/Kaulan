@@ -1,5 +1,10 @@
 import { ref, watch, type Ref } from "vue";
 import type { MusicInfo } from "@/types/music";
+import {
+  getChannelBalance,
+  normalizeChannelVolume,
+  setChannelBalance,
+} from "@/utils/storage";
 
 export type VolumeMode = "auto" | "manual" | "fixed";
 
@@ -19,6 +24,11 @@ export function useVolume(
   const manualVolumeInput = ref(0.5);
   const fixedLufs = ref(-28);
   const fixedLufsInput = ref(-28);
+  const [savedLeft, savedRight] = getChannelBalance();
+  const leftChannelVolume = ref(savedLeft);
+  const leftChannelVolumeInput = ref(savedLeft);
+  const rightChannelVolume = ref(savedRight);
+  const rightChannelVolumeInput = ref(savedRight);
 
   // Calculate volume based on current mode
   const calculateVolume = (): number => {
@@ -78,6 +88,30 @@ export function useVolume(
     fixedLufs.value = val;
   });
 
+  watch(leftChannelVolume, (val) => {
+    leftChannelVolumeInput.value = val;
+  });
+
+  watch(leftChannelVolumeInput, (val) => {
+    const gain = normalizeChannelVolume(val);
+    leftChannelVolume.value = gain;
+    leftChannelVolumeInput.value = gain;
+  });
+
+  watch(rightChannelVolume, (val) => {
+    rightChannelVolumeInput.value = val;
+  });
+
+  watch(rightChannelVolumeInput, (val) => {
+    const gain = normalizeChannelVolume(val);
+    rightChannelVolume.value = gain;
+    rightChannelVolumeInput.value = gain;
+  });
+
+  watch([leftChannelVolume, rightChannelVolume], ([left, right]) => {
+    setChannelBalance(left, right);
+  });
+
   return {
     // State
     volumeMode,
@@ -85,6 +119,10 @@ export function useVolume(
     manualVolumeInput,
     fixedLufs,
     fixedLufsInput,
+    leftChannelVolume,
+    leftChannelVolumeInput,
+    rightChannelVolume,
+    rightChannelVolumeInput,
     volumeModeLabels,
     // Methods
     calculateVolume,

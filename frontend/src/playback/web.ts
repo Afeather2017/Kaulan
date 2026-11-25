@@ -457,6 +457,8 @@ export function createWebBackend(options: WebBackendOptions): PlaybackBackend {
     },
 
     syncNormalizationConfig: async (config) => {
+      // HTMLAudioElement.volume is scalar: the per-channel balance gains are
+      // native-only and intentionally ignored here.
       if (audio) {
         audio.volume = Math.min(1, Math.max(0, config.currentVolume));
       }

@@ -284,6 +284,73 @@
               <span class="value-suffix">x</span>
             </div>
           </div>
+          <div class="setting-item channel-balance">
+            <span class="setting-label">声道平衡</span>
+            <div class="slider-container">
+              <span class="channel-slider-label">左</span>
+              <input
+                type="range"
+                class="volume-slider"
+                :value="leftChannelVolume"
+                aria-label="左声道音量滑块"
+                @input="
+                  $emit(
+                    'update:leftChannelVolume',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+                min="0"
+                max="1"
+                step="0.01"
+              />
+              <input
+                type="number"
+                class="value-input"
+                :value="leftChannelVolumeInput"
+                aria-label="左声道音量"
+                @input="updateChannelVolume($event, 'left')"
+                @change="updateChannelVolume($event, 'left', true)"
+                min="0"
+                max="1"
+                step="0.01"
+              />
+              <span class="value-suffix">x</span>
+            </div>
+            <div class="slider-container">
+              <span class="channel-slider-label">右</span>
+              <input
+                type="range"
+                class="volume-slider"
+                :value="rightChannelVolume"
+                aria-label="右声道音量滑块"
+                @input="
+                  $emit(
+                    'update:rightChannelVolume',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+                min="0"
+                max="1"
+                step="0.01"
+              />
+              <input
+                type="number"
+                class="value-input"
+                :value="rightChannelVolumeInput"
+                aria-label="右声道音量"
+                @input="updateChannelVolume($event, 'right')"
+                @change="updateChannelVolume($event, 'right', true)"
+                min="0"
+                max="1"
+                step="0.01"
+              />
+              <span class="value-suffix">x</span>
+            </div>
+            <p class="setting-hint">
+              调低较响的一侧以补偿耳机或设备的响度差异。仅适用于 Android
+              原生播放。
+            </p>
+          </div>
           <div class="setting-item">
             <label class="setting-label">LUFS 预缓存数量</label>
             <div class="slider-container">
@@ -471,6 +538,7 @@ import {
   setDisableHeadsetMediaButton,
   getTimerExitAppOnAndroid,
   setTimerExitAppOnAndroid,
+  normalizeChannelVolume,
   normalizeLufsPrecacheCount,
   MIN_LUFS_PRECACHE_COUNT,
   MAX_LUFS_PRECACHE_COUNT,
@@ -494,6 +562,10 @@ const props = defineProps<{
   manualVolumeInput: number;
   fixedLufs: number;
   fixedLufsInput: number;
+  leftChannelVolume: number;
+  leftChannelVolumeInput: number;
+  rightChannelVolume: number;
+  rightChannelVolumeInput: number;
   showLufs: boolean;
   lufsPrecacheCount: number;
   allowTextSelection: boolean;
@@ -511,6 +583,10 @@ const emit = defineEmits<{
   (e: "update:manualVolumeInput", value: number): void;
   (e: "update:fixedLufs", value: number): void;
   (e: "update:fixedLufsInput", value: number): void;
+  (e: "update:leftChannelVolume", value: number): void;
+  (e: "update:leftChannelVolumeInput", value: number): void;
+  (e: "update:rightChannelVolume", value: number): void;
+  (e: "update:rightChannelVolumeInput", value: number): void;
   (e: "update:showLufs", value: boolean): void;
   (e: "update:lufsPrecacheCount", value: number): void;
   (e: "update:allowTextSelection", value: boolean): void;
@@ -526,6 +602,33 @@ const emit = defineEmits<{
   (e: "openUploadModal"): void;
   (e: "manageCollections"): void;
 }>();
+
+function updateChannelVolume(
+  event: Event,
+  channel: "left" | "right",
+  commit = false,
+) {
+  const input = event.target as HTMLInputElement;
+  const value = input.valueAsNumber;
+  if (!commit && (!Number.isFinite(value) || value < 0 || value > 1)) {
+    return;
+  }
+  const previous =
+    channel === "left"
+      ? props.leftChannelVolumeInput
+      : props.rightChannelVolumeInput;
+  const gain = normalizeChannelVolume(
+    Number.isFinite(value) ? value : previous,
+  );
+  if (commit) {
+    input.value = String(gain);
+  }
+  if (channel === "left") {
+    emit("update:leftChannelVolumeInput", gain);
+  } else {
+    emit("update:rightChannelVolumeInput", gain);
+  }
+}
 
 const { selfDevice, fetchSelfDevice, setDeviceName } = useDeviceDiscovery();
 const {
@@ -1000,8 +1103,8 @@ const handleImportFileChange = async (e: Event): Promise<void> => {
 
 .modal-content {
   background-color: #fff;
-  width: 500px;
-  max-width: 85vw;
+  width: 400px;
+  max-width: 80vw;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -1040,8 +1143,11 @@ const handleImportFileChange = async (e: Event): Promise<void> => {
 
 .modal-body {
   flex: 1;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 24px 28px 32px;
+  overscroll-behavior: contain;
+  padding: 24px 20px 32px;
+  overflow-wrap: anywhere;
 }
 
 .modal-body h3 {
@@ -1147,8 +1253,23 @@ const handleImportFileChange = async (e: Event): Promise<void> => {
 .slider-container {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 8px;
   min-width: 0;
+}
+
+.channel-slider-label {
+  min-width: 18px;
+  font-size: 14px;
+  color: #666;
+  text-align: center;
+}
+
+.channel-balance .slider-container + .slider-container {
+  margin-top: 8px;
+}
+
+.channel-balance .setting-hint {
+  margin-top: 8px;
 }
 
 .mode-option-group {
@@ -1180,35 +1301,33 @@ const handleImportFileChange = async (e: Event): Promise<void> => {
   box-shadow: 0 0 0 1px rgba(29, 185, 84, 0.12);
 }
 
-.value-input {
-  width: 88px;
-  border: 1px solid #d6d6d6;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 14px;
-  color: #333;
-  background-color: #fff;
-}
-
-.value-suffix {
-  min-width: 44px;
-  font-size: 14px;
-  color: #666;
-}
-
 .volume-slider {
   flex: 1;
-  height: 8px;
+  min-width: 0;
+  height: 36px;
+  margin: 0;
+  touch-action: none;
   appearance: none;
+  background: transparent;
+}
+
+.volume-slider::-webkit-slider-runnable-track {
+  height: 8px;
   background: #e0e0e0;
   border-radius: 4px;
-  outline: none;
+}
+
+.volume-slider::-moz-range-track {
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
 }
 
 .volume-slider::-webkit-slider-thumb {
   appearance: none;
   width: 20px;
   height: 20px;
+  margin-top: -6px;
   border-radius: 50%;
   background: #1db954;
   cursor: pointer;
@@ -1252,10 +1371,11 @@ const handleImportFileChange = async (e: Event): Promise<void> => {
 }
 
 .value-input {
-  width: 72px;
-  flex: 0 0 72px;
+  box-sizing: border-box;
+  width: 64px;
+  flex: 0 0 64px;
   min-width: 0;
-  padding: 8px 12px;
+  padding: 8px 4px;
   border: 1px solid #1db954;
   border-radius: 5px;
   font-size: 18px;

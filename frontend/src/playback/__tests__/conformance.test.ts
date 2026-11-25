@@ -173,7 +173,11 @@ class FakeMediaElement {
 // Stateful native service fake (mirrors MusicPlayerService behavior)
 // ---------------------------------------------------------------------------
 
-import type { PlaybackSnapshotEvent, QueueSong } from "music-notification-api";
+import type {
+  PlaybackSnapshotEvent,
+  QueueSong,
+  SetNormalizationConfigOptions,
+} from "music-notification-api";
 
 class FakeNativeService {
   queue: QueueSong[] = [];
@@ -317,7 +321,9 @@ class FakeNativeService {
   }
 
   async setVolume(_options: { volume: number }) {}
-  async setNormalizationConfig(_options: unknown) {}
+  setNormalizationConfig = vi.fn(
+    async (_options: SetNormalizationConfigOptions) => {},
+  );
   async pauseAfter(_delayMs: number) {}
 
   /** Natural completion advances natively, like onCompletion -> playNextTrack. */
@@ -358,7 +364,7 @@ vi.mock("music-notification-api", () => {
     setPlayMode: (mode: string) => services().native!.setPlayMode(mode),
     setVolume: (options: { volume: number }) =>
       services().native!.setVolume(options),
-    setNormalizationConfig: (options: unknown) =>
+    setNormalizationConfig: (options: SetNormalizationConfigOptions) =>
       services().native!.setNormalizationConfig(options),
     pauseAfter: (delayMs: number) => services().native!.pauseAfter(delayMs),
   };
@@ -540,6 +546,35 @@ describe("playback interface conformance", () => {
       const started = h.songStarts.map((entry) => entry.songId);
       expect(started).toEqual([1, 2]);
       expect(h.songStarts[1].nextId).toBe(3);
+    },
+  );
+
+  eachBackend(
+    "channel balance follows backend volume capabilities",
+    async (kind) => {
+      const { engine, media, native } = await setupHarness(kind);
+      await engine.syncNormalizationConfig({
+        mode: "fixed",
+        manualVolume: 0.5,
+        fixedLufs: -28,
+        lufsPrecacheCount: 5,
+        currentVolume: 0.25,
+        leftChannelVolume: -0.1,
+        rightChannelVolume: 0.75,
+      });
+
+      if (kind === "web") {
+        expect(media.volume).toBe(0.25);
+        return;
+      }
+      expect(native.setNormalizationConfig).toHaveBeenCalledWith({
+        mode: "fixed",
+        manualVolume: 0.5,
+        fixedLufs: -28,
+        lufsPrecacheCount: 5,
+        leftChannelVolume: 0,
+        rightChannelVolume: 0.75,
+      });
     },
   );
 

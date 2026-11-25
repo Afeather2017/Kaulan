@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
-import type { Ref } from "vue";
+import { nextTick, type Ref } from "vue";
 
 import type { MusicInfo } from "@/types/music";
 import type { LibrarySourceGroup } from "@/types/library";
@@ -8,6 +8,8 @@ import * as librarySourcesModule from "@/composables/useLibrarySources";
 import * as playbackModule from "@/playback";
 import { usePlayerStore } from "@/stores/player";
 import { useLibraryStore } from "@/stores/library";
+import type { NormalizationConfigPayload } from "@/playback/types";
+import { STORAGE_KEYS } from "@/utils/storage";
 
 // Related documentation:
 // - `docs/android/playback-session.md` (tap racing the initial library load)
@@ -23,6 +25,7 @@ type LibraryMockState = {
 type PlayerMockState = {
   playSongAtIndex: ReturnType<typeof vi.fn>;
   playSong: ReturnType<typeof vi.fn>;
+  syncNormalizationConfig: ReturnType<typeof vi.fn>;
 };
 
 // vi.mock factories are hoisted above every declaration in vitest 0.30 (no
@@ -54,6 +57,9 @@ vi.mock("@/playback", async () => {
   const state: PlayerMockState = {
     playSongAtIndex: vi.fn(async () => {}),
     playSong: vi.fn(async () => {}),
+    syncNormalizationConfig: vi.fn(
+      async (_config: NormalizationConfigPayload) => {},
+    ),
   };
   return {
     __mockState: state,
@@ -79,7 +85,7 @@ vi.mock("@/playback", async () => {
       seekToTime: vi.fn(async () => {}),
       setTimedPause: vi.fn(async () => {}),
       setVolume: vi.fn(async () => {}),
-      syncNormalizationConfig: vi.fn(async () => {}),
+      syncNormalizationConfig: state.syncNormalizationConfig,
       replaceQueue: vi.fn(async () => {}),
       resetPlaylist: vi.fn(),
       formatTime: vi.fn(() => "0:00"),
@@ -156,6 +162,34 @@ const isPending = (promise: Promise<unknown>): Promise<boolean> =>
     ),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 10)),
   ]);
+
+it("restores channel gains before syncing normalization from a new store", async () => {
+  try {
+    setActivePinia(createPinia());
+    const player = usePlayerStore();
+    expect(player.leftChannelVolume).toBe(1);
+    expect(player.rightChannelVolume).toBe(1);
+
+    player.leftChannelVolume = 0;
+    player.rightChannelVolumeInput = 0.75;
+    await nextTick();
+    expect(player.leftChannelVolumeInput).toBe(0);
+    expect(player.rightChannelVolume).toBe(0.75);
+
+    setActivePinia(createPinia());
+    const reopenedPlayer = usePlayerStore();
+    await reopenedPlayer.syncNormalization();
+    expect(playerMock.syncNormalizationConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        leftChannelVolume: 0,
+        rightChannelVolume: 0.75,
+      }),
+    );
+  } finally {
+    localStorage.removeItem(STORAGE_KEYS.LEFT_CHANNEL_VOLUME);
+    localStorage.removeItem(STORAGE_KEYS.RIGHT_CHANNEL_VOLUME);
+  }
+});
 
 describe("player store gate-and-adopt on playback entry points", () => {
   beforeEach(() => {

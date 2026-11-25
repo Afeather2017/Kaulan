@@ -90,6 +90,10 @@ export const usePlayerStore = defineStore("player", () => {
     manualVolumeInput,
     fixedLufs,
     fixedLufsInput,
+    leftChannelVolume,
+    leftChannelVolumeInput,
+    rightChannelVolume,
+    rightChannelVolumeInput,
     volumeModeLabels,
     calculateVolume,
   } = useVolume(currentSong, playbackSongs);
@@ -248,13 +252,15 @@ export const usePlayerStore = defineStore("player", () => {
   };
 
   const syncNormalization = async () => {
-    await syncNormalizationConfig(
-      volumeMode.value,
-      manualVolume.value,
-      fixedLufs.value,
-      lufsPrecacheCount.value,
-      calculateVolume(),
-    );
+    await syncNormalizationConfig({
+      mode: volumeMode.value,
+      manualVolume: manualVolume.value,
+      fixedLufs: fixedLufs.value,
+      lufsPrecacheCount: lufsPrecacheCount.value,
+      currentVolume: calculateVolume(),
+      leftChannelVolume: leftChannelVolume.value,
+      rightChannelVolume: rightChannelVolume.value,
+    });
   };
 
   return {
@@ -277,6 +283,10 @@ export const usePlayerStore = defineStore("player", () => {
     manualVolumeInput,
     fixedLufs,
     fixedLufsInput,
+    leftChannelVolume,
+    leftChannelVolumeInput,
+    rightChannelVolume,
+    rightChannelVolumeInput,
     volumeModeLabels,
     calculateVolume,
     showLufs,

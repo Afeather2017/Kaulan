@@ -84,6 +84,8 @@ export const STORAGE_KEYS = {
   VIEW_MODE: "kaulan_view_mode",
   SHOW_LUFS: "kaulan_show_lufs",
   LUFS_PRECACHE_COUNT: "kaulan_lufs_precache_count",
+  LEFT_CHANNEL_VOLUME: "kaulan_left_channel_volume",
+  RIGHT_CHANNEL_VOLUME: "kaulan_right_channel_volume",
   MEDIA_TYPES: "kaulan_media_types",
   PLAYBACK_SESSION: "kaulan_playback_session",
   DISABLE_HEADSET_MEDIA_BUTTON: "kaulan_disable_headset_media_button",
@@ -231,6 +233,26 @@ export function setLufsPrecacheCount(count: number): void {
     STORAGE_KEYS.LUFS_PRECACHE_COUNT,
     String(normalizeLufsPrecacheCount(count)),
   );
+}
+
+export function normalizeChannelVolume(value: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+}
+
+export function getChannelBalance(): [left: number, right: number] {
+  return [
+    normalizeChannelVolume(
+      Number(getStorageValue(STORAGE_KEYS.LEFT_CHANNEL_VOLUME) || "1"),
+    ),
+    normalizeChannelVolume(
+      Number(getStorageValue(STORAGE_KEYS.RIGHT_CHANNEL_VOLUME) || "1"),
+    ),
+  ];
+}
+
+export function setChannelBalance(left: number, right: number): void {
+  setStorageValue(STORAGE_KEYS.LEFT_CHANNEL_VOLUME, String(left));
+  setStorageValue(STORAGE_KEYS.RIGHT_CHANNEL_VOLUME, String(right));
 }
 
 export function getDisableHeadsetMediaButton(): boolean {

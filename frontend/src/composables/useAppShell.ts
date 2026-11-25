@@ -1097,6 +1097,11 @@ export function useAppShell() {
     }
   };
 
+  const syncPlaybackNormalization = () =>
+    playerStore.syncNormalization().catch((error) => {
+      console.warn("[playback] failed to sync normalization", error);
+    });
+
   watch(
     [
       player.volumeMode,
@@ -1104,6 +1109,8 @@ export function useAppShell() {
       player.manualVolumeInput,
       player.fixedLufs,
       player.fixedLufsInput,
+      player.leftChannelVolume,
+      player.rightChannelVolume,
       player.lufsPrecacheCount,
       () => player.currentSong.value?.id ?? null,
       () => player.currentSong.value?.lufs ?? null,
@@ -1113,7 +1120,7 @@ export function useAppShell() {
           .join("|"),
     ],
     () => {
-      void playerStore.syncNormalization();
+      void syncPlaybackNormalization();
     },
     { deep: true, immediate: true },
   );
@@ -1161,6 +1168,7 @@ export function useAppShell() {
     collectionsStore.loadLocalCollections();
     await libraryStore.refreshSourceGroups();
     await playerStore.initAudio();
+    await syncPlaybackNormalization();
     if (sharedLinkIntent?.hasShareIntent) {
       await openSharedSongPlayer();
     }
@@ -1240,6 +1248,10 @@ export function useAppShell() {
     manualVolumeInput: player.manualVolumeInput,
     fixedLufs: player.fixedLufs,
     fixedLufsInput: player.fixedLufsInput,
+    leftChannelVolume: player.leftChannelVolume,
+    leftChannelVolumeInput: player.leftChannelVolumeInput,
+    rightChannelVolume: player.rightChannelVolume,
+    rightChannelVolumeInput: player.rightChannelVolumeInput,
     volumeModeLabels: playerStore.volumeModeLabels,
     timerMinutes: player.timerMinutes,
     timerMinutesInput: player.timerMinutesInput,

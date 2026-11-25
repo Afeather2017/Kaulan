@@ -2,6 +2,7 @@ import type { LibrarySourceGroup } from "@/types/library";
 import type { MusicInfo } from "@/types/music";
 import { isLocalhostApiBase } from "@/utils/platform";
 import { resolveSourceApiBase } from "@/utils/api";
+import { normalizeChannelVolume } from "@/utils/storage";
 import { loadStoredQueue, resolveQueueState } from "@/playback/shared";
 import type {
   BackendEvent,
@@ -411,6 +412,8 @@ export function createAndroidBackend(
         manualVolume: Math.min(1, Math.max(0, config.manualVolume)),
         fixedLufs: config.fixedLufs,
         lufsPrecacheCount: config.lufsPrecacheCount,
+        leftChannelVolume: normalizeChannelVolume(config.leftChannelVolume),
+        rightChannelVolume: normalizeChannelVolume(config.rightChannelVolume),
       });
     },
 

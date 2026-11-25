@@ -166,6 +166,10 @@
       :manual-volume-input="manualVolumeInput"
       :fixed-lufs="fixedLufs"
       :fixed-lufs-input="fixedLufsInput"
+      :left-channel-volume="leftChannelVolume"
+      :left-channel-volume-input="leftChannelVolumeInput"
+      :right-channel-volume="rightChannelVolume"
+      :right-channel-volume-input="rightChannelVolumeInput"
       :show-lufs="showLufs"
       :lufs-precache-count="lufsPrecacheCount"
       :allow-text-selection="allowTextSelection"
@@ -180,6 +184,10 @@
       @update:manual-volume-input="manualVolumeInput = $event"
       @update:fixed-lufs="fixedLufs = $event"
       @update:fixed-lufs-input="fixedLufsInput = $event"
+      @update:left-channel-volume="leftChannelVolume = $event"
+      @update:left-channel-volume-input="leftChannelVolumeInput = $event"
+      @update:right-channel-volume="rightChannelVolume = $event"
+      @update:right-channel-volume-input="rightChannelVolumeInput = $event"
       @update:show-lufs="handleShowLufsChange"
       @update:lufs-precache-count="handleLufsPrecacheCountChange"
       @update:allow-text-selection="handleAllowTextSelectionChange"
@@ -359,6 +367,10 @@ const {
   manualVolumeInput,
   fixedLufs,
   fixedLufsInput,
+  leftChannelVolume,
+  leftChannelVolumeInput,
+  rightChannelVolume,
+  rightChannelVolumeInput,
   volumeModeLabels,
   timerMinutes,
   timerMinutesInput,

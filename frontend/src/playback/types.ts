@@ -79,6 +79,10 @@ export interface NormalizationConfigPayload {
   fixedLufs: number;
   lufsPrecacheCount: number;
   currentVolume: number;
+  /** Android channel gain in [0, 1], where 1 leaves the base volume unchanged. */
+  leftChannelVolume: number;
+  /** Android channel gain in [0, 1], where 1 leaves the base volume unchanged. */
+  rightChannelVolume: number;
 }
 
 /**
